@@ -8,6 +8,7 @@ import {
   Route,
   Navigate,
   useLocation,
+  useParams,
 } from "react-router-dom";
 
 import { DATA } from "./components/Data";
@@ -16,6 +17,7 @@ import { Header } from "./components/Header";
 import { HomeView } from "./components/HomeView";
 import { CVBuilderView } from "./components/CVBuilderView";
 import { AuthView } from "./components/AuthView";
+import { ProfileView } from "./components/ProfileView"; // استيراد صفحة البروفايل
 import { DetailPage } from "./components/DetailPage";
 import { Footer } from "./components/Footer";
 import { MobileNav, MobileMenuOverlay } from "./components/MobileNav";
@@ -26,6 +28,15 @@ function ScrollToTop() {
     window.scrollTo(0, 0);
   }, [pathname]);
   return null;
+}
+
+function DetailPageWrapper({ lang }) {
+  const { pageId } = useParams();
+  // إضافة profile للقائمة المستبعدة حتى لا يفتح الـ DetailPage بدلاً منها
+  const knownPages = ["home", "cv_builder", "auth", "profile"];
+
+  if (knownPages.includes(pageId)) return null;
+  return <DetailPage page={pageId} lang={lang} />;
 }
 
 function AppContent() {
@@ -43,7 +54,6 @@ function AppContent() {
     >
       <ScrollToTop />
 
-      {/* إضافة مكون الإشعارات هنا ليعمل في كل الموقع */}
       <Toaster
         position="top-center"
         reverseOrder={false}
@@ -68,6 +78,10 @@ function AppContent() {
             <Route path="/home" element={<Navigate to="/" replace />} />
             <Route path="/cv_builder" element={<CVBuilderView lang={lang} />} />
             <Route path="/auth" element={<AuthView lang={lang} />} />
+
+            {/* إضافة مسار البروفايل هنا قبل الـ :pageId */}
+            <Route path="/profile" element={<ProfileView lang={lang} />} />
+
             <Route
               path="/:pageId"
               element={<DetailPageWrapper lang={lang} />}
@@ -92,15 +106,6 @@ function AppContent() {
       />
     </div>
   );
-}
-
-import { useParams } from "react-router-dom";
-function DetailPageWrapper({ lang }) {
-  const { pageId } = useParams();
-  const knownPages = ["home", "cv_builder", "auth"];
-
-  if (knownPages.includes(pageId)) return null;
-  return <DetailPage page={pageId} lang={lang} />;
 }
 
 function App() {

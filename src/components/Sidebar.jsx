@@ -84,34 +84,41 @@ export const Sidebar = ({ lang, page }) => {
         })}
       </div>
 
-      {/* --- الجزء الأسفل من السايد بار: يتغير بناءً على حالة تسجيل الدخول --- */}
-      <div className="p-4 bg-slate-50/50 border-t border-slate-100">
+      {/* --- الجزء الأسفل: تم ربط اسم المستخدم بصفحة البروفايل --- */}
+      <div className="p-4 bg-slate-50/50 border-t border-slate-100 space-y-3">
         {user ? (
           <div className="space-y-2">
-            {/* عرض اسم المستخدم كخيار غير قابل للضغط أو رابط للملف الشخصي */}
-            <div className="flex items-center gap-3 px-4 py-3 bg-white border border-slate-100 rounded-xl shadow-sm">
-              <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center">
-                <User size={16} />
+            {/* عرض اسم المستخدم كرابط للملف الشخصي */}
+            <Link
+              to="/profile"
+              className="w-full flex items-center gap-3 px-4 py-3 bg-white border border-slate-100 rounded-2xl shadow-sm hover:border-blue-300 transition-all group"
+            >
+              <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all">
+                <User size={18} />
               </div>
-              <span className="text-sm font-black text-slate-700 truncate">
-                {user.username}
-              </span>
-            </div>
+              <div className="flex-1 overflow-hidden text-right">
+                <p className="text-[10px] text-slate-400 font-bold uppercase leading-none mb-1">
+                  {lang === "ar" ? "حسابي" : "My Account"}
+                </p>
+                <p className="text-sm font-black text-slate-700 truncate leading-none group-hover:text-blue-600">
+                  {user.username}
+                </p>
+              </div>
+            </Link>
 
-            {/* زر تسجيل الخروج الاحترافي */}
+            {/* زر تسجيل الخروج */}
             <button
               onClick={handleLogout}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-red-50 text-red-600 rounded-xl font-bold text-sm hover:bg-red-100 transition-all cursor-pointer"
+              className="w-full flex items-center justify-center gap-2 py-3.5 bg-white text-red-500 border border-red-50 rounded-2xl font-bold text-xs hover:bg-red-50 hover:text-red-600 transition-all cursor-pointer shadow-sm"
             >
-              <LogOut size={16} />
+              <LogOut size={14} />
               {lang === "ar" ? "تسجيل الخروج" : "Sign Out"}
             </button>
           </div>
         ) : (
-          /* زر تسجيل الدخول يظهر فقط في حالة عدم وجود مستخدم */
           <Link
             to="/auth"
-            className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 transition-colors shadow-lg block text-center"
+            className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all shadow-lg block text-center"
           >
             {lang === "ar" ? "تسجيل الدخول" : "Sign In"}
           </Link>
