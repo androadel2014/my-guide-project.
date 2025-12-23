@@ -6,8 +6,15 @@
 // 4) downloadPDF كان بيستخدم data.personal.name → اتصلح لـ personalInfo.fullName
 // 5) ضمان Arrays موجودة دايمًا (education/courses/experience)
 // 6) handleJsonImport بيعمل delete للـ empty arrays بس بأمان
+//
+// ✅ ADDED FEATURES (بدون تعديل على فلو شغلك):
+// A) Optimize for Job Description (Prompt generator)
+// B) Auto CV Name من Job Title عند الحفظ
+// C) تحذير لو مفيش Email / Phone قبل AI & قبل التحميل
+// D) Resume Score (rule-based) + Badge في الهيدر
+// E) Tooltip Component جاهز لاستخدامه على أي Badge/زر
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react"; // ✅ ADDED useMemo
 import * as docx from "docx"; // ✔️ as you use it later (docx.Document, ...)
 import { saveAs } from "file-saver";
 import toast from "react-hot-toast";
@@ -157,6 +164,96 @@ export const CVBuilderView = ({ lang }) => {
       : Array.isArray(data.experience)
       ? data.experience
       : [];
+
+  // ✅ ADDED: Tooltip Component (جاهز لأي Badge/زر)
+  const Tooltip = ({ text, children }) => {
+    if (!text) return children;
+    return (
+      <span className="relative inline-flex group">
+        {children}
+        <span className="pointer-events-none absolute -top-9 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition bg-black text-white text-[11px] px-2 py-1 rounded-md whitespace-nowrap shadow-lg">
+          {text}
+        </span>
+      </span>
+    );
+  };
+
+  // ✅ ADDED: validation (Email/Phone)
+  const validateContact = () => {
+    const email = (data.personalInfo?.email || "").trim();
+    const phone = (data.personalInfo?.phone || "").trim();
+
+    if (!email && !phone) {
+      toast.error(
+        lang === "ar"
+          ? "لازم تضيف Email أو Phone على الأقل قبل المتابعة"
+          : "Add at least Email or Phone before continuing"
+      );
+      return false;
+    }
+
+    // تحذير خفيف لو واحد فيهم ناقص (مش منع)
+    if (!email || !phone) {
+      toast(
+        lang === "ar"
+          ? "تنبيه: الأفضل تضيف Email و Phone معًا عشان ATS"
+          : "Tip: Add both Email and Phone for ATS"
+      );
+    }
+
+    return true;
+  };
+
+  // ✅ ADDED: Resume Score (rule-based)
+  const resumeScore = useMemo(() => {
+    let score = 0;
+
+    const name = (data.personalInfo?.fullName || "").trim();
+    const email = (data.personalInfo?.email || "").trim();
+    const phone = (data.personalInfo?.phone || "").trim();
+    const title = (data.targetJob?.title || "").trim();
+    const hasEdu = Array.isArray(data.education) && data.education.length > 0;
+    const exps = getExperienceArray();
+    const hasExp = Array.isArray(exps) && exps.length > 0;
+
+    // simple rules
+    if (name) score += 10;
+    if (title) score += 10;
+
+    if (email) score += 10;
+    if (phone) score += 10;
+    if (email && phone) score += 5; // bonus
+
+    if (hasEdu) score += 10;
+
+    if (hasExp) {
+      score += 25;
+      // bonus: descriptions
+      const withDesc = exps.filter((x) =>
+        (x.descriptionRaw || "").trim()
+      ).length;
+      if (withDesc >= 1) score += 10;
+      if (withDesc >= 2) score += 5;
+    }
+
+    // courses / languages
+    if (Array.isArray(data.courses) && data.courses.length > 0) score += 5;
+    if ((data.languages || "").trim()) score += 5;
+
+    // cap 100
+    if (score > 100) score = 100;
+    return score;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const scoreLabel =
+    resumeScore >= 85 ? "Excellent" : resumeScore >= 70 ? "Good" : "Needs Work";
+
+  // ✅ ADDED: Optimize for JD state
+  const [jobDescription, setJobDescription] = useState(""); // JD text
+  const [showOptimizeModal, setShowOptimizeModal] = useState(false);
+  const [optimizePrompt, setOptimizePrompt] = useState("");
+  const [optimizeCopyStatus, setOptimizeCopyStatus] = useState("نسخ يدوي");
 
   // 1) Load CV on mount
   useEffect(() => {
@@ -314,6 +411,12 @@ export const CVBuilderView = ({ lang }) => {
       skills: Array.isArray(cleanedData.skills) ? cleanedData.skills : [],
     }));
 
+    // ✅ ADDED: Auto CV name from Job Title
+    const autoName =
+      (cleanedData.targetJob?.title || data.targetJob?.title || "New Resume")
+        .toString()
+        .trim() || "New Resume";
+
     // send to server
     fetch("http://localhost:5000/api/save-cv", {
       method: "POST",
@@ -321,7 +424,7 @@ export const CVBuilderView = ({ lang }) => {
       body: JSON.stringify({
         user_id: Number(currentUser.id),
         cv_data: cleanedData,
-        cv_name: cleanedData.targetJob?.title || "New Resume",
+        cv_name: autoName, // ✅ ADDED
       }),
     })
       .then((res) => res.json())
@@ -516,6 +619,9 @@ export const CVBuilderView = ({ lang }) => {
   // 3) PROMPT GENERATION (Strict English Logic) ✅ FIXED
   // -----------------------------------------------------------
   const preparePrompt = () => {
+    // ✅ ADDED: Contact validation
+    if (!validateContact()) return;
+
     const exps = getExperienceArray();
     const eduList = Array.isArray(data.education) ? data.education : [];
     const courseList = Array.isArray(data.courses) ? data.courses : [];
@@ -599,6 +705,112 @@ REQUIRED JSON OUTPUT FORMAT:
     setShowModal(true);
   };
 
+  // ✅ ADDED: Optimize for Job Description (Prompt generator)
+  const buildOptimizePrompt = () => {
+    if (!validateContact()) return;
+
+    const jd = (jobDescription || "").trim();
+    if (!jd) {
+      toast.error(
+        lang === "ar"
+          ? "الصق Job Description الأول"
+          : "Paste the job description first"
+      );
+      return;
+    }
+
+    // نفس الداتا بتاعتك (بنستفيد من finalCV لو موجودة)
+    const base = finalCV || {
+      name: data.personalInfo?.fullName || "",
+      contact: `${data.personalInfo?.address || ""} | ${
+        data.personalInfo?.phone || ""
+      } | ${data.personalInfo?.email || ""}`.trim(),
+      languages: data.languages || "",
+      education: data.education || [],
+      courses: data.courses || [],
+      experience: getExperienceArray().map((x) => ({
+        company: x.company || "",
+        location: x.location || "",
+        dates: `${x.start || ""} to ${x.end || ""}`.trim(),
+        title: x.title || "",
+        bullets: [],
+        raw: x.descriptionRaw || "",
+      })),
+      skills: data.skills || [],
+      summary: data.summary || "",
+    };
+
+    const prompt = `
+You are an expert ATS resume optimizer.
+Goal: Optimize the resume to match the Job Description below.
+Rules:
+- STRICT ENGLISH ONLY.
+- Keep everything truthful. Do NOT invent degrees or employers.
+- Improve wording, ATS keywords, action verbs, and quantify impact when possible.
+- Rewrite ONLY: Summary, Skills, and Experience bullets.
+- Output must be a SINGLE JSON OBJECT in the exact format below.
+
+JOB DESCRIPTION (JD):
+"""
+${jd}
+"""
+
+CURRENT RESUME DATA:
+${JSON.stringify(base, null, 2)}
+
+REQUIRED JSON OUTPUT FORMAT:
+{
+  "summary": "...",
+  "skills": ["...", "..."],
+  "experience": [
+    {
+      "company": "...",
+      "location": "...",
+      "dates": "...",
+      "title": "...",
+      "bullets": ["...", "..."]
+    }
+  ]
+}
+`.trim();
+
+    setOptimizePrompt(prompt);
+    navigator.clipboard
+      .writeText(prompt)
+      .then(() => setOptimizeCopyStatus("تم النسخ تلقائياً ✅"))
+      .catch(() => setOptimizeCopyStatus("فشل النسخ التلقائي"));
+    setShowOptimizeModal(true);
+  };
+
+  const applyOptimizedJson = (optimized) => {
+    try {
+      // update finalCV (لو موجود)
+      setFinalCV((prev) => {
+        const base = prev || {};
+        return {
+          ...base,
+          summary: optimized.summary ?? base.summary,
+          skills: Array.isArray(optimized.skills)
+            ? optimized.skills
+            : base.skills,
+          experience: Array.isArray(optimized.experience)
+            ? optimized.experience
+            : base.experience,
+        };
+      });
+
+      toast.success(
+        lang === "ar" ? "تم تطبيق التحسين ✅" : "Optimization applied ✅"
+      );
+    } catch {
+      toast.error(
+        lang === "ar"
+          ? "حصل خطأ أثناء تطبيق التحسين"
+          : "Failed to apply optimization"
+      );
+    }
+  };
+
   const copyToClipboard = () => {
     navigator.clipboard.writeText(generatedPrompt);
     setCopyStatus("تم النسخ يدوياً ✅");
@@ -632,6 +844,9 @@ REQUIRED JSON OUTPUT FORMAT:
   // 4) PDF DOWNLOADER ✅ FIXED filename source
   // -----------------------------------------------------------
   const downloadPDF = () => {
+    // ✅ ADDED: Contact validation before download
+    if (!validateContact()) return;
+
     const element = document.getElementById("cv-document");
     if (!element) return;
 
@@ -687,6 +902,9 @@ REQUIRED JSON OUTPUT FORMAT:
   // 5) WORD DOWNLOADER (TAB METHOD - SAFE & FIXED)
   // ============================================================
   const downloadWord = () => {
+    // ✅ ADDED: Contact validation before download
+    if (!validateContact()) return;
+
     if (!finalCV) return alert("لا توجد بيانات لإنشاء الملف");
 
     const {
@@ -946,6 +1164,24 @@ REQUIRED JSON OUTPUT FORMAT:
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <div className="flex gap-2 text-sm text-green-700 items-center font-bold">
           <Save size={18} /> حفظ تلقائي + تنسيق مضمون
+        </div>
+
+        {/* ✅ ADDED: Resume Score Badge */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-500">
+            Resume Score:
+          </span>
+          <span
+            className={`text-xs font-black px-3 py-1 rounded-full border ${
+              resumeScore >= 85
+                ? "bg-green-50 text-green-700 border-green-200"
+                : resumeScore >= 70
+                ? "bg-blue-50 text-blue-700 border-blue-200"
+                : "bg-yellow-50 text-yellow-800 border-yellow-200"
+            }`}
+          >
+            {resumeScore}/100 • {scoreLabel}
+          </span>
         </div>
 
         <div className="flex gap-2 bg-slate-100 p-1 rounded-full">
@@ -1426,7 +1662,7 @@ REQUIRED JSON OUTPUT FORMAT:
         </div>
       )}
 
-      {/* Modal */}
+      {/* Modal (Prompt إرسال CV) */}
       {showModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-[fadeIn_0.2s]">
           <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl border border-gray-200">
@@ -1488,6 +1724,104 @@ REQUIRED JSON OUTPUT FORMAT:
         </div>
       )}
 
+      {/* ✅ ADDED: Optimize Modal */}
+      {showOptimizeModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-[fadeIn_0.2s]">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl border border-gray-200">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-black text-slate-800">
+                Optimize for Job Description
+              </h3>
+              <button
+                onClick={() => setShowOptimizeModal(false)}
+                className="bg-gray-100 p-2 rounded-full hover:bg-red-100 text-gray-500 hover:text-red-500 transition"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div
+              className={`mb-6 p-4 rounded-xl text-center font-bold border ${
+                optimizeCopyStatus.includes("تلقائياً")
+                  ? "bg-green-50 border-green-200 text-green-700"
+                  : "bg-yellow-50 border-yellow-200 text-yellow-700"
+              }`}
+            >
+              {optimizeCopyStatus}
+            </div>
+
+            <p className="mb-3 text-slate-600 font-medium">
+              انسخ الـ Prompt ده، وروّح ChatGPT، وبعد ما يرجّع JSON طبّقه هنا:
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <button
+                onClick={() => {
+                  navigator.clipboard
+                    .writeText(optimizePrompt)
+                    .then(() => setOptimizeCopyStatus("تم النسخ يدوياً ✅"))
+                    .catch(() => setOptimizeCopyStatus("فشل النسخ"));
+                }}
+                className="py-3 bg-slate-200 text-slate-800 rounded-xl font-bold hover:bg-slate-300 flex items-center justify-center gap-2"
+              >
+                <Copy size={18} /> نسخ يدوياً
+              </button>
+
+              <button
+                onClick={() => window.open("https://chat.openai.com", "_blank")}
+                className="py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 flex items-center justify-center gap-2 shadow-lg shadow-blue-200"
+              >
+                <Bot size={20} /> فتح ChatGPT
+              </button>
+            </div>
+
+            <textarea
+              value={optimizePrompt}
+              readOnly
+              className="w-full h-48 p-4 border rounded-xl bg-slate-50 text-left font-mono text-xs mb-4"
+              dir="ltr"
+            />
+
+            <div className="bg-slate-50 p-4 rounded-xl border">
+              <p className="text-sm font-bold mb-2 text-slate-700">
+                الصق JSON الناتج هنا لتطبيقه:
+              </p>
+              <textarea
+                placeholder='Paste JSON here... { "summary": "...", "skills": [], "experience": [] }'
+                className="w-full h-40 p-4 border rounded-xl bg-white text-left font-mono text-sm mb-3"
+                dir="ltr"
+                onChange={(e) => {
+                  // مجرد تخزين مؤقت داخل DOM (مش state) - نقرأه وقت الضغط
+                  e.currentTarget.dataset.value = e.target.value;
+                }}
+              />
+              <button
+                onClick={(e) => {
+                  const ta = e.currentTarget.parentElement.querySelector(
+                    "textarea[dir='ltr']"
+                  );
+                  const raw = ta?.dataset?.value || "";
+                  try {
+                    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+                    if (!jsonMatch) throw new Error("No JSON");
+                    const optimized = JSON.parse(jsonMatch[0]);
+                    applyOptimizedJson(optimized);
+                    setShowOptimizeModal(false);
+                  } catch {
+                    toast.error(
+                      lang === "ar" ? "JSON مش صحيح" : "Invalid JSON"
+                    );
+                  }
+                }}
+                className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700"
+              >
+                تطبيق التحسين ✅
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* STEP 2: PASTE JSON */}
       {activeTab === "process" && (
         <div className="bg-white p-8 rounded-2xl shadow-lg text-center animate-[fadeIn_0.3s] max-w-3xl mx-auto">
@@ -1497,9 +1831,32 @@ REQUIRED JSON OUTPUT FORMAT:
           <h2 className="text-3xl font-black mb-2 text-slate-800">
             لصق كود الـ AI
           </h2>
-          <p className="text-slate-500 mb-8">
+          <p className="text-slate-500 mb-6">
             هات الكود (JSON Block) اللي ChatGPT طلعه وحطه هنا.
           </p>
+
+          {/* ✅ ADDED: Optimize for JD box */}
+          <div className="text-right bg-slate-50 border rounded-2xl p-5 mb-6">
+            <div className="font-black text-slate-800 mb-2">
+              4️⃣ Optimize for Job Description (ميزة قوية)
+            </div>
+            <div className="text-sm text-slate-600 mb-3">
+              الصق Job Description هنا، واضغط Generate Prompt
+            </div>
+            <textarea
+              value={jobDescription}
+              onChange={(e) => setJobDescription(e.target.value)}
+              className="w-full h-36 p-4 border rounded-xl bg-white text-left text-sm"
+              dir="ltr"
+              placeholder="Paste JD here..."
+            />
+            <button
+              onClick={buildOptimizePrompt}
+              className="mt-3 w-full py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-black transition"
+            >
+              Generate Optimize Prompt ✨
+            </button>
+          </div>
 
           <textarea
             value={pastedJson}
