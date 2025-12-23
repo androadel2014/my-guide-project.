@@ -52,6 +52,15 @@ const db = new sqlite3.Database(dbPath, (err) => {
       FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     )`);
 
+    db.run(
+      `ALTER TABLE cvs ADD COLUMN last_updated DATETIME DEFAULT CURRENT_TIMESTAMP`,
+      (err) => {
+        if (err && !String(err.message).includes("duplicate column")) {
+          console.log("last_updated migration:", err.message);
+        }
+      }
+    );
+
     // roadmaps
     db.run(`CREATE TABLE IF NOT EXISTS roadmaps (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
