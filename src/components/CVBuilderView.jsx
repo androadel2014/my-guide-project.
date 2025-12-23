@@ -8,14 +8,25 @@
 // 6) handleJsonImport بيعمل delete للـ empty arrays بس بأمان
 //
 // ✅ ADDED FEATURES (بدون تعديل على فلو شغلك):
-// A) Optimize for Job Description (Prompt generator)
+// A) Optimize for Job Description (ONE STEP via checkbox in Step 1)
 // B) Auto CV Name من Job Title عند الحفظ
 // C) تحذير لو مفيش Email / Phone قبل AI & قبل التحميل
 // D) Resume Score (rule-based) + Badge في الهيدر
 // E) Tooltip Component جاهز لاستخدامه على أي Badge/زر
+//
+// ✅ NEW REQUIRED CHANGE:
+// - التواريخ لازم تتحط ومينفعش تسيبها فاضية (Education year + Experience start/end + Courses date)
+//
+// ✅ CRITICAL FIX (المشكلة اللي عندك):
+// - كل عمليات add/update/remove للـ Experience لازم تشتغل سواء الداتا اسمها experiences أو experience (Legacy)
+// - اتعمل Resolver موحد واستخدمناه في addItem/updateItem/removeItem
+//
+// ✅ EXTRA HARDENING (مهم جدًا):
+// - منع وجود experience + experiences معًا في state (الـ spread كان بيرجع legacy key ويبوّظ بعض الحالات)
+// - addHomeCountryExp بقى يستخدم نفس الـ resolver
 
-import React, { useState, useEffect, useMemo } from "react"; // ✅ ADDED useMemo
-import * as docx from "docx"; // ✔️ as you use it later (docx.Document, ...)
+import React, { useState, useEffect, useMemo } from "react";
+import * as docx from "docx";
 import { saveAs } from "file-saver";
 import toast from "react-hot-toast";
 import html2pdf from "html2pdf.js";
@@ -31,65 +42,74 @@ import {
   Trash2,
   Download,
   Globe,
-  Briefcase,
   Bot,
 } from "lucide-react";
 
 export const CVBuilderView = ({ lang }) => {
   const [activeTab, setActiveTab] = useState("input");
 
+  // ============================================================
+  // ✅ Helpers: normalize + prevent legacy keys from leaking
+  // ============================================================
+  const FALLBACK = {
+    targetJob: { title: "", company: "", state: "" },
+    personalInfo: { fullName: "", phone: "", email: "", address: "" },
+    education: [],
+    courses: [],
+    experiences: [], // ✅ primary key
+    languages: "",
+    summary: "",
+    skills: [],
+  };
+
+  const normalizeCVData = (raw) => {
+    const parsed = raw && typeof raw === "object" ? raw : {};
+
+    const personalInfo =
+      parsed.personalInfo ||
+      (parsed.personal
+        ? {
+            fullName: parsed.personal.name || "",
+            phone: parsed.personal.phone || "",
+            email: parsed.personal.email || "",
+            address: parsed.personal.address || "",
+          }
+        : FALLBACK.personalInfo);
+
+    const experiences = Array.isArray(parsed.experiences)
+      ? parsed.experiences
+      : Array.isArray(parsed.experience)
+      ? parsed.experience
+      : [];
+
+    // ✅ IMPORTANT: we DO NOT spread `parsed` blindly (it can reintroduce legacy `experience`)
+    return {
+      ...FALLBACK,
+      targetJob: parsed.targetJob || FALLBACK.targetJob,
+      personalInfo,
+      education: Array.isArray(parsed.education) ? parsed.education : [],
+      courses: Array.isArray(parsed.courses) ? parsed.courses : [],
+      experiences,
+      languages: typeof parsed.languages === "string" ? parsed.languages : "",
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+      skills: Array.isArray(parsed.skills) ? parsed.skills : [],
+    };
+  };
+
   // --- 1) DATA STATE MANAGEMENT ---
   const [data, setData] = useState(() => {
     const savedData = localStorage.getItem("cv_data_full");
-
-    const fallback = {
-      targetJob: { title: "", company: "", state: "" },
-      personalInfo: { fullName: "", phone: "", email: "", address: "" },
-      education: [],
-      courses: [],
-      experiences: [], // ✅ استخدمنا experiences كاسم أساسي
-      languages: "",
-      summary: "",
-      skills: [],
-    };
-
-    if (!savedData) return fallback;
+    if (!savedData) return FALLBACK;
 
     try {
       const parsed = JSON.parse(savedData);
-
-      // ✅ نعمل normalize عشان لو الداتا القديمة فيها personal بدل personalInfo
-      const normalized = {
-        ...fallback,
-        ...parsed,
-        targetJob: parsed.targetJob || fallback.targetJob,
-        personalInfo:
-          parsed.personalInfo ||
-          (parsed.personal
-            ? {
-                fullName: parsed.personal.name || "",
-                phone: parsed.personal.phone || "",
-                email: parsed.personal.email || "",
-                address: parsed.personal.address || "",
-              }
-            : fallback.personalInfo),
-        education: Array.isArray(parsed.education) ? parsed.education : [],
-        courses: Array.isArray(parsed.courses) ? parsed.courses : [],
-        experiences: Array.isArray(parsed.experiences)
-          ? parsed.experiences
-          : Array.isArray(parsed.experience)
-          ? parsed.experience
-          : [],
-        languages: typeof parsed.languages === "string" ? parsed.languages : "",
-      };
-
-      return normalized;
+      return normalizeCVData(parsed);
     } catch {
-      return fallback;
+      return FALLBACK;
     }
   });
 
-  // ✅ Auto-save للـ localStorage (مفيد عشان متفقدش الداتا)
+  // ✅ Auto-save
   useEffect(() => {
     try {
       localStorage.setItem("cv_data_full", JSON.stringify(data));
@@ -102,8 +122,8 @@ export const CVBuilderView = ({ lang }) => {
 
     const fallback = {
       names: [],
-      emails: [], // ✅ كانت ناقصة
-      phones: [], // ✅ كانت ناقصة
+      emails: [],
+      phones: [],
       jobTitles: [],
       companies: [],
       schools: [],
@@ -140,7 +160,6 @@ export const CVBuilderView = ({ lang }) => {
     }
   });
 
-  // ✅ حفظ history في localStorage
   useEffect(() => {
     try {
       localStorage.setItem("cv_history_db", JSON.stringify(history));
@@ -157,7 +176,17 @@ export const CVBuilderView = ({ lang }) => {
     }
   });
 
-  // ✅ Helpers for sections
+  // ✅ ============ IMPORTANT: Section Resolver ============
+  // يحل مشكلة experiences vs experience (legacy)
+  const resolveSection = (prev, section) => {
+    if (section === "experiences" || section === "experience") {
+      if (Array.isArray(prev.experiences)) return "experiences";
+      if (Array.isArray(prev.experience)) return "experience";
+      return "experiences";
+    }
+    return section;
+  };
+
   const getExperienceArray = () =>
     Array.isArray(data.experiences)
       ? data.experiences
@@ -165,7 +194,7 @@ export const CVBuilderView = ({ lang }) => {
       ? data.experience
       : [];
 
-  // ✅ ADDED: Tooltip Component (جاهز لأي Badge/زر)
+  // ✅ Tooltip
   const Tooltip = ({ text, children }) => {
     if (!text) return children;
     return (
@@ -178,7 +207,7 @@ export const CVBuilderView = ({ lang }) => {
     );
   };
 
-  // ✅ ADDED: validation (Email/Phone)
+  // ✅ validation (Email/Phone)
   const validateContact = () => {
     const email = (data.personalInfo?.email || "").trim();
     const phone = (data.personalInfo?.phone || "").trim();
@@ -192,7 +221,6 @@ export const CVBuilderView = ({ lang }) => {
       return false;
     }
 
-    // تحذير خفيف لو واحد فيهم ناقص (مش منع)
     if (!email || !phone) {
       toast(
         lang === "ar"
@@ -204,7 +232,65 @@ export const CVBuilderView = ({ lang }) => {
     return true;
   };
 
-  // ✅ ADDED: Resume Score (rule-based)
+  // ✅ NEW: validation (Dates required)
+  const validateDates = () => {
+    const exps = getExperienceArray();
+    const eduList = Array.isArray(data.education) ? data.education : [];
+    const courseList = Array.isArray(data.courses) ? data.courses : [];
+
+    // Experience: start/end required
+    for (let i = 0; i < exps.length; i++) {
+      const j = exps[i] || {};
+      const title = (j.title || `Job ${i + 1}`).toString().trim();
+      const start = (j.start || "").toString().trim();
+      const end = (j.end || "").toString().trim();
+
+      if (!start || !end) {
+        toast.error(
+          lang === "ar"
+            ? `لازم تكمّل التواريخ (من/إلى) في الخبرة رقم ${i + 1} (${title})`
+            : `Please fill Start/End dates in experience #${i + 1} (${title})`
+        );
+        return false;
+      }
+    }
+
+    // Education: graduation year/date required
+    for (let i = 0; i < eduList.length; i++) {
+      const e = eduList[i] || {};
+      const school = (e.school || `Education ${i + 1}`).toString().trim();
+      const year = (e.year || "").toString().trim();
+
+      if (!year) {
+        toast.error(
+          lang === "ar"
+            ? `لازم تكتب تاريخ التخرج في التعليم رقم ${i + 1} (${school})`
+            : `Please fill graduation date in education #${i + 1} (${school})`
+        );
+        return false;
+      }
+    }
+
+    // Courses: date required
+    for (let i = 0; i < courseList.length; i++) {
+      const c = courseList[i] || {};
+      const name = (c.name || `Course ${i + 1}`).toString().trim();
+      const date = (c.date || "").toString().trim();
+
+      if (!date) {
+        toast.error(
+          lang === "ar"
+            ? `لازم تكتب تاريخ الكورس رقم ${i + 1} (${name})`
+            : `Please fill course date for course #${i + 1} (${name})`
+        );
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  // ✅ Resume Score
   const resumeScore = useMemo(() => {
     let score = 0;
 
@@ -216,19 +302,17 @@ export const CVBuilderView = ({ lang }) => {
     const exps = getExperienceArray();
     const hasExp = Array.isArray(exps) && exps.length > 0;
 
-    // simple rules
     if (name) score += 10;
     if (title) score += 10;
 
     if (email) score += 10;
     if (phone) score += 10;
-    if (email && phone) score += 5; // bonus
+    if (email && phone) score += 5;
 
     if (hasEdu) score += 10;
 
     if (hasExp) {
       score += 25;
-      // bonus: descriptions
       const withDesc = exps.filter((x) =>
         (x.descriptionRaw || "").trim()
       ).length;
@@ -236,11 +320,9 @@ export const CVBuilderView = ({ lang }) => {
       if (withDesc >= 2) score += 5;
     }
 
-    // courses / languages
     if (Array.isArray(data.courses) && data.courses.length > 0) score += 5;
     if ((data.languages || "").trim()) score += 5;
 
-    // cap 100
     if (score > 100) score = 100;
     return score;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -249,11 +331,23 @@ export const CVBuilderView = ({ lang }) => {
   const scoreLabel =
     resumeScore >= 85 ? "Excellent" : resumeScore >= 70 ? "Good" : "Needs Work";
 
-  // ✅ ADDED: Optimize for JD state
-  const [jobDescription, setJobDescription] = useState(""); // JD text
-  const [showOptimizeModal, setShowOptimizeModal] = useState(false);
-  const [optimizePrompt, setOptimizePrompt] = useState("");
-  const [optimizeCopyStatus, setOptimizeCopyStatus] = useState("نسخ يدوي");
+  // ✅ Optimize for JD (ONE STEP)
+  const [optimizeForJD, setOptimizeForJD] = useState(false);
+  const [jobDescription, setJobDescription] = useState("");
+
+  const validateOptimizeJD = () => {
+    if (!optimizeForJD) return true;
+    const jd = (jobDescription || "").trim();
+    if (!jd) {
+      toast.error(
+        lang === "ar"
+          ? "إنت مُفعّل Optimize for JD — لازم تلزق الـ Job Description"
+          : "Optimize for JD is ON — please paste the Job Description"
+      );
+      return false;
+    }
+    return true;
+  };
 
   // 1) Load CV on mount
   useEffect(() => {
@@ -278,43 +372,13 @@ export const CVBuilderView = ({ lang }) => {
         return res.json();
       })
       .then((savedData) => {
-        // لو الداتا سليمة ومش رسالة خطأ
         if (
           savedData &&
           typeof savedData === "object" &&
           savedData.message !== "no_data_found" &&
           !savedData.error
         ) {
-          // ✅ Normalize incoming data to match builder
-          const normalized = {
-            ...data,
-            ...savedData,
-            targetJob: savedData.targetJob || data.targetJob,
-            personalInfo:
-              savedData.personalInfo ||
-              (savedData.personal
-                ? {
-                    fullName: savedData.personal.name || "",
-                    phone: savedData.personal.phone || "",
-                    email: savedData.personal.email || "",
-                    address: savedData.personal.address || "",
-                  }
-                : data.personalInfo),
-            education: Array.isArray(savedData.education)
-              ? savedData.education
-              : [],
-            courses: Array.isArray(savedData.courses) ? savedData.courses : [],
-            experiences: Array.isArray(savedData.experiences)
-              ? savedData.experiences
-              : Array.isArray(savedData.experience)
-              ? savedData.experience
-              : [],
-            languages:
-              typeof savedData.languages === "string"
-                ? savedData.languages
-                : "",
-          };
-
+          const normalized = normalizeCVData(savedData);
           setData(normalized);
 
           if (action === "download") {
@@ -327,7 +391,6 @@ export const CVBuilderView = ({ lang }) => {
             }, 1500);
           }
         } else {
-          // مستخدم جديد: املا من البروفايل
           setData((prev) => ({
             ...prev,
             personalInfo: {
@@ -340,7 +403,6 @@ export const CVBuilderView = ({ lang }) => {
         }
       })
       .catch(() => {
-        // fallback
         setData((prev) => ({
           ...prev,
           personalInfo: {
@@ -354,7 +416,7 @@ export const CVBuilderView = ({ lang }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id]);
 
-  // 2) Save AI result (clean + send to server)
+  // 2) Save AI result
   const onAISuccess = (aiResponse) => {
     if (!currentUser?.id) {
       toast.error(lang === "ar" ? "سجل دخول الأول" : "Please login first");
@@ -397,7 +459,6 @@ export const CVBuilderView = ({ lang }) => {
       targetJob: aiResponse.targetJob || data.targetJob || { title: "Resume" },
     };
 
-    // update UI
     setData((prev) => ({
       ...prev,
       ...cleanedData,
@@ -411,20 +472,18 @@ export const CVBuilderView = ({ lang }) => {
       skills: Array.isArray(cleanedData.skills) ? cleanedData.skills : [],
     }));
 
-    // ✅ ADDED: Auto CV name from Job Title
     const autoName =
       (cleanedData.targetJob?.title || data.targetJob?.title || "New Resume")
         .toString()
         .trim() || "New Resume";
 
-    // send to server
     fetch("http://localhost:5000/api/save-cv", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         user_id: Number(currentUser.id),
         cv_data: cleanedData,
-        cv_name: autoName, // ✅ ADDED
+        cv_name: autoName,
       }),
     })
       .then((res) => res.json())
@@ -442,12 +501,10 @@ export const CVBuilderView = ({ lang }) => {
       });
   };
 
-  // history helper
   const addToHistory = (category, value) => {
     const v = (value || "").toString().trim();
     if (!v) return;
 
-    // ✅ لو الـ category مش موجود، اعمله Array
     setHistory((prev) => {
       const arr = Array.isArray(prev[category]) ? prev[category] : [];
       if (arr.includes(v)) return prev;
@@ -476,41 +533,39 @@ export const CVBuilderView = ({ lang }) => {
       targetJob: { ...(prev.targetJob || {}), [field]: value },
     }));
 
+  // ✅ FIXED: addItem uses resolver for experience/experiences
   const addItem = (section, template) =>
-    setData((prev) => ({
-      ...prev,
-      [section]: [...(prev[section] || []), { id: Date.now(), ...template }],
-    }));
+    setData((prev) => {
+      const actual = resolveSection(prev, section);
+      const baseArr = Array.isArray(prev[actual]) ? prev[actual] : [];
+      return {
+        ...prev,
+        [actual]: [...baseArr, { id: Date.now(), ...template }],
+      };
+    });
 
+  // ✅ FIXED: removeItem uses resolver for experience/experiences
   const removeItem = (section, id) => {
     setData((prev) => {
-      // ✅ experience section may be experiences or experience
-      let actualSection = section;
-      if (section === "experience" && !prev.experience && prev.experiences) {
-        actualSection = "experiences";
-      } else if (
-        section === "experiences" &&
-        !prev.experiences &&
-        prev.experience
-      ) {
-        actualSection = "experience";
-      }
-
-      if (!Array.isArray(prev[actualSection])) return prev;
+      const actual = resolveSection(prev, section);
+      if (!Array.isArray(prev[actual])) return prev;
 
       return {
         ...prev,
-        [actualSection]: prev[actualSection].filter((i) => i.id !== id),
+        [actual]: prev[actual].filter((i) => i.id !== id),
       };
     });
   };
 
+  // ✅ FIXED: updateItem uses resolver for experience/experiences
   const updateItem = (section, id, field, value) => {
     setData((prev) => {
-      if (!Array.isArray(prev[section])) return prev;
+      const actual = resolveSection(prev, section);
+      if (!Array.isArray(prev[actual])) return prev;
+
       return {
         ...prev,
-        [section]: prev[section].map((i) =>
+        [actual]: prev[actual].map((i) =>
           i.id === id ? { ...i, [field]: value } : i
         ),
       };
@@ -518,14 +573,20 @@ export const CVBuilderView = ({ lang }) => {
   };
 
   const clearData = () => {
-    if (confirm("هل أنت متأكد من حذف جميع البيانات؟")) {
+    if (
+      confirm(
+        lang === "ar"
+          ? "هل أنت متأكد من حذف جميع البيانات؟"
+          : "Delete all data?"
+      )
+    ) {
       localStorage.removeItem("cv_data_full");
       window.location.reload();
     }
   };
 
+  // ✅ FIXED: uses resolver (no more mixing experiences/experience)
   const addHomeCountryExp = () => {
-    const currentExps = getExperienceArray();
     const targetRole = data.targetJob?.title || "Specialist";
 
     const mockExp = {
@@ -541,8 +602,11 @@ export const CVBuilderView = ({ lang }) => {
       )}`,
     };
 
-    // ✅ store into experiences always (main)
-    setData((prev) => ({ ...prev, experiences: [...currentExps, mockExp] }));
+    setData((prev) => {
+      const actual = resolveSection(prev, "experiences");
+      const baseArr = Array.isArray(prev[actual]) ? prev[actual] : [];
+      return { ...prev, [actual]: [...baseArr, mockExp] };
+    });
   };
 
   const HistoryDatalists = () => (
@@ -616,11 +680,12 @@ export const CVBuilderView = ({ lang }) => {
   );
 
   // -----------------------------------------------------------
-  // 3) PROMPT GENERATION (Strict English Logic) ✅ FIXED
+  // 3) PROMPT GENERATION (ONE STEP, optional JD optimize)
   // -----------------------------------------------------------
   const preparePrompt = () => {
-    // ✅ ADDED: Contact validation
     if (!validateContact()) return;
+    if (!validateDates()) return;
+    if (!validateOptimizeJD()) return;
 
     const exps = getExperienceArray();
     const eduList = Array.isArray(data.education) ? data.education : [];
@@ -630,9 +695,9 @@ export const CVBuilderView = ({ lang }) => {
     exps.forEach((job, idx) => {
       workContext += `JOB_${idx}: Title: "${job.title || ""}", Company: "${
         job.company || ""
-      }", Dates: "${job.start || ""} to ${job.end || ""}". Draft Duties: "${
-        job.descriptionRaw || ""
-      }"\n`;
+      }", Location: "${job.location || ""}", Dates: "${job.start || ""} to ${
+        job.end || ""
+      }". Draft Duties: "${job.descriptionRaw || ""}"\n`;
     });
 
     let eduContext = "";
@@ -656,6 +721,26 @@ export const CVBuilderView = ({ lang }) => {
       .replace(/[\r\n]+/g, " ")
       .trim();
 
+    const jdBlock = optimizeForJD
+      ? `
+--------------------------------------------------
+JOB DESCRIPTION (JD):
+"""
+${(jobDescription || "").trim()}
+"""
+--------------------------------------------------
+`
+      : "";
+
+    const jdInstructions = optimizeForJD
+      ? `
+### 🎯 ATS OPTIMIZATION MODE (JD IS PROVIDED)
+- Tailor SUMMARY, SKILLS, and EXPERIENCE BULLETS to match the JD (keywords, tools, responsibilities).
+- Keep it truthful. Do NOT invent degrees, employers, or certifications.
+- Prefer measurable impact when possible (%, $, time, volume) but do NOT invent numbers; only quantify if implied.
+`
+      : "";
+
     const prompt = `
 ACT AS A PROFESSIONAL RESUME WRITER. I will provide you with data. You must process it and return a SINGLE JSON OBJECT.
 --------------------------------------------------
@@ -668,21 +753,27 @@ Contact: ${cleanAddress} | ${data.personalInfo?.phone || ""} | ${
       data.personalInfo?.email || ""
     }
 Languages: ${data.languages || ""}
-EDUCATION: ${eduContext}
-COURSES: ${coursesContext}
-WORK EXPERIENCE: ${workContext}
+EDUCATION:
+${eduContext}
+COURSES:
+${coursesContext}
+WORK EXPERIENCE:
+${workContext}
+${jdBlock}
 --------------------------------------------------
 INSTRUCTIONS:
 # LANGUAGE MODE: STRICT ENGLISH ONLY
 ### 🛑 CRITICAL INSTRUCTIONS (ZERO TOLERANCE FOR ARABIC)
-1. **TRANSLATE EVERYTHING:** If the user input contains Arabic (e.g., "سواق", "نقل عام"), you MUST translate it to professional US English (e.g., "Professional Driver", "Public Transit Authority").
-2. **NO ARABIC OUTPUT:** The final JSON must contain ONLY English text. Never repeat the Arabic word.
-3. **LOGIC FIX:** If Date is "2065", change to "2015". If "Ain Shams Academy", change to "Ain Shams University".
----
+1. TRANSLATE EVERYTHING: If the user input contains Arabic, translate to professional US English.
+2. NO ARABIC OUTPUT: The final JSON must contain ONLY English text.
+3. LOGIC FIX: If Date is "2065", change to "2015". If "Ain Shams Academy", change to "Ain Shams University".
+4. DATES RULE: NEVER leave dates empty. Use the provided dates exactly. If something is missing, infer "Present" ONLY for current job end-date; do not remove dates.
+${jdInstructions}
+--------------------------------------------------
 ### ✍️ GENERATION TASKS:
-1. **SUMMARY:** Write a 2-3 sentence professional summary in English.
-2. **EXPERIENCE:** Translate titles/companies. Write 3-5 high-impact bullet points for each job in English.
-3. **SKILLS:** Extract 15-18 ATS keywords in English.
+1. SUMMARY: Write a 2-3 sentence professional summary in English.
+2. EXPERIENCE: Translate titles/companies. Write 3-5 high-impact bullet points for each job in English.
+3. SKILLS: Extract 15-18 ATS keywords in English.
 --------------------------------------------------
 REQUIRED JSON OUTPUT FORMAT:
 {
@@ -705,112 +796,6 @@ REQUIRED JSON OUTPUT FORMAT:
     setShowModal(true);
   };
 
-  // ✅ ADDED: Optimize for Job Description (Prompt generator)
-  const buildOptimizePrompt = () => {
-    if (!validateContact()) return;
-
-    const jd = (jobDescription || "").trim();
-    if (!jd) {
-      toast.error(
-        lang === "ar"
-          ? "الصق Job Description الأول"
-          : "Paste the job description first"
-      );
-      return;
-    }
-
-    // نفس الداتا بتاعتك (بنستفيد من finalCV لو موجودة)
-    const base = finalCV || {
-      name: data.personalInfo?.fullName || "",
-      contact: `${data.personalInfo?.address || ""} | ${
-        data.personalInfo?.phone || ""
-      } | ${data.personalInfo?.email || ""}`.trim(),
-      languages: data.languages || "",
-      education: data.education || [],
-      courses: data.courses || [],
-      experience: getExperienceArray().map((x) => ({
-        company: x.company || "",
-        location: x.location || "",
-        dates: `${x.start || ""} to ${x.end || ""}`.trim(),
-        title: x.title || "",
-        bullets: [],
-        raw: x.descriptionRaw || "",
-      })),
-      skills: data.skills || [],
-      summary: data.summary || "",
-    };
-
-    const prompt = `
-You are an expert ATS resume optimizer.
-Goal: Optimize the resume to match the Job Description below.
-Rules:
-- STRICT ENGLISH ONLY.
-- Keep everything truthful. Do NOT invent degrees or employers.
-- Improve wording, ATS keywords, action verbs, and quantify impact when possible.
-- Rewrite ONLY: Summary, Skills, and Experience bullets.
-- Output must be a SINGLE JSON OBJECT in the exact format below.
-
-JOB DESCRIPTION (JD):
-"""
-${jd}
-"""
-
-CURRENT RESUME DATA:
-${JSON.stringify(base, null, 2)}
-
-REQUIRED JSON OUTPUT FORMAT:
-{
-  "summary": "...",
-  "skills": ["...", "..."],
-  "experience": [
-    {
-      "company": "...",
-      "location": "...",
-      "dates": "...",
-      "title": "...",
-      "bullets": ["...", "..."]
-    }
-  ]
-}
-`.trim();
-
-    setOptimizePrompt(prompt);
-    navigator.clipboard
-      .writeText(prompt)
-      .then(() => setOptimizeCopyStatus("تم النسخ تلقائياً ✅"))
-      .catch(() => setOptimizeCopyStatus("فشل النسخ التلقائي"));
-    setShowOptimizeModal(true);
-  };
-
-  const applyOptimizedJson = (optimized) => {
-    try {
-      // update finalCV (لو موجود)
-      setFinalCV((prev) => {
-        const base = prev || {};
-        return {
-          ...base,
-          summary: optimized.summary ?? base.summary,
-          skills: Array.isArray(optimized.skills)
-            ? optimized.skills
-            : base.skills,
-          experience: Array.isArray(optimized.experience)
-            ? optimized.experience
-            : base.experience,
-        };
-      });
-
-      toast.success(
-        lang === "ar" ? "تم تطبيق التحسين ✅" : "Optimization applied ✅"
-      );
-    } catch {
-      toast.error(
-        lang === "ar"
-          ? "حصل خطأ أثناء تطبيق التحسين"
-          : "Failed to apply optimization"
-      );
-    }
-  };
-
   const copyToClipboard = () => {
     navigator.clipboard.writeText(generatedPrompt);
     setCopyStatus("تم النسخ يدوياً ✅");
@@ -822,7 +807,6 @@ REQUIRED JSON OUTPUT FORMAT:
       if (!jsonMatch) throw new Error("No JSON found");
       const parsed = JSON.parse(jsonMatch[0]);
 
-      // ✅ Clean empty arrays safely
       if (Array.isArray(parsed.education) && parsed.education.length === 0)
         delete parsed.education;
       if (Array.isArray(parsed.courses) && parsed.courses.length === 0)
@@ -833,18 +817,16 @@ REQUIRED JSON OUTPUT FORMAT:
       setFinalCV(parsed);
       setActiveTab("preview");
 
-      // ✅ Save to DB instantly
       onAISuccess(parsed);
-    } catch (e) {
+    } catch {
       alert("الكود مش مظبوط. اتأكد إنك نسخت الـ JSON Code Block بس.");
     }
   };
 
   // -----------------------------------------------------------
-  // 4) PDF DOWNLOADER ✅ FIXED filename source
+  // 4) PDF DOWNLOADER
   // -----------------------------------------------------------
   const downloadPDF = () => {
-    // ✅ ADDED: Contact validation before download
     if (!validateContact()) return;
 
     const element = document.getElementById("cv-document");
@@ -857,8 +839,6 @@ REQUIRED JSON OUTPUT FORMAT:
     tempContainer.style.background = "white";
 
     const clone = element.cloneNode(true);
-
-    // ✅ مهم: نخلي الطباعة تعتمد على نفس عرض الصفحة
     clone.style.width = "816px";
     clone.style.background = "white";
 
@@ -899,12 +879,10 @@ REQUIRED JSON OUTPUT FORMAT:
   };
 
   // ============================================================
-  // 5) WORD DOWNLOADER (TAB METHOD - SAFE & FIXED)
+  // 5) WORD DOWNLOADER (ATS Safe)
   // ============================================================
   const downloadWord = () => {
-    // ✅ ADDED: Contact validation before download
     if (!validateContact()) return;
-
     if (!finalCV) return alert("لا توجد بيانات لإنشاء الملف");
 
     const {
@@ -941,7 +919,6 @@ REQUIRED JSON OUTPUT FORMAT:
 
     const sections = [];
 
-    // HEADER
     sections.push(
       new Paragraph({
         children: [
@@ -973,7 +950,6 @@ REQUIRED JSON OUTPUT FORMAT:
       })
     );
 
-    // SUMMARY
     if (finalCV.summary) {
       sections.push(createHeader("Professional Summary"));
       sections.push(
@@ -984,7 +960,6 @@ REQUIRED JSON OUTPUT FORMAT:
       );
     }
 
-    // EDUCATION
     if (finalCV.education?.length) {
       sections.push(createHeader("Education"));
       finalCV.education.forEach((edu) => {
@@ -1016,7 +991,6 @@ REQUIRED JSON OUTPUT FORMAT:
       });
     }
 
-    // COURSES
     if (finalCV.courses?.length) {
       sections.push(createHeader("Relevant Courses"));
       finalCV.courses.forEach((course) => {
@@ -1043,7 +1017,6 @@ REQUIRED JSON OUTPUT FORMAT:
       });
     }
 
-    // EXPERIENCE
     if (finalCV.experience?.length) {
       sections.push(createHeader("Work Experience"));
       finalCV.experience.forEach((job) => {
@@ -1102,7 +1075,6 @@ REQUIRED JSON OUTPUT FORMAT:
       });
     }
 
-    // SKILLS
     if (finalCV.skills?.length) {
       sections.push(createHeader("Skills"));
 
@@ -1166,22 +1138,23 @@ REQUIRED JSON OUTPUT FORMAT:
           <Save size={18} /> حفظ تلقائي + تنسيق مضمون
         </div>
 
-        {/* ✅ ADDED: Resume Score Badge */}
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-slate-500">
             Resume Score:
           </span>
-          <span
-            className={`text-xs font-black px-3 py-1 rounded-full border ${
-              resumeScore >= 85
-                ? "bg-green-50 text-green-700 border-green-200"
-                : resumeScore >= 70
-                ? "bg-blue-50 text-blue-700 border-blue-200"
-                : "bg-yellow-50 text-yellow-800 border-yellow-200"
-            }`}
-          >
-            {resumeScore}/100 • {scoreLabel}
-          </span>
+          <Tooltip text="Rule-based score: contact + title + education + experience + details">
+            <span
+              className={`text-xs font-black px-3 py-1 rounded-full border ${
+                resumeScore >= 85
+                  ? "bg-green-50 text-green-700 border-green-200"
+                  : resumeScore >= 70
+                  ? "bg-blue-50 text-blue-700 border-blue-200"
+                  : "bg-yellow-50 text-yellow-800 border-yellow-200"
+              }`}
+            >
+              {resumeScore}/100 • {scoreLabel}
+            </span>
+          </Tooltip>
         </div>
 
         <div className="flex gap-2 bg-slate-100 p-1 rounded-full">
@@ -1225,7 +1198,7 @@ REQUIRED JSON OUTPUT FORMAT:
         </button>
       </div>
 
-      {/* STEP 1: INPUT */}
+      {/* STEP 1 */}
       {activeTab === "input" && (
         <div className="bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-slate-100 animate-[fadeIn_0.3s]">
           <div className="bg-blue-50/50 p-6 rounded-xl border border-blue-100 mb-8">
@@ -1425,7 +1398,9 @@ REQUIRED JSON OUTPUT FORMAT:
 
                 <input
                   placeholder="تاريخ التخرج (Month Year)"
-                  className="p-2 border rounded"
+                  className={`p-2 border rounded ${
+                    !edu.year ? "border-red-400 bg-red-50/40" : ""
+                  }`}
                   value={edu.year || ""}
                   onChange={(e) =>
                     updateItem("education", edu.id, "year", e.target.value)
@@ -1523,7 +1498,9 @@ REQUIRED JSON OUTPUT FORMAT:
                   <div className="flex gap-2">
                     <input
                       placeholder="من"
-                      className="p-2 border rounded w-full"
+                      className={`p-2 border rounded w-full ${
+                        !job.start ? "border-red-400 bg-red-50/40" : ""
+                      }`}
                       value={job.start || ""}
                       onChange={(e) =>
                         updateItem(
@@ -1536,7 +1513,9 @@ REQUIRED JSON OUTPUT FORMAT:
                     />
                     <input
                       placeholder="إلى"
-                      className="p-2 border rounded w-full"
+                      className={`p-2 border rounded w-full ${
+                        !job.end ? "border-red-400 bg-red-50/40" : ""
+                      }`}
                       value={job.end || ""}
                       onChange={(e) =>
                         updateItem("experiences", job.id, "end", e.target.value)
@@ -1632,7 +1611,9 @@ REQUIRED JSON OUTPUT FORMAT:
 
                 <input
                   placeholder="التاريخ (Month Year)"
-                  className="p-2 border rounded"
+                  className={`p-2 border rounded ${
+                    !course.date ? "border-red-400 bg-red-50/40" : ""
+                  }`}
                   value={course.date || ""}
                   onChange={(e) =>
                     updateItem("courses", course.id, "date", e.target.value)
@@ -1651,6 +1632,42 @@ REQUIRED JSON OUTPUT FORMAT:
             </button>
           </div>
 
+          {/* ✅ Optimize for JD (ONE STEP) */}
+          <div className="mb-6 bg-slate-50 border rounded-2xl p-5">
+            <label className="flex items-center gap-2 font-black text-slate-800">
+              <input
+                type="checkbox"
+                checked={optimizeForJD}
+                onChange={(e) => setOptimizeForJD(e.target.checked)}
+                className="w-4 h-4"
+              />
+              Optimize for Job Description (خلّي الـ CV مناسب لإعلان وظيفة معين)
+            </label>
+
+            <div className="text-sm text-slate-600 mt-2">
+              اكتب هنا متطلبات الوظيفة اللي هتقدم عليهااو اعلان الوظيفه
+              والمتطلبات
+            </div>
+
+            <textarea
+              value={jobDescription}
+              onChange={(e) => setJobDescription(e.target.value)}
+              disabled={!optimizeForJD}
+              className={`mt-3 w-full h-36 p-4 border rounded-xl bg-white text-left text-sm ${
+                optimizeForJD && !(jobDescription || "").trim()
+                  ? "border-red-300"
+                  : ""
+              } ${!optimizeForJD ? "opacity-60" : ""}`}
+              dir="ltr"
+              placeholder={`Example:
+• Required skills: React, JavaScript, Tailwind
+• Experience: 2+ years
+• Responsibilities: build UI, work with APIs
+• Soft skills: teamwork, problem solving
+or paste the full job description here`}
+            />
+          </div>
+
           <div className="sticky bottom-4 pt-4 border-t bg-white">
             <button
               onClick={preparePrompt}
@@ -1662,7 +1679,7 @@ REQUIRED JSON OUTPUT FORMAT:
         </div>
       )}
 
-      {/* Modal (Prompt إرسال CV) */}
+      {/* Modal (Prompt) */}
       {showModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-[fadeIn_0.2s]">
           <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl border border-gray-200">
@@ -1724,105 +1741,7 @@ REQUIRED JSON OUTPUT FORMAT:
         </div>
       )}
 
-      {/* ✅ ADDED: Optimize Modal */}
-      {showOptimizeModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-[fadeIn_0.2s]">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl border border-gray-200">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-2xl font-black text-slate-800">
-                Optimize for Job Description
-              </h3>
-              <button
-                onClick={() => setShowOptimizeModal(false)}
-                className="bg-gray-100 p-2 rounded-full hover:bg-red-100 text-gray-500 hover:text-red-500 transition"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div
-              className={`mb-6 p-4 rounded-xl text-center font-bold border ${
-                optimizeCopyStatus.includes("تلقائياً")
-                  ? "bg-green-50 border-green-200 text-green-700"
-                  : "bg-yellow-50 border-yellow-200 text-yellow-700"
-              }`}
-            >
-              {optimizeCopyStatus}
-            </div>
-
-            <p className="mb-3 text-slate-600 font-medium">
-              انسخ الـ Prompt ده، وروّح ChatGPT، وبعد ما يرجّع JSON طبّقه هنا:
-            </p>
-
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <button
-                onClick={() => {
-                  navigator.clipboard
-                    .writeText(optimizePrompt)
-                    .then(() => setOptimizeCopyStatus("تم النسخ يدوياً ✅"))
-                    .catch(() => setOptimizeCopyStatus("فشل النسخ"));
-                }}
-                className="py-3 bg-slate-200 text-slate-800 rounded-xl font-bold hover:bg-slate-300 flex items-center justify-center gap-2"
-              >
-                <Copy size={18} /> نسخ يدوياً
-              </button>
-
-              <button
-                onClick={() => window.open("https://chat.openai.com", "_blank")}
-                className="py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 flex items-center justify-center gap-2 shadow-lg shadow-blue-200"
-              >
-                <Bot size={20} /> فتح ChatGPT
-              </button>
-            </div>
-
-            <textarea
-              value={optimizePrompt}
-              readOnly
-              className="w-full h-48 p-4 border rounded-xl bg-slate-50 text-left font-mono text-xs mb-4"
-              dir="ltr"
-            />
-
-            <div className="bg-slate-50 p-4 rounded-xl border">
-              <p className="text-sm font-bold mb-2 text-slate-700">
-                الصق JSON الناتج هنا لتطبيقه:
-              </p>
-              <textarea
-                placeholder='Paste JSON here... { "summary": "...", "skills": [], "experience": [] }'
-                className="w-full h-40 p-4 border rounded-xl bg-white text-left font-mono text-sm mb-3"
-                dir="ltr"
-                onChange={(e) => {
-                  // مجرد تخزين مؤقت داخل DOM (مش state) - نقرأه وقت الضغط
-                  e.currentTarget.dataset.value = e.target.value;
-                }}
-              />
-              <button
-                onClick={(e) => {
-                  const ta = e.currentTarget.parentElement.querySelector(
-                    "textarea[dir='ltr']"
-                  );
-                  const raw = ta?.dataset?.value || "";
-                  try {
-                    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-                    if (!jsonMatch) throw new Error("No JSON");
-                    const optimized = JSON.parse(jsonMatch[0]);
-                    applyOptimizedJson(optimized);
-                    setShowOptimizeModal(false);
-                  } catch {
-                    toast.error(
-                      lang === "ar" ? "JSON مش صحيح" : "Invalid JSON"
-                    );
-                  }
-                }}
-                className="w-full py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700"
-              >
-                تطبيق التحسين ✅
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 2: PASTE JSON */}
+      {/* STEP 2 */}
       {activeTab === "process" && (
         <div className="bg-white p-8 rounded-2xl shadow-lg text-center animate-[fadeIn_0.3s] max-w-3xl mx-auto">
           <div className="w-20 h-20 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -1834,29 +1753,6 @@ REQUIRED JSON OUTPUT FORMAT:
           <p className="text-slate-500 mb-6">
             هات الكود (JSON Block) اللي ChatGPT طلعه وحطه هنا.
           </p>
-
-          {/* ✅ ADDED: Optimize for JD box */}
-          <div className="text-right bg-slate-50 border rounded-2xl p-5 mb-6">
-            <div className="font-black text-slate-800 mb-2">
-              4️⃣ Optimize for Job Description (ميزة قوية)
-            </div>
-            <div className="text-sm text-slate-600 mb-3">
-              الصق Job Description هنا، واضغط Generate Prompt
-            </div>
-            <textarea
-              value={jobDescription}
-              onChange={(e) => setJobDescription(e.target.value)}
-              className="w-full h-36 p-4 border rounded-xl bg-white text-left text-sm"
-              dir="ltr"
-              placeholder="Paste JD here..."
-            />
-            <button
-              onClick={buildOptimizePrompt}
-              className="mt-3 w-full py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-black transition"
-            >
-              Generate Optimize Prompt ✨
-            </button>
-          </div>
 
           <textarea
             value={pastedJson}
@@ -1882,7 +1778,7 @@ REQUIRED JSON OUTPUT FORMAT:
         </div>
       )}
 
-      {/* STEP 3: PREVIEW & DOWNLOAD */}
+      {/* STEP 3 */}
       {activeTab === "preview" && finalCV && (
         <div className="animate-[fadeIn_0.3s]">
           <div className="flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-sm">
@@ -1921,106 +1817,102 @@ REQUIRED JSON OUTPUT FORMAT:
                 color: "#0f172a",
               }}
             >
-              {/* ✅ ستايل جوه نفس العنصر عشان الـ clone اللي بيتطبع في PDF ياخده */}
               <style>{`
-    #cv-document { box-sizing: border-box; }
-    #cv-document * { box-sizing: border-box; }
+                #cv-document { box-sizing: border-box; }
+                #cv-document * { box-sizing: border-box; }
 
-    .cv-header{
-      text-align:center;
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      gap:14px;
-      padding-bottom:14px;
-    }
+                .cv-header{
+                  text-align:center;
+                  display:flex;
+                  flex-direction:column;
+                  align-items:center;
+                  gap:14px;
+                  padding-bottom:14px;
+                }
 
-    .header-name{
-      font-size:46px;
-      font-weight:900;
-      line-height:1.15;
-      margin:0;
-    }
+                .header-name{
+                  font-size:46px;
+                  font-weight:900;
+                  line-height:1.15;
+                  margin:0;
+                }
 
-    .contact-info{
-      display:inline-block;
-      font-size:14px;
-      line-height:1.35;
-      padding:10px 16px;
-      background:#e2e8f0;
-      max-width:100%;
-      word-break:break-word;
-    }
+                .contact-info{
+                  display:inline-block;
+                  font-size:14px;
+                  line-height:1.35;
+                  padding:10px 16px;
+                  background:#e2e8f0;
+                  max-width:100%;
+                  word-break:break-word;
+                }
 
-    .section-title{
-      font-weight:800;
-      letter-spacing:1px;
-      text-transform:uppercase;
-      border-bottom:2px solid #cbd5e1;
-      padding-bottom:6px;
-      margin-top:18px;
-      margin-bottom:10px;
-      font-size:14px;
-    }
+                .section-title{
+                  font-weight:800;
+                  letter-spacing:1px;
+                  text-transform:uppercase;
+                  border-bottom:2px solid #cbd5e1;
+                  padding-bottom:6px;
+                  margin-top:18px;
+                  margin-bottom:10px;
+                  font-size:14px;
+                }
 
-    .row-header{
-      display:flex;
-      justify-content:space-between;
-      font-weight:800;
-      font-size:14px;
-      gap:12px;
-    }
+                .row-header{
+                  display:flex;
+                  justify-content:space-between;
+                  font-weight:800;
+                  font-size:14px;
+                  gap:12px;
+                }
 
-    .row-subheader{
-      font-style:italic;
-      margin-top:4px;
-      font-size:14px;
-    }
+                .row-subheader{
+                  font-style:italic;
+                  margin-top:4px;
+                  font-size:14px;
+                }
 
-    .standard-list{
-      margin-top:6px;
-      padding-left:18px;
-      font-size:14px;
-      line-height:1.45;
-    }
+                .standard-list{
+                  margin-top:6px;
+                  padding-left:18px;
+                  font-size:14px;
+                  line-height:1.45;
+                }
 
-    .course-row{
-      display:flex;
-      justify-content:space-between;
-      font-size:14px;
-      gap:12px;
-    }
+                .course-row{
+                  display:flex;
+                  justify-content:space-between;
+                  font-size:14px;
+                  gap:12px;
+                }
 
-    .skills-grid{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:6px;
-      font-size:14px;
-    }
+                .skills-grid{
+                  display:grid;
+                  grid-template-columns:1fr 1fr;
+                  gap:6px;
+                  font-size:14px;
+                }
 
-    .skill-item{
-      display:flex;
-      gap:8px;
-      align-items:flex-start;
-    }
+                .skill-item{
+                  display:flex;
+                  gap:8px;
+                  align-items:flex-start;
+                }
 
-    .skill-dot{
-      width:8px;
-      height:8px;
-      border-radius:50%;
-      background:#0f172a;
-      margin-top:6px;
-      flex:0 0 8px;
-    }
-  `}</style>
+                .skill-dot{
+                  width:8px;
+                  height:8px;
+                  border-radius:50%;
+                  background:#0f172a;
+                  margin-top:6px;
+                  flex:0 0 8px;
+                }
+              `}</style>
 
-              {/* ✅ المهم: الهيدر اتلف في wrapper وفيه gap/padding */}
               <div className="cv-header">
                 <div className="header-name">{finalCV.name}</div>
                 <div className="contact-info">{finalCV.contact}</div>
               </div>
-
-              {/* باقي الأقسام زي ما هي عندك تحت */}
 
               {finalCV.summary && (
                 <div>
@@ -2106,6 +1998,23 @@ REQUIRED JSON OUTPUT FORMAT:
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === "preview" && !finalCV && (
+        <div className="bg-white p-8 rounded-2xl shadow-lg text-center max-w-2xl mx-auto">
+          <div className="text-slate-700 font-black text-2xl mb-2">
+            مفيش CV لسه
+          </div>
+          <div className="text-slate-500 mb-6">
+            روح Step 2 واعمل Paste للـ JSON وبعدين Create.
+          </div>
+          <button
+            onClick={() => setActiveTab("process")}
+            className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold"
+          >
+            روح Step 2
+          </button>
         </div>
       )}
     </div>
