@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-// استيراد نظام الإشعارات الاحترافي
 import { Toaster } from "react-hot-toast";
 
 import {
@@ -11,13 +10,13 @@ import {
   useParams,
 } from "react-router-dom";
 
-import { DATA } from "./components/Data";
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { HomeView } from "./components/HomeView";
 import { CVBuilderView } from "./components/CVBuilderView";
+import { CVEditView } from "./components/CVEditView"; // ✅ اضفنا دي
 import { AuthView } from "./components/AuthView";
-import { ProfileView } from "./components/ProfileView"; // استيراد صفحة البروفايل
+import { ProfileView } from "./components/ProfileView";
 import { DetailPage } from "./components/DetailPage";
 import { Footer } from "./components/Footer";
 import { MobileNav, MobileMenuOverlay } from "./components/MobileNav";
@@ -32,8 +31,8 @@ function ScrollToTop() {
 
 function DetailPageWrapper({ lang }) {
   const { pageId } = useParams();
-  // إضافة profile للقائمة المستبعدة حتى لا يفتح الـ DetailPage بدلاً منها
-  const knownPages = ["home", "cv_builder", "auth", "profile"];
+  // ✅ ضيفنا cv_edit عشان ما يتعاملش كـ DetailPage
+  const knownPages = ["home", "cv_builder", "cv_edit", "auth", "profile"];
 
   if (knownPages.includes(pageId)) return null;
   return <DetailPage page={pageId} lang={lang} />;
@@ -76,10 +75,13 @@ function AppContent() {
           <Routes>
             <Route path="/" element={<HomeView lang={lang} />} />
             <Route path="/home" element={<Navigate to="/" replace />} />
-            <Route path="/cv_builder" element={<CVBuilderView lang={lang} />} />
-            <Route path="/auth" element={<AuthView lang={lang} />} />
 
-            {/* إضافة مسار البروفايل هنا قبل الـ :pageId */}
+            <Route path="/cv_builder" element={<CVBuilderView lang={lang} />} />
+
+            {/* ✅ Route صفحة التعديل لازم يكون قبل /:pageId */}
+            <Route path="/cv_edit" element={<CVEditView lang={lang} />} />
+
+            <Route path="/auth" element={<AuthView lang={lang} />} />
             <Route path="/profile" element={<ProfileView lang={lang} />} />
 
             <Route

@@ -70,8 +70,6 @@ body {
   /* التعديل هنا لضمان التوسط */
   font-size: 13pt; /* حجم خط مناسب */
   background-color: #e2e8f0;
-  margin-bottom: 20pt;
-
   /* سر التوسط الاحترافي */
   display: flex;
   justify-content: center; /* توسط أفقي */
@@ -79,13 +77,14 @@ body {
   min-height: 30pt; /* ارتفاع ثابت للشريط لضمان الشكل */
   padding: 0; /* نعتمد على الـ height والتوسط */
   line-height: 1;
+  width: 100%;
 }
 
 #cv-document .section-title {
   font-size: 14pt;
   font-weight: bold;
   text-transform: uppercase;
-  margin-top: 16pt;
+  margin-top: 10pt;
   margin-bottom: 8pt;
   padding: 10px;
   background-color: #f1f5f9;

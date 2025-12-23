@@ -639,13 +639,8 @@ REQUIRED JSON OUTPUT FORMAT:
     tempContainer.style.position = "absolute";
     tempContainer.style.left = "-9999px";
     tempContainer.style.top = "0";
-    tempContainer.style.background = "white";
 
     const clone = element.cloneNode(true);
-
-    // ✅ مهم: نخلي الطباعة تعتمد على نفس عرض الصفحة
-    clone.style.width = "816px";
-    clone.style.background = "white";
 
     tempContainer.appendChild(clone);
     document.body.appendChild(tempContainer);
@@ -664,7 +659,6 @@ REQUIRED JSON OUTPUT FORMAT:
         logging: false,
         scrollY: 0,
         y: 0,
-        backgroundColor: "#ffffff",
       },
       jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
     };
@@ -1554,116 +1548,9 @@ REQUIRED JSON OUTPUT FORMAT:
           </div>
 
           <div className="shadow-2xl overflow-auto bg-gray-300 p-8 rounded-xl flex justify-center">
-            <div
-              id="cv-document"
-              style={{
-                width: "816px",
-                background: "white",
-                padding: "28px 32px",
-                fontFamily: "Times New Roman, Times, serif",
-                color: "#0f172a",
-              }}
-            >
-              {/* ✅ ستايل جوه نفس العنصر عشان الـ clone اللي بيتطبع في PDF ياخده */}
-              <style>{`
-    #cv-document { box-sizing: border-box; }
-    #cv-document * { box-sizing: border-box; }
-
-    .cv-header{
-      text-align:center;
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      gap:14px;
-      padding-bottom:14px;
-    }
-
-    .header-name{
-      font-size:46px;
-      font-weight:900;
-      line-height:1.15;
-      margin:0;
-    }
-
-    .contact-info{
-      display:inline-block;
-      font-size:14px;
-      line-height:1.35;
-      padding:10px 16px;
-      background:#e2e8f0;
-      max-width:100%;
-      word-break:break-word;
-    }
-
-    .section-title{
-      font-weight:800;
-      letter-spacing:1px;
-      text-transform:uppercase;
-      border-bottom:2px solid #cbd5e1;
-      padding-bottom:6px;
-      margin-top:18px;
-      margin-bottom:10px;
-      font-size:14px;
-    }
-
-    .row-header{
-      display:flex;
-      justify-content:space-between;
-      font-weight:800;
-      font-size:14px;
-      gap:12px;
-    }
-
-    .row-subheader{
-      font-style:italic;
-      margin-top:4px;
-      font-size:14px;
-    }
-
-    .standard-list{
-      margin-top:6px;
-      padding-left:18px;
-      font-size:14px;
-      line-height:1.45;
-    }
-
-    .course-row{
-      display:flex;
-      justify-content:space-between;
-      font-size:14px;
-      gap:12px;
-    }
-
-    .skills-grid{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:6px;
-      font-size:14px;
-    }
-
-    .skill-item{
-      display:flex;
-      gap:8px;
-      align-items:flex-start;
-    }
-
-    .skill-dot{
-      width:8px;
-      height:8px;
-      border-radius:50%;
-      background:#0f172a;
-      margin-top:6px;
-      flex:0 0 8px;
-    }
-  `}</style>
-
-              {/* ✅ المهم: الهيدر اتلف في wrapper وفيه gap/padding */}
-              <div className="cv-header">
-                <div className="header-name">{finalCV.name}</div>
-                <div className="contact-info">{finalCV.contact}</div>
-              </div>
-
-              {/* باقي الأقسام زي ما هي عندك تحت */}
+            <div id="cv-document">
+              <div className="header-name">{finalCV.name}</div>
+              <div className="contact-info">{finalCV.contact}</div>
 
               {finalCV.summary && (
                 <div>

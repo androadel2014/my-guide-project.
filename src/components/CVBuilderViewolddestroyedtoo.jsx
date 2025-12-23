@@ -1,18 +1,9 @@
-// CVBuilderView.jsx (FULL FILE - copy/paste)
-// ✅ Fixes applied (without breaking your flow):
-// 1) Prevent crashes بسبب history keys (emails/phones كانت ناقصة)
-// 2) توحيد البيانات: personalInfo + experiences / experience
-// 3) preparePrompt كان بيستخدم data.experience فقط → اتصلح ليقرأ experiences/experience بأمان
-// 4) downloadPDF كان بيستخدم data.personal.name → اتصلح لـ personalInfo.fullName
-// 5) ضمان Arrays موجودة دايمًا (education/courses/experience)
-// 6) handleJsonImport بيعمل delete للـ empty arrays بس بأمان
-
-import React, { useState, useEffect } from "react";
-import * as docx from "docx"; // ✔️ as you use it later (docx.Document, ...)
+import * as docx from "docx"; // لاحظ استخدام * as docx
 import { saveAs } from "file-saver";
 import toast from "react-hot-toast";
+import React, { useState, useEffect } from "react";
+// استيراد الأيقونات التي يشتكي منها المتصفح
 import html2pdf from "html2pdf.js";
-
 import {
   X,
   Copy,
@@ -23,214 +14,120 @@ import {
   Plus,
   Trash2,
   Download,
+  Eye,
+  Settings,
+  User,
+  Mail,
+  Phone,
+  MapPin,
   Globe,
   Briefcase,
+  GraduationCap,
+  Award,
   Bot,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
 } from "lucide-react";
 
 export const CVBuilderView = ({ lang }) => {
   const [activeTab, setActiveTab] = useState("input");
 
-  // --- 1) DATA STATE MANAGEMENT ---
+  // --- 1. DATA STATE MANAGEMENT ---
   const [data, setData] = useState(() => {
     const savedData = localStorage.getItem("cv_data_full");
-
-    const fallback = {
-      targetJob: { title: "", company: "", state: "" },
-      personalInfo: { fullName: "", phone: "", email: "", address: "" },
-      education: [],
-      courses: [],
-      experiences: [], // ✅ استخدمنا experiences كاسم أساسي
-      languages: "",
-      summary: "",
-      skills: [],
-    };
-
-    if (!savedData) return fallback;
-
-    try {
-      const parsed = JSON.parse(savedData);
-
-      // ✅ نعمل normalize عشان لو الداتا القديمة فيها personal بدل personalInfo
-      const normalized = {
-        ...fallback,
-        ...parsed,
-        targetJob: parsed.targetJob || fallback.targetJob,
-        personalInfo:
-          parsed.personalInfo ||
-          (parsed.personal
-            ? {
-                fullName: parsed.personal.name || "",
-                phone: parsed.personal.phone || "",
-                email: parsed.personal.email || "",
-                address: parsed.personal.address || "",
-              }
-            : fallback.personalInfo),
-        education: Array.isArray(parsed.education) ? parsed.education : [],
-        courses: Array.isArray(parsed.courses) ? parsed.courses : [],
-        experiences: Array.isArray(parsed.experiences)
-          ? parsed.experiences
-          : Array.isArray(parsed.experience)
-          ? parsed.experience
-          : [],
-        languages: typeof parsed.languages === "string" ? parsed.languages : "",
-      };
-
-      return normalized;
-    } catch {
-      return fallback;
-    }
+    return savedData
+      ? JSON.parse(savedData)
+      : {
+          targetJob: { title: "", company: "", state: "" },
+          personal: { name: "", phone: "", email: "", address: "" },
+          education: [],
+          courses: [],
+          experience: [],
+          languages: "",
+        };
   });
-
-  // ✅ Auto-save للـ localStorage (مفيد عشان متفقدش الداتا)
-  useEffect(() => {
-    try {
-      localStorage.setItem("cv_data_full", JSON.stringify(data));
-    } catch {}
-  }, [data]);
 
   // History for auto-complete
   const [history, setHistory] = useState(() => {
     const savedHistory = localStorage.getItem("cv_history_db");
-
-    const fallback = {
-      names: [],
-      emails: [], // ✅ كانت ناقصة
-      phones: [], // ✅ كانت ناقصة
-      jobTitles: [],
-      companies: [],
-      schools: [],
-      locations: [],
-      degrees: [],
-      majors: [],
-      providers: [],
-      courseNames: [],
-    };
-
-    if (!savedHistory) return fallback;
-
-    try {
-      const parsed = JSON.parse(savedHistory);
-      return {
-        ...fallback,
-        ...parsed,
-        names: Array.isArray(parsed.names) ? parsed.names : [],
-        emails: Array.isArray(parsed.emails) ? parsed.emails : [],
-        phones: Array.isArray(parsed.phones) ? parsed.phones : [],
-        jobTitles: Array.isArray(parsed.jobTitles) ? parsed.jobTitles : [],
-        companies: Array.isArray(parsed.companies) ? parsed.companies : [],
-        schools: Array.isArray(parsed.schools) ? parsed.schools : [],
-        locations: Array.isArray(parsed.locations) ? parsed.locations : [],
-        degrees: Array.isArray(parsed.degrees) ? parsed.degrees : [],
-        majors: Array.isArray(parsed.majors) ? parsed.majors : [],
-        providers: Array.isArray(parsed.providers) ? parsed.providers : [],
-        courseNames: Array.isArray(parsed.courseNames)
-          ? parsed.courseNames
-          : [],
-      };
-    } catch {
-      return fallback;
-    }
+    return savedHistory
+      ? JSON.parse(savedHistory)
+      : {
+          names: [],
+          jobTitles: [],
+          companies: [],
+          schools: [],
+          locations: [],
+          degrees: [],
+          majors: [],
+          providers: [],
+          courseNames: [],
+        };
   });
 
-  // ✅ حفظ history في localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem("cv_history_db", JSON.stringify(history));
-    } catch {}
-  }, [history]);
-
-  // 1) Current user from localStorage (once)
+  // 1. استخراج بيانات المستخدم من الـ LocalStorage مرة واحدة في بداية المكون
   const [currentUser] = useState(() => {
     const saved = localStorage.getItem("user");
-    try {
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
+    return saved ? JSON.parse(saved) : null;
   });
 
-  // ✅ Helpers for sections
-  const getExperienceArray = () =>
-    Array.isArray(data.experiences)
-      ? data.experiences
-      : Array.isArray(data.experience)
-      ? data.experience
-      : [];
-
-  // 1) Load CV on mount
+  // 1. دالة جلب البيانات (تستخدم عند فتح الصفحة أو للتحميل التلقائي من البروفايل)
   useEffect(() => {
-    if (!currentUser?.id) return;
+    if (currentUser && currentUser.id) {
+      const params = new URLSearchParams(window.location.search);
+      const cvId = params.get("cvId");
+      const action = params.get("action");
+      const format = params.get("format");
 
-    const params = new URLSearchParams(window.location.search);
-    const cvId = params.get("cvId");
-    const action = params.get("action");
-    const format = params.get("format");
+      const endpoint = cvId
+        ? `http://localhost:5000/api/get-cv/${cvId}`
+        : `http://localhost:5000/api/get-cv-latest/${currentUser.id}`;
 
-    const endpoint = cvId
-      ? `http://localhost:5000/api/get-cv/${cvId}`
-      : `http://localhost:5000/api/get-cv-latest/${currentUser.id}`;
+      fetch(endpoint)
+        .then((res) => {
+          // حل مشكلة الـ SyntaxError: لو السيرفر رجع خطأ، حوله لـ text عشان المتصفح ميعلقش
+          if (!res.ok)
+            return res.text().then((text) => {
+              throw new Error(text);
+            });
+          return res.json();
+        })
+        .then((savedData) => {
+          // لو الداتا سليمة ومش رسالة خطأ "no_data_found"
+          if (
+            savedData &&
+            savedData.message !== "no_data_found" &&
+            !savedData.error
+          ) {
+            setData(savedData);
 
-    fetch(endpoint)
-      .then((res) => {
-        if (!res.ok) {
-          return res.text().then((text) => {
-            throw new Error(text || "Server error");
-          });
-        }
-        return res.json();
-      })
-      .then((savedData) => {
-        // لو الداتا سليمة ومش رسالة خطأ
-        if (
-          savedData &&
-          typeof savedData === "object" &&
-          savedData.message !== "no_data_found" &&
-          !savedData.error
-        ) {
-          // ✅ Normalize incoming data to match builder
-          const normalized = {
-            ...data,
-            ...savedData,
-            targetJob: savedData.targetJob || data.targetJob,
-            personalInfo:
-              savedData.personalInfo ||
-              (savedData.personal
-                ? {
-                    fullName: savedData.personal.name || "",
-                    phone: savedData.personal.phone || "",
-                    email: savedData.personal.email || "",
-                    address: savedData.personal.address || "",
-                  }
-                : data.personalInfo),
-            education: Array.isArray(savedData.education)
-              ? savedData.education
-              : [],
-            courses: Array.isArray(savedData.courses) ? savedData.courses : [],
-            experiences: Array.isArray(savedData.experiences)
-              ? savedData.experiences
-              : Array.isArray(savedData.experience)
-              ? savedData.experience
-              : [],
-            languages:
-              typeof savedData.languages === "string"
-                ? savedData.languages
-                : "",
-          };
-
-          setData(normalized);
-
-          if (action === "download") {
-            setTimeout(() => {
-              if (format === "pdf" && typeof downloadPDF === "function")
-                downloadPDF();
-              if (format === "word" && typeof downloadWord === "function")
-                downloadWord();
-              setTimeout(() => window.close(), 3000);
-            }, 1500);
+            if (action === "download") {
+              setTimeout(() => {
+                if (format === "pdf" && typeof handlePrint === "function")
+                  handlePrint();
+                if (format === "word" && typeof exportToWord === "function")
+                  exportToWord();
+                setTimeout(() => window.close(), 3000);
+              }, 1500);
+            }
+          } else {
+            // لو مفيش داتا (مستخدم جديد)، بنملى البيانات من البروفايل
+            setData((prev) => ({
+              ...prev,
+              personalInfo: {
+                fullName: currentUser.username || "",
+                email: currentUser.email || "",
+                phone: currentUser.phone || "",
+                address: currentUser.address || "",
+              },
+            }));
           }
-        } else {
-          // مستخدم جديد: املا من البروفايل
+        })
+        .catch((err) => {
+          console.log("إشعار: مستخدم جديد أو لا توجد بيانات سابقة.");
+          // ضمان وجود بيانات افتراضية حتى في حالة الخطأ
           setData((prev) => ({
             ...prev,
             personalInfo: {
@@ -240,116 +137,81 @@ export const CVBuilderView = ({ lang }) => {
               address: currentUser.address || "",
             },
           }));
-        }
-      })
-      .catch(() => {
-        // fallback
-        setData((prev) => ({
-          ...prev,
-          personalInfo: {
-            fullName: currentUser.username || "",
-            email: currentUser.email || "",
-            phone: currentUser.phone || "",
-            address: currentUser.address || "",
-          },
-        }));
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.id]);
-
-  // 2) Save AI result (clean + send to server)
-  const onAISuccess = (aiResponse) => {
-    if (!currentUser?.id) {
-      toast.error(lang === "ar" ? "سجل دخول الأول" : "Please login first");
-      return;
+        });
     }
+  }, [currentUser]);
 
+  // 2. دالة الحفظ المعدلة (بتنظف البيانات قبل ما تبعتها للداتابيز)
+  const onAISuccess = (aiResponse) => {
+    // 1. تجميع البيانات وتنظيفها
     const cleanedData = {
       personalInfo: {
         fullName:
           aiResponse.personalInfo?.fullName ||
           aiResponse.personal?.name ||
-          data.personalInfo?.fullName ||
-          currentUser.username ||
-          "",
+          currentUser.username,
         email:
           aiResponse.personalInfo?.email ||
           aiResponse.personal?.email ||
-          data.personalInfo?.email ||
-          currentUser.email ||
-          "",
+          currentUser.email,
         phone:
           aiResponse.personalInfo?.phone ||
           aiResponse.personal?.phone ||
-          data.personalInfo?.phone ||
-          currentUser.phone ||
-          "",
+          currentUser.phone,
         address:
           aiResponse.personalInfo?.address ||
           aiResponse.personal?.address ||
-          data.personalInfo?.address ||
-          currentUser.address ||
-          "",
+          currentUser.address,
       },
       summary: aiResponse.summary || "",
       experiences: aiResponse.experiences || aiResponse.experience || [],
       education: aiResponse.education || [],
       skills: aiResponse.skills || [],
       courses: aiResponse.courses || [],
-      languages: aiResponse.languages || data.languages || "",
-      targetJob: aiResponse.targetJob || data.targetJob || { title: "Resume" },
+      // أضفنا targetJob هنا عشان الحفظ يقرأ الاسم صح
+      targetJob: aiResponse.targetJob || { title: "Professional Resume" },
     };
 
-    // update UI
-    setData((prev) => ({
-      ...prev,
-      ...cleanedData,
-      experiences: Array.isArray(cleanedData.experiences)
-        ? cleanedData.experiences
-        : [],
-      education: Array.isArray(cleanedData.education)
-        ? cleanedData.education
-        : [],
-      courses: Array.isArray(cleanedData.courses) ? cleanedData.courses : [],
-      skills: Array.isArray(cleanedData.skills) ? cleanedData.skills : [],
-    }));
+    // 2. تحديث الواجهة فوراً
+    setData(cleanedData);
 
-    // send to server
+    // 3. إرسال البيانات للسيرفر (تأكد من تحويل الـ ID لرقم)
     fetch("http://localhost:5000/api/save-cv", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        user_id: Number(currentUser.id),
+        user_id: Number(currentUser.id), // التأكد إنه رقم مش نص
         cv_data: cleanedData,
-        cv_name: cleanedData.targetJob?.title || "New Resume",
+        // سحب الاسم من المكان الصحيح لضمان ظهور البطاقة في البروفايل
+        cv_name: cleanedData.targetJob.title || "New Resume",
       }),
     })
       .then((res) => res.json())
-      .then(() => {
+      .then((result) => {
+        console.log("✅ تم الحفظ بنجاح:", result);
         toast.success(
           lang === "ar"
             ? "تمت إضافة السيرة الذاتية للقائمة بنجاح"
             : "CV Added Successfully"
         );
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("❌ Save Error:", err);
         toast.error(
           lang === "ar" ? "خطأ في الاتصال بالسيرفر" : "Server Connection Error"
         );
       });
   };
-
-  // history helper
+  // 3. ملاحظة: تم إيقاف الـ useEffect القديم الخاص بالحفظ التلقائي بناءً على [data]
+  // لضمان أن الداتابيز لا تحتوي إلا على النسخة الاحترافية من الـ AI.
   const addToHistory = (category, value) => {
-    const v = (value || "").toString().trim();
-    if (!v) return;
-
-    // ✅ لو الـ category مش موجود، اعمله Array
-    setHistory((prev) => {
-      const arr = Array.isArray(prev[category]) ? prev[category] : [];
-      if (arr.includes(v)) return prev;
-      return { ...prev, [category]: [...arr, v] };
-    });
+    if (!value || value.trim() === "") return;
+    if (!history[category].includes(value)) {
+      setHistory((prev) => ({
+        ...prev,
+        [category]: [...prev[category], value],
+      }));
+    }
   };
 
   const [finalCV, setFinalCV] = useState(null);
@@ -358,59 +220,47 @@ export const CVBuilderView = ({ lang }) => {
   const [generatedPrompt, setGeneratedPrompt] = useState("");
   const [copyStatus, setCopyStatus] = useState("نسخ يدوي");
 
-  // --- Update Handlers ---
+  // --- 2. UPDATE HANDLERS ---
   const updateData = (section, field, value) => {
-    setData((prev) => {
-      const target = prev[section];
-      if (typeof target === "string") return { ...prev, [section]: value };
-      return { ...prev, [section]: { ...(target || {}), [field]: value } };
-    });
+    if (typeof data[section] === "string")
+      setData({ ...data, [section]: value });
+    else setData({ ...data, [section]: { ...data[section], [field]: value } });
   };
-
   const updateTarget = (field, value) =>
-    setData((prev) => ({
-      ...prev,
-      targetJob: { ...(prev.targetJob || {}), [field]: value },
-    }));
-
+    setData({ ...data, targetJob: { ...data.targetJob, [field]: value } });
   const addItem = (section, template) =>
-    setData((prev) => ({
-      ...prev,
-      [section]: [...(prev[section] || []), { id: Date.now(), ...template }],
-    }));
-
-  const removeItem = (section, id) => {
-    setData((prev) => {
-      // ✅ experience section may be experiences or experience
-      let actualSection = section;
-      if (section === "experience" && !prev.experience && prev.experiences) {
-        actualSection = "experiences";
-      } else if (
-        section === "experiences" &&
-        !prev.experiences &&
-        prev.experience
-      ) {
-        actualSection = "experience";
-      }
-
-      if (!Array.isArray(prev[actualSection])) return prev;
-
-      return {
-        ...prev,
-        [actualSection]: prev[actualSection].filter((i) => i.id !== id),
-      };
+    setData({
+      ...data,
+      [section]: [...data[section], { id: Date.now(), ...template }],
     });
-  };
+  const removeItem = (section, id) => {
+    // 1. تحديد القسم الفعلي (لو باعت مفرد والداتا جمع، أو العكس)
+    let actualSection = section;
 
+    if (section === "experience" && !data.experience && data.experiences) {
+      actualSection = "experiences";
+    } else if (
+      section === "experiences" &&
+      !data.experiences &&
+      data.experience
+    ) {
+      actualSection = "experience";
+    }
+
+    // 2. الحذف بأمان مع التأكد إن القسم موجود أصلاً
+    if (data[actualSection]) {
+      setData({
+        ...data,
+        [actualSection]: data[actualSection].filter((i) => i.id !== id),
+      });
+    }
+  };
   const updateItem = (section, id, field, value) => {
-    setData((prev) => {
-      if (!Array.isArray(prev[section])) return prev;
-      return {
-        ...prev,
-        [section]: prev[section].map((i) =>
-          i.id === id ? { ...i, [field]: value } : i
-        ),
-      };
+    setData({
+      ...data,
+      [section]: data[section].map((i) =>
+        i.id === id ? { ...i, [field]: value } : i
+      ),
     });
   };
 
@@ -422,9 +272,10 @@ export const CVBuilderView = ({ lang }) => {
   };
 
   const addHomeCountryExp = () => {
-    const currentExps = getExperienceArray();
-    const targetRole = data.targetJob?.title || "Specialist";
+    // 1. التأكد من جلب القائمة الحالية سواء بالاسم الجديد أو القديم
+    const currentExps = data.experiences || data.experience || [];
 
+    const targetRole = data.targetJob?.title || "Specialist";
     const mockExp = {
       id: Date.now(),
       title: targetRole,
@@ -438,8 +289,12 @@ export const CVBuilderView = ({ lang }) => {
       )}`,
     };
 
-    // ✅ store into experiences always (main)
-    setData((prev) => ({ ...prev, experiences: [...currentExps, mockExp] }));
+    // 2. التحديث في المكان الصح (لو عندنا experiences نحدثها، لو مفيش نحدث experience)
+    if (data.experiences) {
+      setData({ ...data, experiences: [...currentExps, mockExp] });
+    } else {
+      setData({ ...data, experience: [...currentExps, mockExp] });
+    }
   };
 
   const HistoryDatalists = () => (
@@ -449,61 +304,41 @@ export const CVBuilderView = ({ lang }) => {
           <option key={i} value={item} />
         ))}
       </datalist>
-
-      <datalist id="list-emails">
-        {history.emails?.map((item, i) => (
-          <option key={i} value={item} />
-        ))}
-      </datalist>
-
-      <datalist id="list-phones">
-        {history.phones?.map((item, i) => (
-          <option key={i} value={item} />
-        ))}
-      </datalist>
-
       <datalist id="list-jobs">
         {history.jobTitles?.map((item, i) => (
           <option key={i} value={item} />
         ))}
       </datalist>
-
       <datalist id="list-companies">
         {history.companies?.map((item, i) => (
           <option key={i} value={item} />
         ))}
       </datalist>
-
       <datalist id="list-schools">
         {history.schools?.map((item, i) => (
           <option key={i} value={item} />
         ))}
       </datalist>
-
       <datalist id="list-locations">
         {history.locations?.map((item, i) => (
           <option key={i} value={item} />
         ))}
       </datalist>
-
       <datalist id="list-degrees">
         {history.degrees?.map((item, i) => (
           <option key={i} value={item} />
         ))}
       </datalist>
-
       <datalist id="list-majors">
         {history.majors?.map((item, i) => (
           <option key={i} value={item} />
         ))}
       </datalist>
-
       <datalist id="list-providers">
         {history.providers?.map((item, i) => (
           <option key={i} value={item} />
         ))}
       </datalist>
-
       <datalist id="list-courseNames">
         {history.courseNames?.map((item, i) => (
           <option key={i} value={item} />
@@ -513,84 +348,59 @@ export const CVBuilderView = ({ lang }) => {
   );
 
   // -----------------------------------------------------------
-  // 3) PROMPT GENERATION (Strict English Logic) ✅ FIXED
+  // 3. PROMPT GENERATION (Strict English Logic)
   // -----------------------------------------------------------
   const preparePrompt = () => {
-    const exps = getExperienceArray();
-    const eduList = Array.isArray(data.education) ? data.education : [];
-    const courseList = Array.isArray(data.courses) ? data.courses : [];
-
     let workContext = "";
-    exps.forEach((job, idx) => {
-      workContext += `JOB_${idx}: Title: "${job.title || ""}", Company: "${
-        job.company || ""
-      }", Dates: "${job.start || ""} to ${job.end || ""}". Draft Duties: "${
-        job.descriptionRaw || ""
-      }"\n`;
+    data.experience.forEach((job, idx) => {
+      workContext += `JOB_${idx}: Title: "${job.title}", Company: "${job.company}", Dates: "${job.start} to ${job.end}". Draft Duties: "${job.descriptionRaw}"\n`;
     });
-
     let eduContext = "";
-    eduList.forEach((edu) => {
-      eduContext += `${edu.degree || ""} in ${edu.major || ""}, ${
-        edu.school || ""
-      }, ${edu.location || ""}, ${edu.year || ""}\n`;
+    data.education.forEach((edu) => {
+      eduContext += `${edu.degree} in ${edu.major}, ${edu.school}, ${edu.location}, ${edu.year}\n`;
     });
-
     let coursesContext = "";
-    courseList.forEach((c) => {
-      coursesContext += `${c.name || ""} at ${c.provider || ""} (${
-        c.date || ""
-      })\n`;
+    data.courses.forEach((c) => {
+      coursesContext += `${c.name} at ${c.provider} (${c.date})\n`;
     });
-
-    const cleanName = (data.personalInfo?.fullName || "")
-      .replace(/[\r\n]+/g, " ")
-      .trim();
-    const cleanAddress = (data.personalInfo?.address || "")
-      .replace(/[\r\n]+/g, " ")
-      .trim();
-
+    const cleanName = data.personal.name.replace(/[\r\n]+/g, " ").trim();
+    const cleanAddress = data.personal.address.replace(/[\r\n]+/g, " ").trim();
     const prompt = `
-ACT AS A PROFESSIONAL RESUME WRITER. I will provide you with data. You must process it and return a SINGLE JSON OBJECT.
---------------------------------------------------
-INPUT DATA:
-Target Job: ${data.targetJob?.title || ""} at ${
-      data.targetJob?.company || ""
-    }, ${data.targetJob?.state || ""}
-Name: ${cleanName}
-Contact: ${cleanAddress} | ${data.personalInfo?.phone || ""} | ${
-      data.personalInfo?.email || ""
-    }
-Languages: ${data.languages || ""}
-EDUCATION: ${eduContext}
-COURSES: ${coursesContext}
-WORK EXPERIENCE: ${workContext}
---------------------------------------------------
-INSTRUCTIONS:
-# LANGUAGE MODE: STRICT ENGLISH ONLY
-### 🛑 CRITICAL INSTRUCTIONS (ZERO TOLERANCE FOR ARABIC)
-1. **TRANSLATE EVERYTHING:** If the user input contains Arabic (e.g., "سواق", "نقل عام"), you MUST translate it to professional US English (e.g., "Professional Driver", "Public Transit Authority").
-2. **NO ARABIC OUTPUT:** The final JSON must contain ONLY English text. Never repeat the Arabic word.
-3. **LOGIC FIX:** If Date is "2065", change to "2015". If "Ain Shams Academy", change to "Ain Shams University".
----
-### ✍️ GENERATION TASKS:
-1. **SUMMARY:** Write a 2-3 sentence professional summary in English.
-2. **EXPERIENCE:** Translate titles/companies. Write 3-5 high-impact bullet points for each job in English.
-3. **SKILLS:** Extract 15-18 ATS keywords in English.
---------------------------------------------------
-REQUIRED JSON OUTPUT FORMAT:
-{
-  "name": "...",
-  "contact": "...",
-  "summary": "...",
-  "languages": "...",
-  "education": [ { "school": "...", "location": "...", "date": "...", "degree": "..." } ],
-  "courses": [ { "name": "...", "provider": "...", "date": "..." } ],
-  "experience": [ { "company": "...", "location": "...", "dates": "...", "title": "...", "bullets": ["...", "..."] } ],
-  "skills": ["...", "..."]
-}
-`.trim();
-
+                ACT AS A PROFESSIONAL RESUME WRITER. I will provide you with data. You must process it and return a SINGLE JSON OBJECT.
+                --------------------------------------------------
+                INPUT DATA:
+                Target Job: ${data.targetJob.title} at ${data.targetJob.company}, ${data.targetJob.state}
+                Name: ${cleanName}
+                Contact: ${cleanAddress} | ${data.personal.phone} | ${data.personal.email}
+                Languages: ${data.languages}
+                EDUCATION: ${eduContext}
+                COURSES: ${coursesContext}
+                WORK EXPERIENCE: ${workContext}
+                --------------------------------------------------
+                INSTRUCTIONS:
+                # LANGUAGE MODE: STRICT ENGLISH ONLY
+                ### 🛑 CRITICAL INSTRUCTIONS (ZERO TOLERANCE FOR ARABIC)
+                1. **TRANSLATE EVERYTHING:** If the user input contains Arabic (e.g., "سواق", "نقل عام"), you MUST translate it to professional US English (e.g., "Professional Driver", "Public Transit Authority").
+                2. **NO ARABIC OUTPUT:** The final JSON must contain ONLY English text. Never repeat the Arabic word.
+                3. **LOGIC FIX:** If Date is "2065", change to "2015". If "Ain Shams Academy", change to "Ain Shams University".
+                ---
+                ### ✍️ GENERATION TASKS:
+                1. **SUMMARY:** Write a 2-3 sentence professional summary in English.
+                2. **EXPERIENCE:** Translate titles/companies. Write 3-5 high-impact bullet points for each job in English.
+                3. **SKILLS:** Extract 15-18 ATS keywords in English.
+                --------------------------------------------------
+                REQUIRED JSON OUTPUT FORMAT:
+                {
+                  "name": "...",
+                  "contact": "...",
+                  "summary": "...",
+                  "languages": "...", 
+                  "education": [ { "school": "...", "location": "...", "date": "...", "degree": "..." } ],
+                  "courses": [ { "name": "...", "provider": "...", "date": "..." } ],
+                  "experience": [ { "company": "...", "location": "...", "dates": "...", "title": "...", "bullets": ["...", "..."] } ],
+                  "skills": ["...", "..."]
+                }
+                `;
     setGeneratedPrompt(prompt);
     navigator.clipboard
       .writeText(prompt)
@@ -610,53 +420,48 @@ REQUIRED JSON OUTPUT FORMAT:
       if (!jsonMatch) throw new Error("No JSON found");
       const parsed = JSON.parse(jsonMatch[0]);
 
-      // ✅ Clean empty arrays safely
-      if (Array.isArray(parsed.education) && parsed.education.length === 0)
+      if (parsed.education && parsed.education.length === 0)
         delete parsed.education;
-      if (Array.isArray(parsed.courses) && parsed.courses.length === 0)
-        delete parsed.courses;
-      if (Array.isArray(parsed.experience) && parsed.experience.length === 0)
+      if (parsed.courses && parsed.courses.length === 0) delete parsed.courses;
+      if (parsed.experience && parsed.experience.length === 0)
         delete parsed.experience;
 
+      // 1. عرض البيانات في المعاينة كما كنت تفعل
       setFinalCV(parsed);
       setActiveTab("preview");
 
-      // ✅ Save to DB instantly
+      // 2. الربط السحري: استدعاء دالة الحفظ لتبعت البيانات للسيرفر فوراً
+      // ده السطر اللي كان ناقص عشان السي في يظهر في البروفايل
       onAISuccess(parsed);
     } catch (e) {
       alert("الكود مش مظبوط. اتأكد إنك نسخت الـ JSON Code Block بس.");
     }
   };
-
   // -----------------------------------------------------------
-  // 4) PDF DOWNLOADER ✅ FIXED filename source
+  // 4. PDF DOWNLOADER
   // -----------------------------------------------------------
   const downloadPDF = () => {
     const element = document.getElementById("cv-document");
-    if (!element) return;
 
+    // إنشاء نسخة مؤقتة نظيفة من العنصر فقط
     const tempContainer = document.createElement("div");
     tempContainer.style.position = "absolute";
     tempContainer.style.left = "-9999px";
     tempContainer.style.top = "0";
-    tempContainer.style.background = "white";
+    const headerName = element.querySelector(".header-name");
+    const contactInfo = element.querySelector(".contact-info");
+    if (headerName) headerName.style.marginBottom = "20px"; // منع تداخل الاسم
+    if (contactInfo) contactInfo.style.padding = "10px 0"; // ضبط شريط البيانات
+    element.style.paddingTop = "0px"; // إزالة الفراغ العلوي
 
     const clone = element.cloneNode(true);
-
-    // ✅ مهم: نخلي الطباعة تعتمد على نفس عرض الصفحة
-    clone.style.width = "816px";
-    clone.style.background = "white";
-
+    // clone.style.margin = "0"; // حذف أي هوامش تسبب صفحة بيضاء
     tempContainer.appendChild(clone);
     document.body.appendChild(tempContainer);
 
-    const safeName =
-      (data.personalInfo?.fullName || "Resume").replace(/\s+/g, "_") ||
-      "Resume";
-
     const opt = {
       margin: 0,
-      filename: `${safeName}_Resume.pdf`,
+      filename: `${data.personal.name.replace(/\s+/g, "_")}_Resume.pdf`,
       image: { type: "jpeg", quality: 0.98 },
       html2canvas: {
         scale: 2,
@@ -664,7 +469,6 @@ REQUIRED JSON OUTPUT FORMAT:
         logging: false,
         scrollY: 0,
         y: 0,
-        backgroundColor: "#ffffff",
       },
       jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
     };
@@ -674,18 +478,33 @@ REQUIRED JSON OUTPUT FORMAT:
       .from(clone)
       .save()
       .then(() => {
-        document.body.removeChild(tempContainer);
-      })
-      .catch(() => {
-        try {
-          document.body.removeChild(tempContainer);
-        } catch {}
+        document.body.removeChild(tempContainer); // حذف النسخة بعد التحميل
       });
   };
 
+  // const downloadPDF = () => {
+  //   const element = document.getElementById("cv-document");
+  //   const opt = {
+  //     margin: 0,
+  //     filename: `${data.personal.name.replace(/\s+/g, "_")}_Resume.pdf`,
+  //     image: { type: "jpeg", quality: 0.98 },
+  //     html2canvas: {
+  //       scale: 2,
+  //       useCORS: true,
+  //       scrollY: -window.scrollY,
+  //       windowHeight: element.scrollHeight,
+  //       y: element.getBoundingClientRect().top,
+  //     },
+  //     jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+  //     pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+  //   };
+  //   html2pdf().set(opt).from(element).save();
+  // };
+
   // ============================================================
-  // 5) WORD DOWNLOADER (TAB METHOD - SAFE & FIXED)
+  // 5. WORD DOWNLOADER (TAB METHOD - SAFE & FIXED)
   // ============================================================
+
   const downloadWord = () => {
     if (!finalCV) return alert("لا توجد بيانات لإنشاء الملف");
 
@@ -701,20 +520,20 @@ REQUIRED JSON OUTPUT FORMAT:
     } = docx;
 
     const font = "Times New Roman";
-    const RIGHT_TAB_POS = 10800;
-    const MID_TAB_POS = 5200;
+    const RIGHT_TAB_POS = 10800; // نهاية الصفحة
+    const MID_TAB_POS = 5200; // منتصف الصفحة (عمودين Skills)
 
+    // Section Header
     const createHeader = (text) =>
       new Paragraph({
         children: [
-          new TextRun({
-            text: (text || "").toUpperCase(),
-            bold: true,
-            font,
-            size: 24,
-          }),
+          new TextRun({ text: text.toUpperCase(), bold: true, font, size: 24 }),
         ],
-        spacing: { before: 300, after: 240, line: 420 },
+        spacing: {
+          before: 300, // مسافة فوق (Padding Top)
+          after: 240, // مسافة تحت (Padding Bottom)
+          line: 420, // ارتفاع السطر (Padding داخلي)
+        },
         border: {
           bottom: { color: "auto", space: 1, value: "single", size: 6 },
         },
@@ -723,12 +542,12 @@ REQUIRED JSON OUTPUT FORMAT:
 
     const sections = [];
 
-    // HEADER
+    // --- HEADER ---
     sections.push(
       new Paragraph({
         children: [
           new TextRun({
-            text: finalCV.name || finalCV.personal?.name || "RESUME",
+            text: finalCV.name || finalCV.personal?.name,
             bold: true,
             size: 56,
             font,
@@ -742,9 +561,7 @@ REQUIRED JSON OUTPUT FORMAT:
           new TextRun({
             text:
               finalCV.contact ||
-              `${finalCV.personal?.address || ""} | ${
-                finalCV.personal?.phone || ""
-              }`,
+              `${finalCV.personal?.address} | ${finalCV.personal?.phone}`,
             size: 35,
             font,
           }),
@@ -755,7 +572,7 @@ REQUIRED JSON OUTPUT FORMAT:
       })
     );
 
-    // SUMMARY
+    // --- SUMMARY ---
     if (finalCV.summary) {
       sections.push(createHeader("Professional Summary"));
       sections.push(
@@ -766,7 +583,7 @@ REQUIRED JSON OUTPUT FORMAT:
       );
     }
 
-    // EDUCATION
+    // --- EDUCATION ---
     if (finalCV.education?.length) {
       sections.push(createHeader("Education"));
       finalCV.education.forEach((edu) => {
@@ -774,13 +591,13 @@ REQUIRED JSON OUTPUT FORMAT:
           new Paragraph({
             children: [
               new TextRun({
-                text: `${edu.school || ""}, ${edu.location || ""}`,
+                text: `${edu.school}, ${edu.location}`,
                 bold: true,
                 font,
                 size: 24,
               }),
               new TextRun({
-                children: [new Tab(), edu.date || ""],
+                children: [new Tab(), edu.date],
                 bold: true,
                 font,
                 size: 24,
@@ -791,14 +608,14 @@ REQUIRED JSON OUTPUT FORMAT:
         );
         sections.push(
           new Paragraph({
-            children: [new TextRun({ text: edu.degree || "", font, size: 24 })],
+            children: [new TextRun({ text: edu.degree, font, size: 24 })],
             spacing: { after: 120 },
           })
         );
       });
     }
 
-    // COURSES
+    // --- COURSES ---
     if (finalCV.courses?.length) {
       sections.push(createHeader("Relevant Courses"));
       finalCV.courses.forEach((course) => {
@@ -806,13 +623,13 @@ REQUIRED JSON OUTPUT FORMAT:
           new Paragraph({
             children: [
               new TextRun({
-                text: `${course.name || ""} – ${course.provider || ""}`,
+                text: `${course.name} – ${course.provider}`,
                 bold: true,
                 font,
                 size: 24,
               }),
               new TextRun({
-                children: [new Tab(), course.date || ""],
+                children: [new Tab(), course.date],
                 bold: true,
                 font,
                 size: 24,
@@ -825,7 +642,7 @@ REQUIRED JSON OUTPUT FORMAT:
       });
     }
 
-    // EXPERIENCE
+    // --- EXPERIENCE ---
     if (finalCV.experience?.length) {
       sections.push(createHeader("Work Experience"));
       finalCV.experience.forEach((job) => {
@@ -833,13 +650,13 @@ REQUIRED JSON OUTPUT FORMAT:
           new Paragraph({
             children: [
               new TextRun({
-                text: `${job.company || ""}, ${job.location || ""}`,
+                text: `${job.company}, ${job.location}`,
                 bold: true,
                 font,
                 size: 24,
               }),
               new TextRun({
-                children: [new Tab(), job.dates || ""],
+                children: [new Tab(), job.dates],
                 bold: true,
                 font,
                 size: 24,
@@ -852,25 +669,18 @@ REQUIRED JSON OUTPUT FORMAT:
         sections.push(
           new Paragraph({
             children: [
-              new TextRun({
-                text: job.title || "",
-                italics: true,
-                font,
-                size: 24,
-              }),
+              new TextRun({ text: job.title, italics: true, font, size: 24 }),
             ],
             spacing: { after: 60 },
           })
         );
 
-        (job.bullets || []).forEach((b) =>
+        job.bullets.forEach((b) =>
           sections.push(
             new Paragraph({
               children: [
                 new TextRun({
-                  text: `• ${String(b || "")
-                    .replace(/^-|\*/, "")
-                    .trim()}`,
+                  text: `• ${b.replace(/^-|\*/, "").trim()}`,
                   font,
                   size: 24,
                 }),
@@ -884,7 +694,7 @@ REQUIRED JSON OUTPUT FORMAT:
       });
     }
 
-    // SKILLS
+    // --- SKILLS (2 Columns – Universal Safe) ---
     if (finalCV.skills?.length) {
       sections.push(createHeader("Skills"));
 
@@ -934,10 +744,6 @@ REQUIRED JSON OUTPUT FORMAT:
       saveAs(blob, `${(finalCV.name || "Resume").replace(/\s+/g, "_")}.docx`);
     });
   };
-
-  // -----------------------------------------------------------
-  // UI
-  // -----------------------------------------------------------
   return (
     <div className="max-w-6xl mx-auto p-4 font-sans" dir="rtl">
       <HistoryDatalists />
@@ -947,7 +753,6 @@ REQUIRED JSON OUTPUT FORMAT:
         <div className="flex gap-2 text-sm text-green-700 items-center font-bold">
           <Save size={18} /> حفظ تلقائي + تنسيق مضمون
         </div>
-
         <div className="flex gap-2 bg-slate-100 p-1 rounded-full">
           <button
             onClick={() => setActiveTab("input")}
@@ -980,7 +785,6 @@ REQUIRED JSON OUTPUT FORMAT:
             3. التحميل
           </button>
         </div>
-
         <button
           onClick={clearData}
           className="text-xs text-red-500 hover:text-red-700 font-bold border border-red-200 px-3 py-1 rounded-lg"
@@ -1004,12 +808,11 @@ REQUIRED JSON OUTPUT FORMAT:
                 <input
                   className="p-3 border rounded-lg bg-white w-full"
                   list="list-jobs"
-                  value={data.targetJob?.title || ""}
+                  value={data.targetJob.title}
                   onChange={(e) => updateTarget("title", e.target.value)}
                   onBlur={(e) => addToHistory("jobTitles", e.target.value)}
                 />
               </div>
-
               <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-500">
                   الشركة (اختياري)
@@ -1017,12 +820,11 @@ REQUIRED JSON OUTPUT FORMAT:
                 <input
                   className="p-3 border rounded-lg bg-white w-full"
                   list="list-companies"
-                  value={data.targetJob?.company || ""}
+                  value={data.targetJob.company}
                   onChange={(e) => updateTarget("company", e.target.value)}
                   onBlur={(e) => addToHistory("companies", e.target.value)}
                 />
               </div>
-
               <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-500">
                   الولاية / المكان
@@ -1030,7 +832,7 @@ REQUIRED JSON OUTPUT FORMAT:
                 <input
                   className="p-3 border rounded-lg bg-white w-full"
                   list="list-locations"
-                  value={data.targetJob?.state || ""}
+                  value={data.targetJob.state}
                   onChange={(e) => updateTarget("state", e.target.value)}
                   onBlur={(e) => addToHistory("locations", e.target.value)}
                 />
@@ -1038,13 +840,12 @@ REQUIRED JSON OUTPUT FORMAT:
             </div>
           </div>
 
-          {/* Personal Info */}
           <div className="mb-8">
             <h3 className="font-bold text-lg mb-4 text-slate-700 border-b pb-2 flex items-center gap-2">
               <span className="text-red-500">*</span> البيانات الشخصية
             </h3>
-
             <div className="grid md:grid-cols-2 gap-6">
+              {/* حقل الاسم الكامل */}
               <div className="space-y-2">
                 <label className="text-sm font-bold text-slate-600">
                   الاسم الكامل
@@ -1061,6 +862,7 @@ REQUIRED JSON OUTPUT FORMAT:
                 />
               </div>
 
+              {/* حقل البريد الإلكتروني */}
               <div className="space-y-2">
                 <label className="text-sm font-bold text-slate-600">
                   البريد الإلكتروني
@@ -1077,12 +879,13 @@ REQUIRED JSON OUTPUT FORMAT:
                 />
               </div>
 
+              {/* حقل رقم الهاتف - تم التعديل ليكون نوعه تليفون فقط */}
               <div className="space-y-2">
                 <label className="text-sm font-bold text-slate-600">
                   رقم الهاتف
                 </label>
                 <input
-                  type="tel"
+                  type="tel" // يفتح لوحة الأرقام في الموبايل ويخصص الحقل للهواتف
                   className="w-full p-3 bg-slate-50 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
                   list="list-phones"
                   placeholder="01xxxxxxxxx"
@@ -1094,6 +897,7 @@ REQUIRED JSON OUTPUT FORMAT:
                 />
               </div>
 
+              {/* حقل العنوان */}
               <div className="space-y-2">
                 <label className="text-sm font-bold text-slate-600">
                   العنوان
@@ -1112,7 +916,6 @@ REQUIRED JSON OUTPUT FORMAT:
             </div>
           </div>
 
-          {/* Languages */}
           <div className="mb-8">
             <h3 className="font-bold text-lg mb-4 text-slate-700 border-b pb-2">
               اللغات (اختياري)
@@ -1120,17 +923,15 @@ REQUIRED JSON OUTPUT FORMAT:
             <input
               placeholder="مثلاً: Arabic: Native, English: Fluent"
               className="p-3 border rounded-lg w-full"
-              value={data.languages || ""}
+              value={data.languages}
               onChange={(e) => updateData("languages", null, e.target.value)}
             />
           </div>
 
-          {/* Education */}
           <div className="mb-8">
             <h3 className="font-bold text-lg mb-4 text-slate-700 border-b pb-2 flex items-center gap-2">
               <span className="text-red-500">*</span> التعليم (Education)
             </h3>
-
             {(data.education || []).map((edu, i) => (
               <div
                 key={edu.id || i}
@@ -1142,7 +943,6 @@ REQUIRED JSON OUTPUT FORMAT:
                 >
                   <Trash2 size={18} />
                 </button>
-
                 <input
                   placeholder="الدرجة (Bachelor...)"
                   className="p-2 border rounded"
@@ -1153,7 +953,6 @@ REQUIRED JSON OUTPUT FORMAT:
                   }
                   onBlur={(e) => addToHistory("degrees", e.target.value)}
                 />
-
                 <input
                   placeholder="التخصص (Major)"
                   className="p-2 border rounded"
@@ -1164,7 +963,6 @@ REQUIRED JSON OUTPUT FORMAT:
                   }
                   onBlur={(e) => addToHistory("majors", e.target.value)}
                 />
-
                 <input
                   placeholder="الجامعة"
                   className="p-2 border rounded"
@@ -1175,7 +973,6 @@ REQUIRED JSON OUTPUT FORMAT:
                   }
                   onBlur={(e) => addToHistory("schools", e.target.value)}
                 />
-
                 <input
                   placeholder="المكان"
                   className="p-2 border rounded"
@@ -1186,7 +983,6 @@ REQUIRED JSON OUTPUT FORMAT:
                   }
                   onBlur={(e) => addToHistory("locations", e.target.value)}
                 />
-
                 <input
                   placeholder="تاريخ التخرج (Month Year)"
                   className="p-2 border rounded"
@@ -1197,7 +993,6 @@ REQUIRED JSON OUTPUT FORMAT:
                 />
               </div>
             ))}
-
             <button
               onClick={() =>
                 addItem("education", {
@@ -1214,7 +1009,6 @@ REQUIRED JSON OUTPUT FORMAT:
             </button>
           </div>
 
-          {/* Experience */}
           <div className="mb-8">
             <div className="flex justify-between items-center mb-4 border-b pb-2">
               <h3 className="font-bold text-lg text-slate-700 flex items-center gap-2">
@@ -1227,104 +1021,105 @@ REQUIRED JSON OUTPUT FORMAT:
                 <Globe size={14} /> إضافة خبرة البلد الأم (أوتوماتيك)
               </button>
             </div>
-
-            {getExperienceArray().map((job, i) => (
+            {(data.experiences || data.experience || []).map((job, i) => (
               <div
-                key={job.id || `exp-${i}`}
+                key={job.id || `exp-${i}`} // حل مشكلة الـ unique key باستخدام الـ ID أو الترتيب كاحتياطي
                 className="mb-6 bg-slate-50 p-4 rounded-xl relative border border-slate-200"
               >
                 <button
-                  onClick={() => removeItem("experiences", job.id)}
+                  onClick={() => {
+                    const section = data.experiences
+                      ? "experiences"
+                      : "experience";
+                    removeItem(section, job.id);
+                  }}
                   className="absolute top-2 left-2 text-red-400 hover:text-red-600"
                 >
                   <Trash2 size={18} />
                 </button>
-
                 <div className="grid md:grid-cols-2 gap-3 mb-3">
                   <input
                     placeholder="المسمى الوظيفي"
                     className="p-2 border rounded"
                     list="list-jobs"
-                    value={job.title || ""}
-                    onChange={(e) =>
-                      updateItem("experiences", job.id, "title", e.target.value)
-                    }
+                    value={job.title || ""} // الـ || "" تمنع تحذير controlled input
+                    onChange={(e) => {
+                      const section = data.experiences
+                        ? "experiences"
+                        : "experience";
+                      updateItem(section, job.id, "title", e.target.value);
+                    }}
                     onBlur={(e) => addToHistory("jobTitles", e.target.value)}
                   />
-
                   <input
                     placeholder="اسم الشركة"
                     className="p-2 border rounded"
                     list="list-companies"
                     value={job.company || ""}
-                    onChange={(e) =>
-                      updateItem(
-                        "experiences",
-                        job.id,
-                        "company",
-                        e.target.value
-                      )
-                    }
+                    onChange={(e) => {
+                      const section = data.experiences
+                        ? "experiences"
+                        : "experience";
+                      updateItem(section, job.id, "company", e.target.value);
+                    }}
                     onBlur={(e) => addToHistory("companies", e.target.value)}
                   />
-
                   <input
                     placeholder="المكان"
                     className="p-2 border rounded"
                     list="list-locations"
                     value={job.location || ""}
-                    onChange={(e) =>
-                      updateItem(
-                        "experiences",
-                        job.id,
-                        "location",
-                        e.target.value
-                      )
-                    }
+                    onChange={(e) => {
+                      const section = data.experiences
+                        ? "experiences"
+                        : "experience";
+                      updateItem(section, job.id, "location", e.target.value);
+                    }}
                     onBlur={(e) => addToHistory("locations", e.target.value)}
                   />
-
                   <div className="flex gap-2">
                     <input
                       placeholder="من"
                       className="p-2 border rounded w-full"
                       value={job.start || ""}
-                      onChange={(e) =>
-                        updateItem(
-                          "experiences",
-                          job.id,
-                          "start",
-                          e.target.value
-                        )
-                      }
+                      onChange={(e) => {
+                        const section = data.experiences
+                          ? "experiences"
+                          : "experience";
+                        updateItem(section, job.id, "start", e.target.value);
+                      }}
                     />
                     <input
                       placeholder="إلى"
                       className="p-2 border rounded w-full"
                       value={job.end || ""}
-                      onChange={(e) =>
-                        updateItem("experiences", job.id, "end", e.target.value)
-                      }
+                      onChange={(e) => {
+                        const section = data.experiences
+                          ? "experiences"
+                          : "experience";
+                        updateItem(section, job.id, "end", e.target.value);
+                      }}
                     />
                   </div>
                 </div>
-
                 {job.company !== "AI_AUTO_DETECT_TOP_COMPANY_IN_EGYPT" && (
                   <textarea
                     placeholder="اكتب المهام بالعربي أو الإنجليزي (الذكاء الاصطناعي هيترجمها وينسقها)"
                     className="w-full p-3 border rounded-lg h-24 focus:ring-2 focus:ring-blue-500 outline-none"
                     value={job.descriptionRaw || ""}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const section = data.experiences
+                        ? "experiences"
+                        : "experience";
                       updateItem(
-                        "experiences",
+                        section,
                         job.id,
                         "descriptionRaw",
                         e.target.value
-                      )
-                    }
-                  />
+                      );
+                    }}
+                  ></textarea>
                 )}
-
                 {job.company === "AI_AUTO_DETECT_TOP_COMPANY_IN_EGYPT" && (
                   <div className="bg-orange-50 text-orange-800 text-xs p-2 rounded border border-orange-200">
                     سيقوم الـ AI باختيار اسم شركة حقيقية وتأليف المهام المناسبة
@@ -1333,10 +1128,9 @@ REQUIRED JSON OUTPUT FORMAT:
                 )}
               </div>
             ))}
-
             <button
               onClick={() =>
-                addItem("experiences", {
+                addItem("experience", {
                   title: "",
                   company: "",
                   location: "",
@@ -1351,7 +1145,6 @@ REQUIRED JSON OUTPUT FORMAT:
             </button>
           </div>
 
-          {/* Courses */}
           <div className="mb-8">
             <h3 className="font-bold text-lg mb-4 text-slate-700 border-b pb-2">
               الكورسات (Courses){" "}
@@ -1359,10 +1152,9 @@ REQUIRED JSON OUTPUT FORMAT:
                 (اختياري)
               </span>
             </h3>
-
-            {(data.courses || []).map((course, i) => (
+            {data.courses.map((course, i) => (
               <div
-                key={course.id || i}
+                key={course.id}
                 className="grid md:grid-cols-3 gap-3 mb-2 bg-slate-50 p-3 rounded-lg relative"
               >
                 <button
@@ -1371,40 +1163,36 @@ REQUIRED JSON OUTPUT FORMAT:
                 >
                   <Trash2 size={16} />
                 </button>
-
                 <input
                   placeholder="اسم الكورس"
                   className="p-2 border rounded"
                   list="list-courseNames"
-                  value={course.name || ""}
+                  value={course.name}
                   onChange={(e) =>
                     updateItem("courses", course.id, "name", e.target.value)
                   }
                   onBlur={(e) => addToHistory("courseNames", e.target.value)}
                 />
-
                 <input
                   placeholder="الجهة المانحة"
                   className="p-2 border rounded"
                   list="list-providers"
-                  value={course.provider || ""}
+                  value={course.provider}
                   onChange={(e) =>
                     updateItem("courses", course.id, "provider", e.target.value)
                   }
                   onBlur={(e) => addToHistory("providers", e.target.value)}
                 />
-
                 <input
                   placeholder="التاريخ (Month Year)"
                   className="p-2 border rounded"
-                  value={course.date || ""}
+                  value={course.date}
                   onChange={(e) =>
                     updateItem("courses", course.id, "date", e.target.value)
                   }
                 />
               </div>
             ))}
-
             <button
               onClick={() =>
                 addItem("courses", { name: "", provider: "", date: "" })
@@ -1438,10 +1226,9 @@ REQUIRED JSON OUTPUT FORMAT:
                 onClick={() => setShowModal(false)}
                 className="bg-gray-100 p-2 rounded-full hover:bg-red-100 text-gray-500 hover:text-red-500 transition"
               >
-                <X size={20} />
+                <X size={20}></X>
               </button>
             </div>
-
             <div
               className={`mb-6 p-4 rounded-xl text-center font-bold border ${
                 copyStatus.includes("تلقائياً")
@@ -1451,11 +1238,9 @@ REQUIRED JSON OUTPUT FORMAT:
             >
               {copyStatus}
             </div>
-
             <p className="mb-3 text-slate-600 font-medium">
               تم تجهيز الأوامر. اتبع الخطوات:
             </p>
-
             <ol className="list-decimal list-inside mb-6 space-y-2 text-sm text-slate-600 bg-slate-50 p-4 rounded-xl border">
               <li>تم نسخ النص تلقائياً (أو اضغط نسخ يدوياً).</li>
               <li>اضغط زر "فتح ChatGPT" بالأسفل.</li>
@@ -1464,7 +1249,6 @@ REQUIRED JSON OUTPUT FORMAT:
               </li>
               <li>انسخ الكود اللي الـ AI هيطلعه وارجع هنا.</li>
             </ol>
-
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={copyToClipboard}
@@ -1472,7 +1256,6 @@ REQUIRED JSON OUTPUT FORMAT:
               >
                 <Copy size={18} /> نسخ يدوياً
               </button>
-
               <button
                 onClick={() => {
                   window.open("https://chat.openai.com", "_blank");
@@ -1500,22 +1283,19 @@ REQUIRED JSON OUTPUT FORMAT:
           <p className="text-slate-500 mb-8">
             هات الكود (JSON Block) اللي ChatGPT طلعه وحطه هنا.
           </p>
-
           <textarea
             value={pastedJson}
             onChange={(e) => setPastedJson(e.target.value)}
             placeholder='Paste JSON here... { "name": "..." }'
             className="w-full h-64 p-5 border-2 border-dashed border-purple-300 rounded-2xl bg-purple-50/50 text-left font-mono text-sm mb-6 focus:border-purple-600 focus:bg-white outline-none transition"
             dir="ltr"
-          />
-
+          ></textarea>
           <button
             onClick={handleJsonImport}
             className="w-full py-4 bg-green-600 text-white rounded-xl font-bold text-xl shadow-xl hover:bg-green-700 transition flex items-center justify-center gap-3"
           >
             <CheckCircle size={28} /> إنشاء السي في
           </button>
-
           <button
             onClick={() => setActiveTab("input")}
             className="mt-6 text-slate-400 hover:text-slate-600 underline text-sm"
@@ -1535,7 +1315,6 @@ REQUIRED JSON OUTPUT FORMAT:
             >
               <ArrowLeft /> رجوع
             </button>
-
             <div className="flex gap-2">
               <button
                 onClick={downloadWord}
@@ -1543,7 +1322,6 @@ REQUIRED JSON OUTPUT FORMAT:
               >
                 <FileText size={20} /> تحميل Word (ATS Safe)
               </button>
-
               <button
                 onClick={downloadPDF}
                 className="bg-slate-900 text-white px-6 py-3 rounded-full font-bold shadow-lg hover:bg-black transition flex items-center gap-2"
@@ -1554,116 +1332,9 @@ REQUIRED JSON OUTPUT FORMAT:
           </div>
 
           <div className="shadow-2xl overflow-auto bg-gray-300 p-8 rounded-xl flex justify-center">
-            <div
-              id="cv-document"
-              style={{
-                width: "816px",
-                background: "white",
-                padding: "28px 32px",
-                fontFamily: "Times New Roman, Times, serif",
-                color: "#0f172a",
-              }}
-            >
-              {/* ✅ ستايل جوه نفس العنصر عشان الـ clone اللي بيتطبع في PDF ياخده */}
-              <style>{`
-    #cv-document { box-sizing: border-box; }
-    #cv-document * { box-sizing: border-box; }
-
-    .cv-header{
-      text-align:center;
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-      gap:14px;
-      padding-bottom:14px;
-    }
-
-    .header-name{
-      font-size:46px;
-      font-weight:900;
-      line-height:1.15;
-      margin:0;
-    }
-
-    .contact-info{
-      display:inline-block;
-      font-size:14px;
-      line-height:1.35;
-      padding:10px 16px;
-      background:#e2e8f0;
-      max-width:100%;
-      word-break:break-word;
-    }
-
-    .section-title{
-      font-weight:800;
-      letter-spacing:1px;
-      text-transform:uppercase;
-      border-bottom:2px solid #cbd5e1;
-      padding-bottom:6px;
-      margin-top:18px;
-      margin-bottom:10px;
-      font-size:14px;
-    }
-
-    .row-header{
-      display:flex;
-      justify-content:space-between;
-      font-weight:800;
-      font-size:14px;
-      gap:12px;
-    }
-
-    .row-subheader{
-      font-style:italic;
-      margin-top:4px;
-      font-size:14px;
-    }
-
-    .standard-list{
-      margin-top:6px;
-      padding-left:18px;
-      font-size:14px;
-      line-height:1.45;
-    }
-
-    .course-row{
-      display:flex;
-      justify-content:space-between;
-      font-size:14px;
-      gap:12px;
-    }
-
-    .skills-grid{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:6px;
-      font-size:14px;
-    }
-
-    .skill-item{
-      display:flex;
-      gap:8px;
-      align-items:flex-start;
-    }
-
-    .skill-dot{
-      width:8px;
-      height:8px;
-      border-radius:50%;
-      background:#0f172a;
-      margin-top:6px;
-      flex:0 0 8px;
-    }
-  `}</style>
-
-              {/* ✅ المهم: الهيدر اتلف في wrapper وفيه gap/padding */}
-              <div className="cv-header">
-                <div className="header-name">{finalCV.name}</div>
-                <div className="contact-info">{finalCV.contact}</div>
-              </div>
-
-              {/* باقي الأقسام زي ما هي عندك تحت */}
+            <div id="cv-document">
+              <div className="header-name">{finalCV.name}</div>
+              <div className="contact-info">{finalCV.contact}</div>
 
               {finalCV.summary && (
                 <div>
@@ -1688,7 +1359,6 @@ REQUIRED JSON OUTPUT FORMAT:
                   ))}
                 </div>
               )}
-
               {finalCV.courses && finalCV.courses.length > 0 && (
                 <div>
                   <div className="section-title">Relevant Courses</div>
@@ -1704,7 +1374,6 @@ REQUIRED JSON OUTPUT FORMAT:
                   ))}
                 </div>
               )}
-
               {finalCV.experience && finalCV.experience.length > 0 && (
                 <div>
                   <div className="section-title">Work Experience</div>
@@ -1718,7 +1387,7 @@ REQUIRED JSON OUTPUT FORMAT:
                       </div>
                       <div className="row-subheader">{exp.title}</div>
                       <ul className="standard-list">
-                        {(exp.bullets || []).map((b, idx) => (
+                        {exp.bullets.map((b, idx) => (
                           <li key={idx}>{b}</li>
                         ))}
                       </ul>
@@ -1754,3 +1423,6 @@ REQUIRED JSON OUTPUT FORMAT:
     </div>
   );
 };
+
+// const root = createRoot(document.getElementById("root"));
+// root.render(<CVApp />);
