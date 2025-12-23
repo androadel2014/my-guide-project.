@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   User,
   Edit2,
@@ -10,11 +10,10 @@ import {
   MapPin,
   Info,
   Eye,
-  Copy,
+  X,
 } from "lucide-react";
 import toast from "react-hot-toast";
 
-// ✅ Download helpers
 import html2pdf from "html2pdf.js";
 import * as docx from "docx";
 import { saveAs } from "file-saver";
@@ -25,7 +24,6 @@ export const ProfileView = ({ lang }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, cvId: null });
 
-  // ✅ Preview modal (same design)
   const [previewModal, setPreviewModal] = useState({
     isOpen: false,
     cvId: null,
@@ -33,7 +31,8 @@ export const ProfileView = ({ lang }) => {
     title: "",
   });
 
-  // ✅ download state (to show loading)
+  const previewContainerRef = useRef(null);
+
   const [downloading, setDownloading] = useState({
     cvId: null,
     format: null, // "pdf" | "word"
@@ -47,13 +46,42 @@ export const ProfileView = ({ lang }) => {
   });
 
   // =========================
-  // ✅ 1) FIX التاريخ (SQLite UTC)
+  // ✅ Tooltip
+  // =========================
+  const Tooltip = ({ text, children }) => (
+    <span className="relative inline-flex items-center group/tt">
+      {children}
+      <span className="pointer-events-none absolute -top-11 left-1/2 -translate-x-1/2 opacity-0 group-hover/tt:opacity-100 transition-opacity duration-150 z-[9999]">
+        <span className="text-[11px] font-black px-3 py-2 rounded-xl bg-slate-900 text-white shadow-xl whitespace-nowrap">
+          {text}
+        </span>
+      </span>
+    </span>
+  );
+
+  // =========================
+  // ✅ 1) Date helpers (SQLite UTC)
   // =========================
   const parseSqliteUTC = (sqliteDateString) => {
     if (!sqliteDateString) return null;
     const iso = sqliteDateString.replace(" ", "T") + "Z";
     const d = new Date(iso);
     return isNaN(d.getTime()) ? null : d;
+  };
+
+  const formatDateTime = (sqliteDateString) => {
+    const d = parseSqliteUTC(sqliteDateString);
+    if (!d) return sqliteDateString || "";
+    const datePart = d.toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+    const timePart = d.toLocaleTimeString(lang === "ar" ? "ar-EG" : "en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return `${datePart} • ${timePart}`;
   };
 
   // =========================
@@ -81,7 +109,7 @@ export const ProfileView = ({ lang }) => {
       ? raw.experience
       : [];
 
-    const finalCV = {
+    return {
       name: raw?.name || personalInfo.fullName || "RESUME",
       contact:
         raw?.contact ||
@@ -121,142 +149,26 @@ export const ProfileView = ({ lang }) => {
       })),
       skills: Array.isArray(raw?.skills) ? raw.skills : [],
     };
-
-    return finalCV;
   };
 
   // =========================
   // ✅ BUILDER-EXACT HELPERS
   // =========================
-
-  // ✅ sanitizeContact (same as builder idea)
   const sanitizeContact = (raw) => {
     if (!raw) return "";
-
     let s = String(raw);
-
-    // [email](mailto:email) -> email
     s = s.replace(/\[([^\]]+)\]\(mailto:[^)]+\)/gi, "$1");
     s = s.replace(/\(mailto:[^)]+\)/gi, "");
     s = s.replace(/mailto:/gi, "");
-
-    // trim pipes
     s = s
       .split("|")
       .map((x) => x.trim())
       .filter(Boolean)
       .join(" | ");
-
-    // collapse spaces
     s = s.replace(/\s{2,}/g, " ").trim();
     return s;
   };
 
-  // ✅ PDF-only styles (same approach as builder)
-  const buildPdfCloneWithStyles = (element) => {
-    const clone = element.cloneNode(true);
-    clone.classList.add("pdf-export");
-
-    const style = document.createElement("style");
-    style.innerHTML = `
-      .pdf-export {
-        width: 816px; /* letter @ 96dpi */
-        background: #ffffff;
-        padding: 0;
-        margin: 0;
-        font-family: "Times New Roman", Times, serif;
-        color: #0f172a;
-      }
-      #cv-document .contact-info{
-          margin:0px ;
-          margin-top:30px;
-      }
-      .pdf-export .cv-header {
-        padding: 26px 32px 10px 32px;
-        text-align: center;
-      }
-      .pdf-export .header-name {
-        font-size: 46px;
-        font-weight: 700;
-        line-height: 1.05;
-        margin: 0 0 12px 0;
-      }
-
-      .pdf-export .contact-info {
-        display: block;
-        text-align: center;
-        font-size: 16px;
-        padding: 10px 14px;
-        margin: 0 32px 18px 32px;
-        background: #e2e8f0;
-        border-radius: 0;
-        line-height: 1.25;
-        word-break: break-word;
-      }
-
-      .pdf-export .cv-body {
-        padding: 0 32px 28px 32px;
-        font-size: 14px;
-        line-height: 1.45;
-      }
-
-      .pdf-export .section-title {
-        margin-bottom: 10px;
-        padding: 8px 12px;
-        background: #f1f5f9;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: .02em;
-        border-bottom: 2px solid #cbd5e1;
-      }
-
-      .pdf-export .row-header,
-      .pdf-export .course-row {
-        display: flex;
-        justify-content: space-between;
-        gap: 16px;
-        font-weight: 700;
-      }
-
-      .pdf-export .row-subheader {
-        font-style: italic;
-        margin-top: 4px;
-        margin-bottom: 6px;
-      }
-
-      .pdf-export .standard-list {
-        margin: 6px 0 0 18px;
-        padding: 0;
-      }
-
-      .pdf-export .standard-list li {
-        margin: 0 0 6px 0;
-      }
-
-      .pdf-export .skills-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px 18px;
-      }
-      .pdf-export .skill-item {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .pdf-export .skill-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 999px;
-        background: #0f172a;
-        display: inline-block;
-      }
-    `;
-
-    clone.prepend(style);
-    return clone;
-  };
-
-  // ✅ build SAME builder markup (بدون عرض)
   const buildCvDocumentNode = (finalCV) => {
     const container = document.createElement("div");
     container.id = "cv-document";
@@ -278,7 +190,6 @@ export const ProfileView = ({ lang }) => {
     const body = document.createElement("div");
     body.className = "cv-body";
 
-    // Summary
     if (finalCV?.summary) {
       const title = document.createElement("div");
       title.className = "section-title";
@@ -291,7 +202,6 @@ export const ProfileView = ({ lang }) => {
       body.appendChild(p);
     }
 
-    // Education
     if (Array.isArray(finalCV?.education) && finalCV.education.length > 0) {
       const title = document.createElement("div");
       title.className = "section-title";
@@ -321,12 +231,10 @@ export const ProfileView = ({ lang }) => {
 
         block.appendChild(row);
         block.appendChild(deg);
-
         body.appendChild(block);
       });
     }
 
-    // Courses
     if (Array.isArray(finalCV?.courses) && finalCV.courses.length > 0) {
       const title = document.createElement("div");
       title.className = "section-title";
@@ -355,12 +263,10 @@ export const ProfileView = ({ lang }) => {
 
         row.appendChild(left);
         row.appendChild(right);
-
         body.appendChild(row);
       });
     }
 
-    // Experience
     if (Array.isArray(finalCV?.experience) && finalCV.experience.length > 0) {
       const title = document.createElement("div");
       title.className = "section-title";
@@ -408,7 +314,6 @@ export const ProfileView = ({ lang }) => {
       });
     }
 
-    // Skills
     if (
       (Array.isArray(finalCV?.skills) && finalCV.skills.length > 0) ||
       finalCV?.languages
@@ -456,9 +361,30 @@ export const ProfileView = ({ lang }) => {
     return container;
   };
 
-  // =========================
-  // ✅ PDF download (BUILDER-EXACT)
-  // =========================
+  const buildPdfCloneWithStyles = (element) => {
+    const clone = element.cloneNode(true);
+    clone.classList.add("pdf-export");
+
+    const style = document.createElement("style");
+    style.innerHTML = `
+      .pdf-export { width: 816px; background:#fff; padding:0; margin:0; font-family:"Times New Roman", Times, serif; color:#0f172a; }
+      .pdf-export .cv-header { padding: 26px 32px 10px 32px; text-align:center; }
+      .pdf-export .header-name { font-size: 46px; font-weight: 700; line-height: 1.05; margin: 0 0 12px 0; }
+      .pdf-export .contact-info { display:block; text-align:center; font-size:16px; padding:10px 14px;margin-top:25px; background:#e2e8f0; line-height:1.25; word-break:break-word; }
+      .pdf-export .cv-body { padding:0 32px 28px 32px; font-size:14px; line-height:1.45; }
+      .pdf-export .section-title { margin-bottom:10px; padding:8px 12px; background:#f1f5f9; font-weight:700; text-transform:uppercase; letter-spacing:.02em; border-bottom:2px solid #cbd5e1; }
+      .pdf-export .row-header, .pdf-export .course-row { display:flex; justify-content:space-between; gap:16px; font-weight:700; }
+      .pdf-export .row-subheader { font-style: italic; margin-top:4px; margin-bottom:6px; }
+      .pdf-export .standard-list { margin:6px 0 0 18px; padding:0; }
+      .pdf-export .standard-list li { margin:0 0 6px 0; }
+      .pdf-export .skills-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 18px; }
+      .pdf-export .skill-item { display:flex; align-items:center; gap:8px; }
+      .pdf-export .skill-dot { width:6px; height:6px; border-radius:999px; background:#0f172a; display:inline-block; }
+    `;
+    clone.prepend(style);
+    return clone;
+  };
+
   const downloadPDFSamePage = async (finalCV) => {
     const tempContainer = document.createElement("div");
     tempContainer.style.position = "absolute";
@@ -496,9 +422,6 @@ export const ProfileView = ({ lang }) => {
     }
   };
 
-  // =========================
-  // ✅ WORD download (same logic + sanitizeContact)
-  // =========================
   const downloadWordSamePage = async (finalCV) => {
     const {
       Document,
@@ -534,7 +457,6 @@ export const ProfileView = ({ lang }) => {
 
     const sections = [];
 
-    // HEADER
     sections.push(
       new Paragraph({
         children: [
@@ -562,7 +484,6 @@ export const ProfileView = ({ lang }) => {
       })
     );
 
-    // SUMMARY
     if (finalCV.summary) {
       sections.push(createHeader("Professional Summary"));
       sections.push(
@@ -573,7 +494,6 @@ export const ProfileView = ({ lang }) => {
       );
     }
 
-    // EDUCATION
     if (finalCV.education?.length) {
       sections.push(createHeader("Education"));
       finalCV.education.forEach((edu) => {
@@ -607,7 +527,6 @@ export const ProfileView = ({ lang }) => {
       });
     }
 
-    // COURSES
     if (finalCV.courses?.length) {
       sections.push(createHeader("Relevant Courses"));
       finalCV.courses.forEach((course) => {
@@ -636,7 +555,6 @@ export const ProfileView = ({ lang }) => {
       });
     }
 
-    // EXPERIENCE
     if (finalCV.experience?.length) {
       sections.push(createHeader("Work Experience"));
       finalCV.experience.forEach((job) => {
@@ -697,7 +615,6 @@ export const ProfileView = ({ lang }) => {
       });
     }
 
-    // SKILLS
     if (finalCV.skills?.length || finalCV.languages) {
       sections.push(createHeader("Skills"));
 
@@ -748,9 +665,6 @@ export const ProfileView = ({ lang }) => {
     saveAs(blob, `${safeName}.docx`);
   };
 
-  // =========================
-  // ✅ Fetch CV then download (same page)
-  // =========================
   const handleDownloadSamePage = async (cvId, format) => {
     try {
       setDownloading({ cvId, format });
@@ -761,11 +675,8 @@ export const ProfileView = ({ lang }) => {
       const payload = await res.json();
       const finalCV = normalizeCvData(payload);
 
-      if (format === "pdf") {
-        await downloadPDFSamePage(finalCV);
-      } else {
-        await downloadWordSamePage(finalCV);
-      }
+      if (format === "pdf") await downloadPDFSamePage(finalCV);
+      else await downloadWordSamePage(finalCV);
 
       toast.success(
         lang === "ar" ? "تم التحميل ✅" : "Downloaded successfully ✅"
@@ -779,8 +690,30 @@ export const ProfileView = ({ lang }) => {
   };
 
   // =========================
-  // ✅ Preview CV (modal) نفس الديزاين
+  // ✅ Preview modal (scroll inside + ESC + click outside + X)
   // =========================
+  const closePreview = () => {
+    setPreviewModal({ isOpen: false, cvId: null, finalCV: null, title: "" });
+  };
+
+  useEffect(() => {
+    if (!previewModal.isOpen) return;
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") closePreview();
+    };
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.body.style.overflow = prevOverflow || "";
+      window.removeEventListener("keydown", onKeyDown);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewModal.isOpen]);
+
   const handlePreviewCV = async (cvId) => {
     try {
       const res = await fetch(`http://localhost:5000/api/get-cv/${cvId}`);
@@ -801,24 +734,15 @@ export const ProfileView = ({ lang }) => {
     }
   };
 
-  const closePreview = () =>
-    setPreviewModal({ isOpen: false, cvId: null, finalCV: null, title: "" });
+  useEffect(() => {
+    if (!previewModal.isOpen) return;
+    if (!previewModal.finalCV) return;
+    if (!previewContainerRef.current) return;
 
-  // =========================
-  // ✅ Duplicate CV (UI only)
-  // =========================
-  const handleDuplicateUI = (cv) => {
-    const now = new Date().toISOString().slice(0, 19).replace("T", " "); // sqlite-like
-    const copy = {
-      ...cv,
-      id: `tmp_${Date.now()}`, // UI only unique key
-      cv_name: `${cv.cv_name || "Resume"} (Copy)`,
-      last_updated: now,
-    };
-
-    setCvList((prev) => [copy, ...(prev || [])]);
-    toast.success(lang === "ar" ? "تم عمل نسخة ✅" : "Duplicated ✅");
-  };
+    previewContainerRef.current.innerHTML = "";
+    const node = buildCvDocumentNode(previewModal.finalCV);
+    previewContainerRef.current.appendChild(node);
+  }, [previewModal.isOpen, previewModal.finalCV]);
 
   // =========================
   // ✅ Load user + list
@@ -893,19 +817,22 @@ export const ProfileView = ({ lang }) => {
     }
   };
 
-  if (!user)
+  // ✅ IMPORTANT: useMemo لازم ييجي قبل أي return
+  const sortedCvList = useMemo(() => {
+    return [...(cvList || [])].sort((a, b) => {
+      const da = parseSqliteUTC(a.last_updated)?.getTime() || 0;
+      const db = parseSqliteUTC(b.last_updated)?.getTime() || 0;
+      return db - da;
+    });
+  }, [cvList]);
+
+  if (!user) {
     return (
       <div className="p-20 text-center font-bold text-slate-400">
         Please login
       </div>
     );
-
-  // ✅ Sorting: آخر تعديل فوق
-  const sortedCvList = [...(cvList || [])].sort((a, b) => {
-    const da = parseSqliteUTC(a.last_updated)?.getTime() || 0;
-    const db = parseSqliteUTC(b.last_updated)?.getTime() || 0;
-    return db - da;
-  });
+  }
 
   return (
     <div
@@ -916,70 +843,73 @@ export const ProfileView = ({ lang }) => {
     >
       {/* ✅ Preview Modal */}
       {previewModal.isOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2rem] w-full max-w-5xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between p-5 border-b">
-              <div className="min-w-0">
-                <h3 className="font-black text-slate-800 truncate">
-                  {lang === "ar" ? "معاينة السيرة الذاتية" : "Preview CV"} —{" "}
-                  {previewModal.title}
-                </h3>
-                <p className="text-xs text-slate-400 font-bold">
-                  {lang === "ar"
-                    ? "نفس التصميم بالظبط"
-                    : "Exact same design (builder-safe)"}
-                </p>
+        <div className="fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+            onClick={closePreview}
+          />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="bg-white rounded-[2rem] w-full max-w-5xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+              <div className="flex items-center justify-between p-5 border-b">
+                <div className="min-w-0">
+                  <h3 className="font-black text-slate-800 truncate">
+                    {lang === "ar" ? "معاينة السيرة الذاتية" : "Preview CV"} —{" "}
+                    {previewModal.title}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-bold">
+                    {lang === "ar"
+                      ? " اضغط Esc للخروج"
+                      : "Scroll is inside preview only — press Esc to close"}
+                  </p>
+                </div>
+
+                <Tooltip text={lang === "ar" ? "إغلاق" : "Close"}>
+                  <button
+                    onClick={closePreview}
+                    className="p-3 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
+                    aria-label="Close"
+                  >
+                    <X size={20} />
+                  </button>
+                </Tooltip>
               </div>
 
-              <button
-                onClick={closePreview}
-                className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-black hover:bg-slate-200 transition-all"
-              >
-                {lang === "ar" ? "إغلاق" : "Close"}
-              </button>
-            </div>
-
-            <div className="p-6 bg-slate-50">
-              <div className="overflow-auto">
+              <div className="flex-1 bg-slate-50 overflow-auto p-6">
                 <div className="mx-auto w-fit bg-white shadow-lg">
-                  {/* ✅ نفس ستايل البلدر */}
                   <style>{`
-                    #cv-document {
-                      width: 816px;
-                      background: #ffffff;
-                      font-family: "Times New Roman", Times, serif;
-                      color: #0f172a;
-                    }
+                    #cv-document { width: 816px; background:#fff; font-family:"Times New Roman", Times, serif; color:#0f172a; }
                     #cv-document .cv-header { padding: 26px 32px 10px 32px; text-align:center; }
-                    #cv-document .header-name { font-size: 46px; font-weight: 700; line-height: 1.05; margin: 0 0 12px 0; }
-                    #cv-document .contact-info { display:block; text-align:center; font-size:16px; padding:10px 14px; margin:0 32px 18px 32px; background:#e2e8f0; line-height:1.25; word-break:break-word; }
-                    #cv-document .cv-body { padding: 0 32px 28px 32px; font-size: 14px; line-height: 1.45; }
-                    #cv-document .section-title { margin-bottom: 10px; padding: 8px 12px; background:#f1f5f9; font-weight:700; text-transform:uppercase; letter-spacing:.02em; border-bottom:2px solid #cbd5e1; }
+                    #cv-document .header-name { font-size:46px; font-weight:700; line-height:1.05; margin:0 0 12px 0; }
+                    #cv-document .contact-info { display:block; text-align:center; font-size:16px; padding:10px 14px; background:#e2e8f0; line-height:1.25; word-break:break-word; }
+                    #cv-document .cv-body { padding:0 32px 28px 32px; font-size:14px; line-height:1.45; }
+                    #cv-document .section-title { margin-bottom:10px; padding:8px 12px; background:#f1f5f9; font-weight:700; text-transform:uppercase; letter-spacing:.02em; border-bottom:2px solid #cbd5e1; }
                     #cv-document .row-header, #cv-document .course-row { display:flex; justify-content:space-between; gap:16px; font-weight:700; }
                     #cv-document .row-subheader { font-style: italic; margin-top:4px; margin-bottom:6px; }
-                    #cv-document .standard-list { margin: 6px 0 0 18px; padding:0; }
-                    #cv-document .standard-list li { margin: 0 0 6px 0; }
+                    #cv-document .standard-list { margin:6px 0 0 18px; padding:0; }
+                    #cv-document .standard-list li { margin:0 0 6px 0; }
                     #cv-document .skills-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 18px; }
                     #cv-document .skill-item { display:flex; align-items:center; gap:8px; }
                     #cv-document .skill-dot { width:6px; height:6px; border-radius:999px; background:#0f172a; display:inline-block; }
                   `}</style>
 
-                  <div
-                    dangerouslySetInnerHTML={{
-                      __html: (() => {
-                        const node = buildCvDocumentNode(previewModal.finalCV);
-                        return node.outerHTML;
-                      })(),
-                    }}
-                  />
+                  <div ref={previewContainerRef} />
                 </div>
+              </div>
+
+              <div className="p-4 border-t bg-white flex justify-end gap-2">
+                <button
+                  onClick={closePreview}
+                  className="px-5 py-3 rounded-xl bg-slate-100 text-slate-700 font-black hover:bg-slate-200 transition-all"
+                >
+                  {lang === "ar" ? "إغلاق" : "Close"}
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* مودال الحذف الاحترافي */}
+      {/* ✅ Delete Modal */}
       {deleteModal.isOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl">
@@ -1023,18 +953,31 @@ export const ProfileView = ({ lang }) => {
               <p className="opacity-80 font-medium">{user.email}</p>
             </div>
           </div>
-          <button
-            onClick={() => (isEditing ? handleSave() : setIsEditing(true))}
-            className="bg-white text-blue-600 px-8 py-3 rounded-2xl font-black shadow-xl active:scale-95 transition-all"
+
+          <Tooltip
+            text={
+              isEditing
+                ? lang === "ar"
+                  ? "حفظ بيانات البروفايل"
+                  : "Save profile changes"
+                : lang === "ar"
+                ? "تعديل بيانات البروفايل"
+                : "Edit profile data"
+            }
           >
-            {isEditing
-              ? lang === "ar"
-                ? "حفظ التغييرات"
-                : "Save Changes"
-              : lang === "ar"
-              ? "تعديل البروفايل"
-              : "Edit Profile"}
-          </button>
+            <button
+              onClick={() => (isEditing ? handleSave() : setIsEditing(true))}
+              className="bg-white text-blue-600 px-8 py-3 rounded-2xl font-black shadow-xl active:scale-95 transition-all"
+            >
+              {isEditing
+                ? lang === "ar"
+                  ? "حفظ التغييرات"
+                  : "Save Changes"
+                : lang === "ar"
+                ? "تعديل البروفايل"
+                : "Edit Profile"}
+            </button>
+          </Tooltip>
         </div>
 
         <div className="p-10 space-y-6">
@@ -1106,25 +1049,25 @@ export const ProfileView = ({ lang }) => {
                 {lang === "ar" ? "إدارة السير الذاتية" : "Resume Management"}
               </h3>
 
-              <button
-                onClick={() => (window.location.href = "/cv_builder")}
-                className="flex items-center gap-2 text-blue-600 font-black hover:bg-blue-50 px-4 py-2 rounded-xl transition-all"
+              <Tooltip
+                text={
+                  lang === "ar" ? "إنشاء سيرة ذاتية جديدة" : "Create a new CV"
+                }
               >
-                <Plus size={20} /> {lang === "ar" ? "إنشاء جديد" : "Create New"}
-              </button>
+                <button
+                  onClick={() => (window.location.href = "/cv_builder")}
+                  className="flex items-center gap-2 text-blue-600 font-black hover:bg-blue-50 px-4 py-2 rounded-xl transition-all"
+                >
+                  <Plus size={20} />{" "}
+                  {lang === "ar" ? "إنشاء جديد" : "Create New"}
+                </button>
+              </Tooltip>
             </div>
 
             <div className="grid gap-4">
               {sortedCvList.length > 0 ? (
                 sortedCvList.map((cv) => {
-                  const d = parseSqliteUTC(cv.last_updated);
-                  const safeDate = d
-                    ? d.toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US", {
-                        year: "numeric",
-                        month: "long",
-                        day: "numeric",
-                      })
-                    : cv.last_updated || "";
+                  const safeDateTime = formatDateTime(cv.last_updated);
 
                   const isPdfLoading =
                     downloading.cvId === cv.id && downloading.format === "pdf";
@@ -1140,97 +1083,135 @@ export const ProfileView = ({ lang }) => {
                         <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all">
                           <FileText size={28} />
                         </div>
+
                         <div>
                           <h4 className="font-black text-slate-800 text-lg uppercase leading-tight">
                             {cv.cv_name || "Resume #" + cv.id}
                           </h4>
                           <p className="text-xs text-slate-400 font-bold tracking-widest mt-1">
-                            {safeDate}
+                            {safeDateTime}
                           </p>
 
-                          {/* ✅ Badges */}
                           <div className="mt-2 flex flex-wrap gap-2">
-                            <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-black tracking-wide">
-                              ATS Safe
-                            </span>
-                            <span className="text-[10px] px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-black tracking-wide">
-                              1 Page
-                            </span>
-                            <span className="text-[10px] px-2 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-black tracking-wide">
-                              US Format
-                            </span>
+                            <Tooltip
+                              text={
+                                lang === "ar"
+                                  ? "ATS Safe: مناسب للسيستم اللي بيقرأ السي في"
+                                  : "ATS Safe: readable by ATS systems"
+                              }
+                            >
+                              <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-black tracking-wide">
+                                ATS Safe
+                              </span>
+                            </Tooltip>
+
+                            <Tooltip
+                              text={
+                                lang === "ar"
+                                  ? "1 Page: سي في مختصر صفحة واحدة"
+                                  : "1 Page: compact one-page resume"
+                              }
+                            >
+                              <span className="text-[10px] px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-black tracking-wide">
+                                Page 1
+                              </span>
+                            </Tooltip>
+
+                            <Tooltip
+                              text={
+                                lang === "ar"
+                                  ? "US Format: تنسيق مناسب لأمريكا"
+                                  : "US Format: U.S. resume style"
+                              }
+                            >
+                              <span className="text-[10px] px-2 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-black tracking-wide">
+                                US Format
+                              </span>
+                            </Tooltip>
                           </div>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2">
-                        {/* ✅ PREVIEW */}
-                        <button
-                          onClick={() => handlePreviewCV(cv.id)}
-                          className="p-3 bg-slate-50 text-slate-600 rounded-xl hover:bg-slate-700 hover:text-white transition-all"
-                          title={lang === "ar" ? "معاينة" : "Preview"}
-                        >
-                          <Eye size={20} />
-                        </button>
-
-                        {/* ✅ DUPLICATE (UI only) */}
-                        <button
-                          onClick={() => handleDuplicateUI(cv)}
-                          className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all"
-                          title={lang === "ar" ? "عمل نسخة" : "Duplicate"}
-                        >
-                          <Copy size={20} />
-                        </button>
-
-                        {/* ✅ EDIT */}
-                        <button
-                          onClick={() =>
-                            (window.location.href = `/cv_edit?cvId=${cv.id}`)
+                        {/* PREVIEW */}
+                        <Tooltip
+                          text={
+                            lang === "ar"
+                              ? "Preview: معاينة بنفس شكل التحميل"
+                              : "Preview: same export design"
                           }
-                          className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all"
-                          title={lang === "ar" ? "تعديل" : "Edit"}
                         >
-                          <Edit2 size={20} />
-                        </button>
+                          <button
+                            onClick={() => handlePreviewCV(cv.id)}
+                            className="p-3 bg-slate-50 text-slate-600 rounded-xl hover:bg-slate-700 hover:text-white transition-all"
+                          >
+                            <Eye size={20} />
+                          </button>
+                        </Tooltip>
 
-                        {/* ✅ PDF download - BUILDER-EXACT */}
-                        <button
-                          disabled={isPdfLoading || isWordLoading}
-                          onClick={() => handleDownloadSamePage(cv.id, "pdf")}
-                          className={`p-3 rounded-xl transition-all ${
-                            isPdfLoading
-                              ? "bg-red-100 text-red-400 cursor-not-allowed"
-                              : "bg-red-50 text-red-500 hover:bg-red-500 hover:text-white"
-                          }`}
-                          title={lang === "ar" ? "تحميل PDF" : "Download PDF"}
-                        >
-                          <Download size={20} />
-                        </button>
-
-                        {/* ✅ WORD download - BUILDER-EXACT */}
-                        <button
-                          disabled={isPdfLoading || isWordLoading}
-                          onClick={() => handleDownloadSamePage(cv.id, "word")}
-                          className={`p-3 rounded-xl transition-all ${
-                            isWordLoading
-                              ? "bg-emerald-100 text-emerald-400 cursor-not-allowed"
-                              : "bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white"
-                          }`}
-                          title={lang === "ar" ? "تحميل Word" : "Download Word"}
-                        >
-                          <FileText size={20} />
-                        </button>
-
-                        {/* ✅ DELETE */}
-                        <button
-                          onClick={() =>
-                            setDeleteModal({ isOpen: true, cvId: cv.id })
+                        {/* EDIT */}
+                        <Tooltip
+                          text={
+                            lang === "ar" ? "Edit: تعديل السي في" : "Edit CV"
                           }
-                          className="p-3 bg-slate-50 text-slate-400 rounded-xl hover:bg-red-600 hover:text-white transition-all"
-                          title={lang === "ar" ? "حذف" : "Delete"}
                         >
-                          <Trash2 size={20} />
-                        </button>
+                          <button
+                            onClick={() =>
+                              (window.location.href = `/cv_edit?cvId=${cv.id}`)
+                            }
+                            className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all"
+                          >
+                            <Edit2 size={20} />
+                          </button>
+                        </Tooltip>
+
+                        {/* PDF */}
+                        <Tooltip
+                          text={lang === "ar" ? "تحميل PDF" : "Download PDF"}
+                        >
+                          <button
+                            disabled={isPdfLoading || isWordLoading}
+                            onClick={() => handleDownloadSamePage(cv.id, "pdf")}
+                            className={`p-3 rounded-xl transition-all ${
+                              isPdfLoading
+                                ? "bg-red-100 text-red-400 cursor-not-allowed"
+                                : "bg-red-50 text-red-500 hover:bg-red-500 hover:text-white"
+                            }`}
+                          >
+                            <Download size={20} />
+                          </button>
+                        </Tooltip>
+
+                        {/* WORD */}
+                        <Tooltip
+                          text={lang === "ar" ? "تحميل Word" : "Download Word"}
+                        >
+                          <button
+                            disabled={isPdfLoading || isWordLoading}
+                            onClick={() =>
+                              handleDownloadSamePage(cv.id, "word")
+                            }
+                            className={`p-3 rounded-xl transition-all ${
+                              isWordLoading
+                                ? "bg-emerald-100 text-emerald-400 cursor-not-allowed"
+                                : "bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white"
+                            }`}
+                          >
+                            <FileText size={20} />
+                          </button>
+                        </Tooltip>
+
+                        {/* DELETE */}
+                        <Tooltip text={lang === "ar" ? "حذف" : "Delete"}>
+                          <button
+                            onClick={() =>
+                              setDeleteModal({ isOpen: true, cvId: cv.id })
+                            }
+                            className="p-3 bg-slate-50 text-slate-400 rounded-xl hover:bg-red-600 hover:text-white transition-all"
+                          >
+                            <Trash2 size={20} />
+                          </button>
+                        </Tooltip>
                       </div>
                     </div>
                   );
