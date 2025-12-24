@@ -38,6 +38,18 @@ export const ProfileView = ({ lang }) => {
     format: null, // "pdf" | "word"
   });
 
+  // ✅ CV Scores map
+  // { [cvId]: { score, level, colorClass, bulletsCount, skillsCount, expCount, eduCount, tooltip, actions[] } }
+  const [cvScores, setCvScores] = useState({});
+
+  // ✅ optional: modal to show all actions (checklist)
+  const [scoreModal, setScoreModal] = useState({
+    isOpen: false,
+    cvId: null,
+    title: "",
+    scoreObj: null,
+  });
+
   const [editData, setEditData] = useState({
     username: "",
     phone: "",
@@ -46,7 +58,7 @@ export const ProfileView = ({ lang }) => {
   });
 
   // =========================
-  // ✅ Tooltip
+  // ✅ Tooltip (same style as badges hover)
   // =========================
   const Tooltip = ({ text, children }) => (
     <span className="relative inline-flex items-center group/tt">
@@ -169,6 +181,181 @@ export const ProfileView = ({ lang }) => {
     return s;
   };
 
+  // =========================
+  // ✅ SCORE (smart tooltip + actions)
+  // =========================
+  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+
+  const computeCvScoreBreakdown = (finalCV) => {
+    const safe = finalCV || {};
+    const actions = [];
+    let score = 0;
+
+    const name = String(safe?.name || "").trim();
+    const contactClean = sanitizeContact(safe?.contact || "");
+    const summary = String(safe?.summary || "").trim();
+
+    const eduCount = Array.isArray(safe?.education) ? safe.education.length : 0;
+    const expCount = Array.isArray(safe?.experience)
+      ? safe.experience.length
+      : 0;
+    const skillsCount = Array.isArray(safe?.skills) ? safe.skills.length : 0;
+
+    const bulletsCount = Array.isArray(safe?.experience)
+      ? safe.experience.reduce(
+          (acc, ex) =>
+            acc + (Array.isArray(ex?.bullets) ? ex.bullets.length : 0),
+          0
+        )
+      : 0;
+
+    const languagesLen = String(safe?.languages || "").trim().length;
+
+    // ---------- Name ----------
+    if (name.length >= 3) score += 12;
+    else
+      actions.push(
+        lang === "ar"
+          ? "✦ اكتب اسمك في أعلى السيرة (Full Name)."
+          : "✦ Add your full name at the top."
+      );
+
+    // ---------- Contact ----------
+    if (contactClean.length >= 10) score += 12;
+    else
+      actions.push(
+        lang === "ar"
+          ? "✦ ضيف بيانات تواصل: Email + Phone + City/State."
+          : "✦ Add contact: Email + Phone + City/State."
+      );
+
+    // ---------- Summary ----------
+    if (summary.length >= 40) score += 14;
+    else {
+      const need = Math.max(0, 40 - summary.length);
+      actions.push(
+        lang === "ar"
+          ? `✦ زوّد الـ Summary: ناقص تقريبًا ${need} حرف (خليه 2–3 سطور).`
+          : `✦ Expand summary: add ~${need} more characters (2–3 lines).`
+      );
+    }
+
+    // ---------- Education ----------
+    if (eduCount > 0) score += 12;
+    else
+      actions.push(
+        lang === "ar"
+          ? "✦ ضيف Education (مدرسة/جامعة/شهادة/كورسات)."
+          : "✦ Add an Education section (school/degree/certificates)."
+      );
+
+    // ---------- Experience ----------
+    if (expCount > 0) score += 18;
+    else
+      actions.push(
+        lang === "ar"
+          ? "✦ ضيف Work Experience واحدة على الأقل."
+          : "✦ Add at least one Work Experience."
+      );
+
+    // ---------- Bullets ----------
+    if (bulletsCount >= 3) score += 8;
+    else {
+      const need = Math.max(0, 3 - bulletsCount);
+      actions.push(
+        lang === "ar"
+          ? `✦ زوّد نقاط الخبرة: ناقص ${need} نقطة (minimum 3).`
+          : `✦ Add experience bullets: need ${need} more (minimum 3).`
+      );
+    }
+
+    if (bulletsCount >= 6) score += 6;
+    else {
+      const need = Math.max(0, 6 - bulletsCount);
+      actions.push(
+        lang === "ar"
+          ? `✦ علشان يبقى قوي: حاول توصل لـ 6 نقاط خبرة (ناقص ${need}).`
+          : `✦ For a strong CV: reach 6 bullets (need ${need} more).`
+      );
+    }
+
+    // ---------- Skills ----------
+    if (skillsCount >= 4) score += 10;
+    else {
+      const need = Math.max(0, 4 - skillsCount);
+      actions.push(
+        lang === "ar"
+          ? `✦ زوّد Skills: ناقص ${need} مهارة (minimum 4).`
+          : `✦ Add skills: need ${need} more (minimum 4).`
+      );
+    }
+
+    // ---------- Languages ----------
+    if (languagesLen > 0) score += 8;
+    else
+      actions.push(
+        lang === "ar"
+          ? "✦ ضيف Languages (مثلاً: English, Arabic)."
+          : "✦ Add Languages (e.g., English, Arabic)."
+      );
+
+    score = clamp(score, 0, 100);
+
+    const level =
+      score >= 85
+        ? lang === "ar"
+          ? "ممتاز"
+          : "Excellent"
+        : score >= 70
+        ? lang === "ar"
+          ? "جيد جدًا"
+          : "Strong"
+        : score >= 55
+        ? lang === "ar"
+          ? "متوسط"
+          : "Average"
+        : lang === "ar"
+        ? "ضعيف"
+        : "Weak";
+
+    const colorClass =
+      score >= 80
+        ? "text-emerald-600"
+        : score >= 60
+        ? "text-blue-600"
+        : score >= 40
+        ? "text-amber-600"
+        : "text-red-600";
+
+    const topActions = actions.slice(0, 3);
+
+    const tooltip =
+      lang === "ar"
+        ? `Score: ${score}% (${level})
+To improve:
+${topActions.length ? topActions.join(" | ") : "✓ ممتاز، مفيش نقص واضح"}
+Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bulletsCount}`
+        : `Score: ${score}% (${level})
+To improve:
+${topActions.length ? topActions.join(" | ") : "✓ Looks great, nothing major"}
+Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bulletsCount}`;
+
+    return {
+      score,
+      level,
+      colorClass,
+      bulletsCount,
+      skillsCount,
+      expCount,
+      eduCount,
+      tooltip,
+      actions,
+    };
+  };
+
+  // =========================
+  // ✅ Build CV DOM (same export design)
+  // =========================
   const buildCvDocumentNode = (finalCV) => {
     const container = document.createElement("div");
     container.id = "cv-document";
@@ -348,7 +535,6 @@ export const ProfileView = ({ lang }) => {
 
           item.appendChild(dot);
           item.appendChild(text);
-
           grid.appendChild(item);
         });
 
@@ -704,6 +890,9 @@ export const ProfileView = ({ lang }) => {
 
     const onKeyDown = (e) => {
       if (e.key === "Escape") closePreview();
+      if (e.key === "Escape") {
+        setScoreModal({ isOpen: false, cvId: null, title: "", scoreObj: null });
+      }
     };
     window.addEventListener("keydown", onKeyDown);
 
@@ -711,7 +900,6 @@ export const ProfileView = ({ lang }) => {
       document.body.style.overflow = prevOverflow || "";
       window.removeEventListener("keydown", onKeyDown);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewModal.isOpen]);
 
   const handlePreviewCV = async (cvId) => {
@@ -826,6 +1014,49 @@ export const ProfileView = ({ lang }) => {
     });
   }, [cvList]);
 
+  // ✅ compute + cache detailed scores for list
+  useEffect(() => {
+    if (!sortedCvList?.length) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const entries = await Promise.all(
+          sortedCvList.map(async (cv) => {
+            try {
+              const res = await fetch(
+                `http://localhost:5000/api/get-cv/${cv.id}`
+              );
+              if (!res.ok) return [cv.id, computeCvScoreBreakdown(null)];
+
+              const payload = await res.json();
+              const finalCV = normalizeCvData(payload);
+              const breakdown = computeCvScoreBreakdown(finalCV);
+              return [cv.id, breakdown];
+            } catch {
+              return [cv.id, computeCvScoreBreakdown(null)];
+            }
+          })
+        );
+
+        if (!cancelled) {
+          const map = {};
+          entries.forEach(([id, b]) => (map[id] = b));
+          setCvScores(map);
+        }
+      } catch {}
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortedCvList, lang]);
+
+  const closeScoreModal = () =>
+    setScoreModal({ isOpen: false, cvId: null, title: "", scoreObj: null });
+
   if (!user) {
     return (
       <div className="p-20 text-center font-bold text-slate-400">
@@ -841,6 +1072,109 @@ export const ProfileView = ({ lang }) => {
       }`}
       dir={lang === "ar" ? "rtl" : "ltr"}
     >
+      {/* ✅ Score Modal (shows full checklist) */}
+      {scoreModal.isOpen && (
+        <div className="fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+            onClick={closeScoreModal}
+          />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="bg-white rounded-[2rem] w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+              <div className="flex items-center justify-between p-5 border-b">
+                <div className="min-w-0">
+                  <h3 className="font-black text-slate-800 truncate">
+                    {lang === "ar" ? "تفاصيل التقييم" : "Score Details"} —{" "}
+                    {scoreModal.title}
+                  </h3>
+                  <p className="text-xs text-slate-400 font-bold">
+                    {lang === "ar"
+                      ? "دي الحاجات اللي تزود بيها التقييم"
+                      : "These are the exact improvements to raise the score"}
+                  </p>
+                </div>
+
+                <Tooltip text={lang === "ar" ? "إغلاق" : "Close"}>
+                  <button
+                    onClick={closeScoreModal}
+                    className="p-3 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
+                    aria-label="Close"
+                  >
+                    <X size={20} />
+                  </button>
+                </Tooltip>
+              </div>
+
+              <div className="p-6 overflow-auto">
+                <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                  <div className="text-xs font-black text-slate-500 uppercase tracking-widest">
+                    {lang === "ar" ? "النتيجة" : "Score"}
+                  </div>
+                  <div className="font-black text-lg">
+                    <span
+                      className={
+                        scoreModal.scoreObj?.colorClass || "text-slate-700"
+                      }
+                    >
+                      {scoreModal.scoreObj?.score ?? 0}%
+                    </span>{" "}
+                    <span className="text-slate-400 text-sm">
+                      ({scoreModal.scoreObj?.level || ""})
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <div className="text-sm font-black text-slate-800 mb-2">
+                    {lang === "ar" ? "اعمل التالي:" : "Do the following:"}
+                  </div>
+
+                  {scoreModal.scoreObj?.actions?.length ? (
+                    <ul className="space-y-2">
+                      {scoreModal.scoreObj.actions.map((a, idx) => (
+                        <li
+                          key={idx}
+                          className="p-3 rounded-2xl bg-white border border-slate-200 text-slate-700 font-bold"
+                        >
+                          {a}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-black">
+                      {lang === "ar"
+                        ? "ممتاز ✅ مش محتاج تعديلات كبيرة"
+                        : "Excellent ✅ no major issues"}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-5 text-xs text-slate-500 font-bold">
+                  {lang === "ar" ? "إحصائيات:" : "Stats:"}{" "}
+                  {lang === "ar" ? "الخبرة" : "Exp"}=
+                  {scoreModal.scoreObj?.expCount ?? 0} |{" "}
+                  {lang === "ar" ? "التعليم" : "Edu"}=
+                  {scoreModal.scoreObj?.eduCount ?? 0} |{" "}
+                  {lang === "ar" ? "المهارات" : "Skills"}=
+                  {scoreModal.scoreObj?.skillsCount ?? 0} |{" "}
+                  {lang === "ar" ? "نقاط الخبرة" : "Bullets"}=
+                  {scoreModal.scoreObj?.bulletsCount ?? 0}
+                </div>
+              </div>
+
+              <div className="p-4 border-t bg-white flex justify-end gap-2">
+                <button
+                  onClick={closeScoreModal}
+                  className="px-5 py-3 rounded-xl bg-slate-100 text-slate-700 font-black hover:bg-slate-200 transition-all"
+                >
+                  {lang === "ar" ? "إغلاق" : "Close"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ✅ Preview Modal */}
       {previewModal.isOpen && (
         <div className="fixed inset-0 z-50">
@@ -1074,6 +1408,14 @@ export const ProfileView = ({ lang }) => {
                   const isWordLoading =
                     downloading.cvId === cv.id && downloading.format === "word";
 
+                  const scoreObj = cvScores[cv.id];
+                  const scoreVal = scoreObj?.score ?? 0;
+
+                  // ✅ IMPORTANT FIX: use the new tooltip from breakdown
+                  const scoreTooltip =
+                    scoreObj?.tooltip ||
+                    (lang === "ar" ? "جارٍ الحساب..." : "Calculating...");
+
                   return (
                     <div
                       key={cv.id}
@@ -1128,12 +1470,38 @@ export const ProfileView = ({ lang }) => {
                                 US Format
                               </span>
                             </Tooltip>
+
+                            {/* ✅ SCORE BADGE (no bar) + tooltip + click for details */}
+                            <Tooltip text={scoreTooltip}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setScoreModal({
+                                    isOpen: true,
+                                    cvId: cv.id,
+                                    title: cv.cv_name || "Resume #" + cv.id,
+                                    scoreObj: scoreObj || null,
+                                  })
+                                }
+                                className="inline-flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full bg-slate-50 border border-slate-200 font-black tracking-wide cursor-pointer hover:bg-slate-100 transition-all"
+                              >
+                                <span className="text-slate-500 uppercase tracking-widest">
+                                  {lang === "ar" ? "التقييم" : "Score"}
+                                </span>
+                                <span
+                                  className={
+                                    scoreObj?.colorClass || "text-slate-700"
+                                  }
+                                >
+                                  {scoreVal}%
+                                </span>
+                              </button>
+                            </Tooltip>
                           </div>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2">
-                        {/* PREVIEW */}
                         <Tooltip
                           text={
                             lang === "ar"
@@ -1149,7 +1517,6 @@ export const ProfileView = ({ lang }) => {
                           </button>
                         </Tooltip>
 
-                        {/* EDIT */}
                         <Tooltip
                           text={
                             lang === "ar" ? "Edit: تعديل السي في" : "Edit CV"
@@ -1165,7 +1532,6 @@ export const ProfileView = ({ lang }) => {
                           </button>
                         </Tooltip>
 
-                        {/* PDF */}
                         <Tooltip
                           text={lang === "ar" ? "تحميل PDF" : "Download PDF"}
                         >
@@ -1182,7 +1548,6 @@ export const ProfileView = ({ lang }) => {
                           </button>
                         </Tooltip>
 
-                        {/* WORD */}
                         <Tooltip
                           text={lang === "ar" ? "تحميل Word" : "Download Word"}
                         >
@@ -1201,7 +1566,6 @@ export const ProfileView = ({ lang }) => {
                           </button>
                         </Tooltip>
 
-                        {/* DELETE */}
                         <Tooltip text={lang === "ar" ? "حذف" : "Delete"}>
                           <button
                             onClick={() =>
