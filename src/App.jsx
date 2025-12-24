@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Toaster } from "react-hot-toast";
+import { StartView } from "./components/StartView";
 
 import {
   BrowserRouter as Router,
@@ -89,6 +90,7 @@ function AppContent() {
               element={<DetailPageWrapper lang={lang} />}
             />
             <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="/start" element={<StartView lang={lang} />} />
           </Routes>
         </main>
 
