@@ -1,69 +1,140 @@
 import React, { useState } from "react";
-import { LogIn, UserPlus, Mail, Lock, ArrowLeft } from "lucide-react";
-// 1. استيراد مكتبة الإشعارات الاحترافية
+import { UserPlus, Mail, Lock, ArrowLeft } from "lucide-react";
 import toast from "react-hot-toast";
 
-export const AuthView = ({ lang, setPage }) => {
-  const [isLogin, setIsLogin] = useState(true);
+export const AuthView = ({ lang = "en" }) => {
+  const API_BASE =
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_BASE ||
+    "http://localhost:5000";
 
-  // الحالة الخاصة ببيانات الفورم
+  const [isLogin, setIsLogin] = useState(true);
+  const [loading, setLoading] = useState(false);
+
   const [formData, setFormData] = useState({
     username: "",
-    email: "",
+    identifier: "",
     password: "",
   });
 
-  // تحديث البيانات عند الكتابة
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+  const switchMode = () => {
+    setIsLogin((p) => !p);
+    setFormData({ username: "", identifier: "", password: "" });
   };
 
-  // دالة الإرسال للسيرفر
+  const handleChange = (e) => {
+    setFormData((p) => ({ ...p, [e.target.name]: e.target.value }));
+  };
+
+  const safeJson = async (res) => {
+    try {
+      return await res.json();
+    } catch {
+      return {};
+    }
+  };
+
+  const isEmail = (v) => /.+@.+\..+/.test(String(v || "").trim());
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (loading) return;
 
-    const endpoint = isLogin ? "/api/login" : "/api/register";
+    const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
 
+    const identifier = formData.identifier.trim();
+    const username = formData.username.trim();
+    const password = formData.password;
+
+    // ✅ Validation
+    if (isLogin) {
+      if (!identifier || !password) {
+        toast.error(lang === "ar" ? "املأ البيانات الأول" : "Fill the fields");
+        return;
+      }
+    } else {
+      if (!username || !identifier || !password) {
+        toast.error(lang === "ar" ? "املأ البيانات الأول" : "Fill the fields");
+        return;
+      }
+      if (!isEmail(identifier)) {
+        toast.error(
+          lang === "ar"
+            ? "التسجيل لازم يكون بإيميل صحيح"
+            : "Registration requires a valid email"
+        );
+        return;
+      }
+    }
+
+    setLoading(true);
     try {
-      const response = await fetch(`http://localhost:5000${endpoint}`, {
+      const payload = isLogin
+        ? { email: identifier, password } // backend expects this غالبًا
+        : { username, email: identifier, password };
+
+      const res = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      const data = await safeJson(res);
 
-      if (response.ok) {
-        // 2. استخدام التوست بدلاً من الـ alert
-        toast.success(
-          data.message || (lang === "ar" ? "تم بنجاح" : "Success!")
-        );
-
-        // حفظ بيانات المستخدم للثبات
-        localStorage.setItem("user", JSON.stringify(data.user));
-
-        if (!isLogin) {
-          // بعد التسجيل، انقله لشاشة الدخول تلقائياً
-          setIsLogin(true);
-        } else {
-          // بعد الدخول، انتظر ثانية واحدة ليشاهد الإشعار ثم انقله للرئيسية
-          setTimeout(() => {
-            window.location.href = "/";
-          }, 1000);
+      // ✅ لا نرمي Errors ولا نعمل console.error — بس Toast
+      if (!res.ok) {
+        if (res.status === 401) {
+          toast.error(
+            data?.message ||
+              (lang === "ar"
+                ? "الإيميل أو كلمة السر غلط"
+                : "Wrong email or password")
+          );
+          return;
         }
-      } else {
-        // رسالة خطأ احترافية في حالة فشل الطلب
+
+        if (res.status === 400) {
+          toast.error(
+            data?.message ||
+              (lang === "ar"
+                ? "البيانات ناقصة أو الطلب غلط"
+                : "Bad request — missing/invalid fields")
+          );
+          return;
+        }
+
         toast.error(
-          data.message || (lang === "ar" ? "حدث خطأ ما" : "An error occurred")
+          data?.message || (lang === "ar" ? "حدث خطأ" : "Something went wrong")
         );
+        return;
       }
-    } catch (err) {
-      console.error("خطأ اتصال:", err);
+
+      const token = data?.token || data?.accessToken || data?.jwt;
+      const user = data?.user || data?.data?.user || data?.me;
+
+      if (!token) {
+        toast.error(
+          lang === "ar"
+            ? "السيرفر لم يُرجع Token"
+            : "Server did not return a token"
+        );
+        return;
+      }
+
+      localStorage.setItem("token", token);
+      if (user) localStorage.setItem("user", JSON.stringify(user));
+
+      toast.success(lang === "ar" ? "تم تسجيل الدخول ✅" : "Logged in ✅");
+      setTimeout(() => (window.location.href = "/"), 250);
+    } catch {
+      // ✅ بدون console.error
       toast.error(
         lang === "ar"
-          ? "تعذر الاتصال بالسيرفر، تأكد من تشغيل الباك إيند"
+          ? "تعذر الاتصال بالسيرفر (شغل الباك أولاً)"
           : "Server connection failed"
       );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -72,10 +143,11 @@ export const AuthView = ({ lang, setPage }) => {
       <div className="bg-white w-full max-w-md rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
         <div className="p-8">
           <button
-            onClick={() => setPage("home")}
+            type="button"
+            onClick={() => (window.location.href = "/")}
             className="flex items-center gap-2 text-slate-400 hover:text-blue-600 mb-8 transition-colors text-sm font-bold cursor-pointer"
           >
-            <ArrowLeft size={16} />{" "}
+            <ArrowLeft size={16} />
             {lang === "ar" ? "العودة للرئيسية" : "Back to Home"}
           </button>
 
@@ -92,18 +164,18 @@ export const AuthView = ({ lang, setPage }) => {
           <p className="text-slate-500 mb-8 font-medium">
             {isLogin
               ? lang === "ar"
-                ? "أهلاً بك مجدداً في دليلك الأول"
+                ? "أهلاً بك مجدداً"
                 : "Welcome back"
               : lang === "ar"
-              ? "انضم لآلاف القادمين الجدد لأمريكا"
-              : "Join thousands of newcomers"}
+              ? "ابدأ حسابك الآن"
+              : "Create your account"}
           </p>
 
           <form className="space-y-4" onSubmit={handleSubmit}>
             {!isLogin && (
               <div>
                 <label className="block text-sm font-bold mb-2 pr-1">
-                  {lang === "ar" ? "الاسم الكامل" : "Full Name"}
+                  {lang === "ar" ? "الاسم" : "Name"}
                 </label>
                 <div className="relative">
                   <input
@@ -124,13 +196,13 @@ export const AuthView = ({ lang, setPage }) => {
 
             <div>
               <label className="block text-sm font-bold mb-2 pr-1">
-                {lang === "ar" ? "البريد الإلكتروني" : "Email Address"}
+                {lang === "ar" ? "الإيميل" : "Email"}
               </label>
               <div className="relative">
                 <input
-                  type="email"
-                  name="email"
-                  value={formData.email}
+                  type={isLogin ? "text" : "email"}
+                  name="identifier"
+                  value={formData.identifier}
                   onChange={handleChange}
                   required
                   className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none pl-12"
@@ -164,22 +236,32 @@ export const AuthView = ({ lang, setPage }) => {
 
             <button
               type="submit"
-              className="w-full bg-blue-600 cursor-pointer text-white p-4 rounded-2xl font-bold text-lg hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all mt-4"
+              disabled={loading}
+              className={`w-full p-4 rounded-2xl font-bold text-lg shadow-lg transition-all mt-4 ${
+                loading
+                  ? "bg-slate-200 text-slate-500 cursor-not-allowed"
+                  : "bg-blue-600 text-white hover:bg-blue-700 shadow-blue-100 cursor-pointer"
+              }`}
             >
-              {isLogin
+              {loading
+                ? lang === "ar"
+                  ? "جارٍ التنفيذ..."
+                  : "Processing..."
+                : isLogin
                 ? lang === "ar"
                   ? "دخول"
                   : "Login"
                 : lang === "ar"
-                ? "ابدأ الآن"
-                : "Get Started"}
+                ? "سجل الآن"
+                : "Register"}
             </button>
           </form>
         </div>
 
         <div className="p-6 bg-slate-50 border-t border-slate-100 text-center">
           <button
-            onClick={() => setIsLogin(!isLogin)}
+            type="button"
+            onClick={switchMode}
             className="text-blue-600 font-bold hover:underline cursor-pointer"
           >
             {isLogin
@@ -187,7 +269,7 @@ export const AuthView = ({ lang, setPage }) => {
                 ? "ليس لديك حساب؟ سجل الآن"
                 : "Don't have an account? Sign up"
               : lang === "ar"
-              ? "لديك حساب بالفعل؟ سجل دخولك"
+              ? "لديك حساب؟ سجل دخولك"
               : "Already have an account? Sign in"}
           </button>
         </div>

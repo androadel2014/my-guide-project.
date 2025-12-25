@@ -19,6 +19,20 @@ import * as docx from "docx";
 import { saveAs } from "file-saver";
 
 export const ProfileView = ({ lang }) => {
+  // ✅ API base from .env (portable)
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+
+  // ✅ Auth headers helper (Bearer)
+  const authHeaders = () => {
+    const token = localStorage.getItem("token");
+    return {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  };
+
+  const [loading, setLoading] = useState(true);
+
   const [user, setUser] = useState(null);
   const [cvList, setCvList] = useState([]);
   const [isEditing, setIsEditing] = useState(false);
@@ -556,7 +570,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
       .pdf-export { width: 816px; background:#fff; padding:0; margin:0; font-family:"Times New Roman", Times, serif; color:#0f172a; }
       .pdf-export .cv-header { padding: 26px 32px 10px 32px; text-align:center; }
       .pdf-export .header-name { font-size: 46px; font-weight: 700; line-height: 1.05; margin: 0 0 12px 0; }
-      .pdf-export .contact-info { display:block; text-align:center; font-size:16px; padding:10px 14px;margin-top:25px; background:#e2e8f0; line-height:1.25; word-break:break-word; }
+      .pdf-export .contact-info { display:block; text-align:center; font-size:16px; padding:10px 14px; margin-top:25px; background:#e2e8f0; line-height:1.25; word-break:break-word; }
       .pdf-export .cv-body { padding:0 32px 28px 32px; font-size:14px; line-height:1.45; }
       .pdf-export .section-title { margin-bottom:10px; padding:8px 12px; background:#f1f5f9; font-weight:700; text-transform:uppercase; letter-spacing:.02em; border-bottom:2px solid #cbd5e1; }
       .pdf-export .row-header, .pdf-export .course-row { display:flex; justify-content:space-between; gap:16px; font-weight:700; }
@@ -855,7 +869,10 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
     try {
       setDownloading({ cvId, format });
 
-      const res = await fetch(`http://localhost:5000/api/get-cv/${cvId}`);
+      const res = await fetch(`${API_BASE}/api/cv/${cvId}`, {
+        headers: authHeaders(),
+      });
+
       if (!res.ok) throw new Error("Failed to load CV");
 
       const payload = await res.json();
@@ -889,11 +906,12 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
     document.body.style.overflow = "hidden";
 
     const onKeyDown = (e) => {
-      if (e.key === "Escape") closePreview();
       if (e.key === "Escape") {
+        closePreview();
         setScoreModal({ isOpen: false, cvId: null, title: "", scoreObj: null });
       }
     };
+
     window.addEventListener("keydown", onKeyDown);
 
     return () => {
@@ -904,7 +922,10 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
 
   const handlePreviewCV = async (cvId) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/get-cv/${cvId}`);
+      const res = await fetch(`${API_BASE}/api/cv/${cvId}`, {
+        headers: authHeaders(),
+      });
+
       if (!res.ok) throw new Error("Failed to load CV");
 
       const payload = await res.json();
@@ -936,51 +957,149 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
   // ✅ Load user + list
   // =========================
   useEffect(() => {
-    const savedUser = localStorage.getItem("user");
-    if (savedUser) {
-      try {
-        const userData = JSON.parse(savedUser);
-        setUser(userData);
-        setEditData({
-          username: userData.username || "",
-          phone: userData.phone || "",
-          address: userData.address || "",
-          bio: userData.bio || "",
-        });
-        fetchUserCVs(userData.id);
-      } catch (e) {
-        console.error("Error parsing user data");
+    const init = async () => {
+      setLoading(true);
+
+      const token = localStorage.getItem("token");
+      if (!token) {
+        setUser(null);
+        setLoading(false);
+        return;
       }
-    }
+
+      // 1) load from localStorage سريعًا
+      const savedUser = localStorage.getItem("user");
+      if (savedUser) {
+        try {
+          const userData = JSON.parse(savedUser);
+          setUser(userData);
+          setEditData({
+            username: userData.username || "",
+            phone: userData.phone || "",
+            address: userData.address || "",
+            bio: userData.bio || "",
+          });
+        } catch {}
+      }
+
+      // 2) المصدر الحقيقي: server
+      try {
+        const res = await fetch(`${API_BASE}/api/users/me`, {
+          headers: authHeaders(),
+        });
+
+        // ✅ لو غير مصرح → ساعتها بس نشيل التوكن
+        if (res.status === 401) {
+          localStorage.removeItem("token");
+          localStorage.removeItem("user");
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+
+        const me = await res.json().catch(() => null);
+
+        if (res.ok && me) {
+          setUser(me);
+          setEditData({
+            username: me.username || "",
+            phone: me.phone || "",
+            address: me.address || "",
+            bio: me.bio || "",
+          });
+          localStorage.setItem("user", JSON.stringify(me));
+        }
+      } catch (e) {
+        console.error("Failed to load /api/users/me", e);
+      }
+
+      // 3) هات الـ CVs
+      await fetchUserCVs();
+
+      setLoading(false);
+    };
+
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchUserCVs = async (userId) => {
+  const fetchUserCVs = async () => {
     try {
-      const res = await fetch(
-        `http://localhost:5000/api/get-all-cvs/${userId}`
-      );
-      const data = await res.json();
-      if (Array.isArray(data)) setCvList(data);
+      const res = await fetch(`${API_BASE}/api/cv`, {
+        headers: authHeaders(),
+      });
+
+      if (res.status === 401) {
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        setUser(null);
+        return;
+      }
+
+      const data = await res.json().catch(() => []);
+      if (!res.ok) {
+        console.error("fetchUserCVs failed:", data);
+        return;
+      }
+
+      // backend بيرجع: { id, cv_name, updated_at }
+      const normalized = Array.isArray(data)
+        ? data.map((x) => ({
+            ...x,
+            last_updated: x.updated_at,
+          }))
+        : [];
+
+      setCvList(normalized);
     } catch (err) {
       console.error("Error fetching CVs:", err);
     }
   };
 
+  // =========================
+  // ✅ Save profile (ONE version فقط)
+  // =========================
   const handleSave = async () => {
     try {
-      const response = await fetch("http://localhost:5000/api/update-profile", {
+      const response = await fetch(`${API_BASE}/api/users/me`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...editData, id: user.id }),
+        headers: authHeaders(),
+        body: JSON.stringify({
+          username: editData.username,
+          phone: editData.phone,
+          address: editData.address,
+          bio: editData.bio,
+        }),
       });
 
-      if (response.ok) {
-        toast.success(lang === "ar" ? "تم تحديث البيانات" : "Profile Updated");
-        const updatedUser = { ...user, ...editData };
-        localStorage.setItem("user", JSON.stringify(updatedUser));
-        setUser(updatedUser);
-        setIsEditing(false);
+      if (response.status === 401) {
+        toast.error(
+          lang === "ar"
+            ? "انتهت الجلسة. سجل دخول تاني."
+            : "Session expired. Please login again."
+        );
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        setUser(null);
+        return;
       }
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        toast.error(
+          data?.message || (lang === "ar" ? "فشل الحفظ" : "Save failed")
+        );
+        return;
+      }
+
+      toast.success(lang === "ar" ? "تم تحديث البيانات" : "Profile Updated");
+
+      const updatedUser = { ...user, ...editData };
+      localStorage.setItem("user", JSON.stringify(updatedUser));
+      setUser(updatedUser);
+
+      setIsEditing(false);
     } catch (error) {
       toast.error(lang === "ar" ? "خطأ في الاتصال" : "Connection error");
     }
@@ -988,20 +1107,37 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
 
   const confirmDelete = async () => {
     try {
-      const response = await fetch(
-        `http://localhost:5000/api/delete-cv/${deleteModal.cvId}`,
-        { method: "DELETE" }
-      );
+      const response = await fetch(`${API_BASE}/api/cv/${deleteModal.cvId}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
 
-      if (response.ok) {
-        toast.success(
-          lang === "ar" ? "تم الحذف بنجاح" : "Deleted successfully"
+      if (response.status === 401) {
+        toast.error(
+          lang === "ar"
+            ? "انتهت الجلسة. سجل دخول تاني."
+            : "Session expired. Please login again."
         );
-        setCvList((prev) => prev.filter((cv) => cv.id !== deleteModal.cvId));
-        setDeleteModal({ isOpen: false, cvId: null });
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        setUser(null);
+        return;
       }
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        toast.error(
+          data?.message || (lang === "ar" ? "فشل الحذف" : "Delete failed")
+        );
+        return;
+      }
+
+      toast.success(lang === "ar" ? "تم الحذف بنجاح" : "Deleted successfully");
+      setCvList((prev) => prev.filter((cv) => cv.id !== deleteModal.cvId));
+      setDeleteModal({ isOpen: false, cvId: null });
     } catch (error) {
-      toast.error("Error deleting CV");
+      toast.error(lang === "ar" ? "خطأ في الاتصال" : "Connection error");
     }
   };
 
@@ -1017,6 +1153,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
   // ✅ compute + cache detailed scores for list
   useEffect(() => {
     if (!sortedCvList?.length) return;
+    if (!localStorage.getItem("token")) return;
 
     let cancelled = false;
 
@@ -1025,9 +1162,13 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
         const entries = await Promise.all(
           sortedCvList.map(async (cv) => {
             try {
-              const res = await fetch(
-                `http://localhost:5000/api/get-cv/${cv.id}`
-              );
+              // ✅ خليها نفس endpoint اللي مضمون عندك
+              const res = await fetch(`${API_BASE}/api/cv/${cv.id}`, {
+                headers: authHeaders(),
+              });
+
+              if (res.status === 401)
+                return [cv.id, computeCvScoreBreakdown(null)];
               if (!res.ok) return [cv.id, computeCvScoreBreakdown(null)];
 
               const payload = await res.json();
@@ -1057,10 +1198,20 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
   const closeScoreModal = () =>
     setScoreModal({ isOpen: false, cvId: null, title: "", scoreObj: null });
 
-  if (!user) {
+  // ✅ Loading state (prevents fake logout)
+  if (loading) {
+    return (
+      <div className="p-20 text-center font-black text-slate-400">
+        {lang === "ar" ? "جارٍ التحميل..." : "Loading..."}
+      </div>
+    );
+  }
+
+  // ✅ No token / no user
+  if (!localStorage.getItem("token") || !user) {
     return (
       <div className="p-20 text-center font-bold text-slate-400">
-        Please login
+        {lang === "ar" ? "من فضلك سجل دخول" : "Please login"}
       </div>
     );
   }
@@ -1411,7 +1562,6 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                   const scoreObj = cvScores[cv.id];
                   const scoreVal = scoreObj?.score ?? 0;
 
-                  // ✅ IMPORTANT FIX: use the new tooltip from breakdown
                   const scoreTooltip =
                     scoreObj?.tooltip ||
                     (lang === "ar" ? "جارٍ الحساب..." : "Calculating...");
@@ -1471,7 +1621,6 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                               </span>
                             </Tooltip>
 
-                            {/* ✅ SCORE BADGE (no bar) + tooltip + click for details */}
                             <Tooltip text={scoreTooltip}>
                               <button
                                 type="button"

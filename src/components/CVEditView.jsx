@@ -5,16 +5,31 @@ export const CVEditView = ({ lang }) => {
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const cvId = params.get("cvId");
 
-  const [loading, setLoading] = useState(true);
+  const API_BASE =
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_BASE ||
+    "http://localhost:5000";
 
-  // ✅ نخزن data بالشكل اللي CVBuilder بيشتغل بيه (cleanedData)
+  const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
 
   const arr = (v) => (Array.isArray(v) ? v : []);
 
+  // ✅ Auth helpers (JWT in Authorization header)
+  const getToken = () =>
+    localStorage.getItem("token") ||
+    localStorage.getItem("authToken") ||
+    localStorage.getItem("jwt") ||
+    "";
+
+  const authHeaders = () => {
+    const token = getToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
   // ✅ Normalize any db data to cleanedData
   const normalizeToCleanedData = (dbData) => {
-    // لو already cleanedData (خففنا الشرط)
+    // already cleanedData
     if (dbData?.personalInfo) {
       return {
         personalInfo: {
@@ -61,7 +76,7 @@ export const CVEditView = ({ lang }) => {
       };
     }
 
-    // لو dbData هو finalCV (name/contact/experience bullets)
+    // dbData is finalCV (name/contact/experience bullets)
     if (dbData?.name && (dbData?.experience || dbData?.experiences)) {
       const personalInfo = {
         fullName: dbData.name || "",
@@ -135,11 +150,39 @@ export const CVEditView = ({ lang }) => {
     (async () => {
       try {
         setLoading(true);
-        const res = await fetch(`http://localhost:5000/api/get-cv/${cvId}`);
-        if (!res.ok) throw new Error("Failed");
+
+        const token = getToken();
+        if (!token) {
+          toast.error(
+            lang === "ar" ? "لازم تسجّل دخول تاني" : "Please login again"
+          );
+          window.location.href = "/login";
+          return;
+        }
+
+        const res = await fetch(`${API_BASE}/api/get-cv/${cvId}`, {
+          method: "GET",
+          headers: {
+            ...authHeaders(),
+          },
+        });
+
+        if (res.status === 404) {
+          setData(null);
+          return;
+        }
+
+        if (!res.ok) {
+          let msg = "";
+          try {
+            const err = await res.json();
+            msg = err?.message || "";
+          } catch {}
+          throw new Error(msg || `Request failed (${res.status})`);
+        }
+
         const payload = await res.json();
 
-        // ✅ handle wrappers + json string
         let raw = payload?.cv_data ?? payload;
         if (typeof raw === "string") {
           try {
@@ -149,25 +192,30 @@ export const CVEditView = ({ lang }) => {
 
         setData(normalizeToCleanedData(raw));
       } catch (e) {
-        toast.error(lang === "ar" ? "فشل تحميل البيانات" : "Failed to load");
+        toast.error(
+          (lang === "ar" ? "فشل تحميل البيانات" : "Failed to load") +
+            (e?.message ? `: ${e.message}` : "")
+        );
+        setData(null);
       } finally {
         setLoading(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cvId, lang]);
 
   // --------- helpers to edit cleanedData ---------
   const updatePersonal = (key, value) =>
     setData((p) => ({
       ...p,
-      personalInfo: { ...(p.personalInfo || {}), [key]: value },
+      personalInfo: { ...(p?.personalInfo || {}), [key]: value },
     }));
 
   const updateField = (key, value) => setData((p) => ({ ...p, [key]: value }));
 
   const updateItem = (section, id, key, value) => {
     setData((p) => {
-      const list = arr(p[section]);
+      const list = arr(p?.[section]);
       return {
         ...p,
         [section]: list.map((item) =>
@@ -181,7 +229,7 @@ export const CVEditView = ({ lang }) => {
     setData((p) => ({
       ...p,
       [section]: [
-        ...arr(p[section]),
+        ...arr(p?.[section]),
         { id: Date.now() + Math.random(), ...template },
       ],
     }));
@@ -190,45 +238,76 @@ export const CVEditView = ({ lang }) => {
   const removeItem = (section, id) => {
     setData((p) => ({
       ...p,
-      [section]: arr(p[section]).filter((i) => i.id !== id),
+      [section]: arr(p?.[section]).filter((i) => i.id !== id),
     }));
   };
 
-  // ✅ Save as cleanedData (to keep CVBuilder downloads working)
+  // ✅ Save as cleanedData
   const saveEditedCV = async () => {
     try {
+      const token = getToken();
+      if (!token) {
+        toast.error(
+          lang === "ar" ? "لازم تسجّل دخول تاني" : "Please login again"
+        );
+        window.location.href = "/login";
+        return;
+      }
+
       const payload = {
         cv_data: data,
         cv_name: data?.targetJob?.title || "Professional Resume",
       };
 
-      const res = await fetch(`http://localhost:5000/api/update-cv/${cvId}`, {
+      const res = await fetch(`${API_BASE}/api/update-cv/${cvId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(),
+        },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error("Failed");
+
+      let responseJson = {};
+      try {
+        responseJson = await res.json();
+      } catch {}
+
+      if (!res.ok) {
+        toast.error(
+          responseJson?.message ||
+            (lang === "ar"
+              ? `فشل الحفظ (${res.status})`
+              : `Save failed (${res.status})`)
+        );
+        return;
+      }
 
       toast.success(lang === "ar" ? "تم حفظ التعديلات ✅" : "Saved ✅");
       window.location.href = "/profile";
     } catch (e) {
-      toast.error(lang === "ar" ? "فشل الحفظ" : "Save failed");
+      toast.error(
+        (lang === "ar" ? "فشل الحفظ" : "Save failed") +
+          (e?.message ? `: ${e.message}` : "")
+      );
     }
   };
 
-  if (loading)
+  if (loading) {
     return (
       <div className="p-20 text-center font-bold text-slate-400">
         Loading...
       </div>
     );
+  }
 
-  if (!data)
+  if (!data) {
     return (
-      <div className="p-20 text-center font-bold text-red-500">
-        {lang === "ar" ? "لا توجد بيانات" : "No data"}
+      <div className="p-20 text-center font-bold text-slate-500">
+        {lang === "ar" ? "لا توجد بيانات لهذه السيرة" : "No CV data found"}
       </div>
     );
+  }
 
   const skillsText = arr(data.skills).join(", ");
 
@@ -583,6 +662,7 @@ export const CVEditView = ({ lang }) => {
                       )
                     }
                   />
+
                   <div className="flex gap-2">
                     <input
                       className="p-2 border rounded-xl w-full"

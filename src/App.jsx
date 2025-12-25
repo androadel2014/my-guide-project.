@@ -1,6 +1,6 @@
+// src/App.jsx
 import React, { useState, useEffect } from "react";
 import { Toaster } from "react-hot-toast";
-import { StartView } from "./components/StartView";
 
 import {
   BrowserRouter as Router,
@@ -14,13 +14,17 @@ import {
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { HomeView } from "./components/HomeView";
-import { CVBuilderView } from "./components/CVBuilderView";
-import { CVEditView } from "./components/CVEditView"; // ✅ اضفنا دي
+
+// ✅ مهم: CVBuilderView عندك عامل export default => استيراد default
+import CVBuilderView from "./components/cvbuilder/CVBuilderView";
+
+import { CVEditView } from "./components/CVEditView";
 import { AuthView } from "./components/AuthView";
 import { ProfileView } from "./components/ProfileView";
 import { DetailPage } from "./components/DetailPage";
 import { Footer } from "./components/Footer";
 import { MobileNav, MobileMenuOverlay } from "./components/MobileNav";
+import { StartView } from "./components/StartView";
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -32,18 +36,29 @@ function ScrollToTop() {
 
 function DetailPageWrapper({ lang }) {
   const { pageId } = useParams();
-  // ✅ ضيفنا cv_edit عشان ما يتعاملش كـ DetailPage
-  const knownPages = ["home", "cv_builder", "cv_edit", "auth", "profile"];
-
+  const knownPages = [
+    "home",
+    "cv_builder",
+    "cv_edit",
+    "auth",
+    "profile",
+    "start",
+  ];
   if (knownPages.includes(pageId)) return null;
   return <DetailPage page={pageId} lang={lang} />;
+}
+
+function ProtectedRoute({ children }) {
+  const token = localStorage.getItem("token");
+  if (!token) return <Navigate to="/auth" replace />;
+  return children;
 }
 
 function AppContent() {
   const [lang, setLang] = useState("ar");
   const [menuOpen, setMenuOpen] = useState(false);
-  const location = useLocation();
 
+  const location = useLocation();
   const currentPage =
     location.pathname === "/" ? "home" : location.pathname.substring(1);
 
@@ -77,20 +92,46 @@ function AppContent() {
             <Route path="/" element={<HomeView lang={lang} />} />
             <Route path="/home" element={<Navigate to="/" replace />} />
 
-            <Route path="/cv_builder" element={<CVBuilderView lang={lang} />} />
-
-            {/* ✅ Route صفحة التعديل لازم يكون قبل /:pageId */}
-            <Route path="/cv_edit" element={<CVEditView lang={lang} />} />
-
+            {/* Public */}
             <Route path="/auth" element={<AuthView lang={lang} />} />
-            <Route path="/profile" element={<ProfileView lang={lang} />} />
+            <Route path="/start" element={<StartView lang={lang} />} />
 
+            {/* Protected */}
+            <Route
+              path="/cv_builder"
+              element={
+                <ProtectedRoute>
+                  <CVBuilderView lang={lang} />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/cv_edit"
+              element={
+                <ProtectedRoute>
+                  <CVEditView lang={lang} />
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <ProfileView lang={lang} />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Detail pages */}
             <Route
               path="/:pageId"
               element={<DetailPageWrapper lang={lang} />}
             />
+
+            {/* fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
-            <Route path="/start" element={<StartView lang={lang} />} />
           </Routes>
         </main>
 
