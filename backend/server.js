@@ -1,4 +1,4 @@
-// server.js (FULL FILE - FINAL WITH LEGACY ENDPOINTS)
+// server.js (FULL FILE - FINAL WITH LEGACY ENDPOINTS + FEED FIXES + SAFE DELETE FALLBACKS + COMMENT LIKES)
 
 const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
@@ -110,6 +110,25 @@ db.serialize(() => {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // ✅ NEW (SAFE): allow replies by adding parent_comment_id
+  db.run(
+    `ALTER TABLE post_comments ADD COLUMN parent_comment_id INTEGER`,
+    () => {
+      // ignore if already exists
+    }
+  );
+
+  // ✅ NEW: comment likes table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS post_comment_likes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      comment_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      UNIQUE(comment_id, user_id),
+      FOREIGN KEY (comment_id) REFERENCES post_comments(id) ON DELETE CASCADE
+    )
+  `);
 });
 
 /* =====================
@@ -156,7 +175,6 @@ function normalizeCvResponse(row) {
     id: row.id,
     cv_name: row.cv_name,
     updated_at: row.updated_at,
-    // compatible with your frontend normalizeCvData (object or string)
     cv_data: parsed || row.cv_data,
   };
 }
@@ -290,7 +308,6 @@ app.put("/api/users/me", authRequired, (req, res) => {
    CVS (New Endpoints)
 ===================== */
 
-// list my cvs
 app.get("/api/cv", authRequired, (req, res) => {
   db.all(
     `SELECT id, user_id, cv_name, updated_at FROM cvs WHERE user_id = ? ORDER BY id DESC`,
@@ -302,7 +319,6 @@ app.get("/api/cv", authRequired, (req, res) => {
   );
 });
 
-// get single cv (new)
 app.get("/api/cv/:id", authRequired, (req, res) => {
   const id = req.params.id;
 
@@ -316,7 +332,6 @@ app.get("/api/cv/:id", authRequired, (req, res) => {
   );
 });
 
-// create cv
 app.post("/api/cv", authRequired, (req, res) => {
   const { cv_name, cv_data } = req.body || {};
   const name = String(cv_name || "RESUME").trim();
@@ -333,7 +348,6 @@ app.post("/api/cv", authRequired, (req, res) => {
   );
 });
 
-// update cv (new)
 app.put("/api/cv/:id", authRequired, (req, res) => {
   const id = req.params.id;
   const { cv_name, cv_data } = req.body || {};
@@ -357,7 +371,6 @@ app.put("/api/cv/:id", authRequired, (req, res) => {
   );
 });
 
-// delete cv (new)
 app.delete("/api/cv/:id", authRequired, (req, res) => {
   const id = req.params.id;
 
@@ -374,10 +387,9 @@ app.delete("/api/cv/:id", authRequired, (req, res) => {
 });
 
 /* =====================
-   ✅ LEGACY CVS ENDPOINTS (for your current frontend)
+   ✅ LEGACY CVS ENDPOINTS
 ===================== */
 
-// old: GET /api/get-cv/:id
 app.get("/api/get-cv/:id", authRequired, (req, res) => {
   const id = req.params.id;
   db.get(
@@ -390,9 +402,7 @@ app.get("/api/get-cv/:id", authRequired, (req, res) => {
   );
 });
 
-// old: GET /api/get-all-cvs/:userId
 app.get("/api/get-all-cvs/:userId", authRequired, (req, res) => {
-  // ignore param for safety (always my cvs)
   db.all(
     `SELECT id, user_id, cv_name, updated_at FROM cvs WHERE user_id = ? ORDER BY id DESC`,
     [req.user.id],
@@ -403,7 +413,6 @@ app.get("/api/get-all-cvs/:userId", authRequired, (req, res) => {
   );
 });
 
-// old: GET /api/cv/latest/:userId
 app.get("/api/cv/latest/:userId", authRequired, (req, res) => {
   db.get(
     `SELECT id, user_id, cv_name, cv_data, updated_at
@@ -419,12 +428,10 @@ app.get("/api/cv/latest/:userId", authRequired, (req, res) => {
   );
 });
 
-// ✅ old: PUT /api/update-cv/:id  (THIS FIXES YOUR 404)
 app.put("/api/update-cv/:id", authRequired, (req, res) => {
   const id = req.params.id;
   const { cv_name, cv_data } = req.body || {};
   const name = String(cv_name || "RESUME").trim();
-
   const dataStr =
     typeof cv_data === "string" ? cv_data : JSON.stringify(cv_data || {});
 
@@ -444,7 +451,6 @@ app.put("/api/update-cv/:id", authRequired, (req, res) => {
   );
 });
 
-// (optional) old: POST /api/create-cv  (لو أي جزء قديم بيستخدمها)
 app.post("/api/create-cv", authRequired, (req, res) => {
   const { cv_name, cv_data } = req.body || {};
   const name = String(cv_name || "RESUME").trim();
@@ -461,7 +467,6 @@ app.post("/api/create-cv", authRequired, (req, res) => {
   );
 });
 
-// (optional) old: DELETE /api/delete-cv/:id  (لو أي كود قديم بيناديها)
 app.delete("/api/delete-cv/:id", authRequired, (req, res) => {
   const id = req.params.id;
   db.run(
@@ -492,7 +497,8 @@ app.get("/api/posts", authOptional, (req, res) => {
       p.*,
       u.username AS user_name,
       (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS likeCount,
-      (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id AND user_id = ?) AS likedByMe
+      (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id AND user_id = ?) AS likedByMe,
+      (SELECT COUNT(*) FROM post_comments WHERE post_id = p.id) AS commentCount
     FROM posts p
     LEFT JOIN users u ON u.id = p.user_id
     ${where}
@@ -500,10 +506,13 @@ app.get("/api/posts", authOptional, (req, res) => {
     `,
     [userId, ...params],
     (err, rows) => {
+      if (err) return res.status(500).json({ message: "Failed to load posts" });
       res.json(
         (rows || []).map((r) => ({
           ...r,
           likedByMe: !!r.likedByMe,
+          commentCount: Number(r.commentCount || 0),
+          likeCount: Number(r.likeCount || 0),
         }))
       );
     }
@@ -515,9 +524,58 @@ app.post("/api/posts", authRequired, (req, res) => {
   db.run(
     `INSERT INTO posts (user_id, content, category) VALUES (?, ?, ?)`,
     [req.user.id, String(content || ""), String(category || "")],
-    () => res.json({ ok: true })
+    (err) => {
+      if (err) return res.status(500).json({ message: "Create post failed" });
+      res.json({ ok: true });
+    }
   );
 });
+
+/* ========= DELETE Post (main) ========= */
+function deletePostById(req, res) {
+  const postId = String(req.params.id || "").trim();
+
+  db.get(`SELECT id, user_id FROM posts WHERE id = ?`, [postId], (err, row) => {
+    if (err) return res.status(500).json({ message: "Delete failed" });
+    if (!row) return res.status(404).json({ message: "Post not found" });
+    if (row.user_id !== req.user.id) return res.sendStatus(403);
+
+    db.run(`DELETE FROM post_likes WHERE post_id = ?`, [postId], () => {
+      // delete comment likes first (safe)
+      db.run(
+        `DELETE FROM post_comment_likes WHERE comment_id IN (SELECT id FROM post_comments WHERE post_id = ?)`,
+        [postId],
+        () => {
+          db.run(
+            `DELETE FROM post_comments WHERE post_id = ?`,
+            [postId],
+            () => {
+              db.run(
+                `DELETE FROM posts WHERE id = ?`,
+                [postId],
+                function (err2) {
+                  if (err2)
+                    return res.status(500).json({ message: "Delete failed" });
+                  return res.json({ ok: true });
+                }
+              );
+            }
+          );
+        }
+      );
+    });
+  });
+}
+
+// ✅ MAIN: DELETE /api/posts/:id
+app.delete("/api/posts/:id", authRequired, deletePostById);
+
+/* ========= LEGACY DELETE FALLBACKS (to stop your 404 spam) ========= */
+app.delete("/api/posts/delete/:id", authRequired, deletePostById);
+app.delete("/api/delete-post/:id", authRequired, deletePostById);
+app.delete("/api/post/:id", authRequired, deletePostById);
+app.post("/api/posts/:id/delete", authRequired, deletePostById);
+app.post("/api/posts/delete/:id", authRequired, deletePostById);
 
 app.post("/api/posts/:id/like", authRequired, (req, res) => {
   const postId = req.params.id;
@@ -542,27 +600,177 @@ app.post("/api/posts/:id/like", authRequired, (req, res) => {
   );
 });
 
-app.get("/api/posts/:id/comments", (req, res) => {
+/* =====================
+   COMMENTS (WITH LIKES + REPLIES)
+===================== */
+
+// ✅ IMPORTANT: allow guest + logged user to see likedByMe
+app.get("/api/posts/:id/comments", authOptional, (req, res) => {
+  const postId = req.params.id;
+  const userId = req.user?.id || 0;
+
   db.all(
     `
-    SELECT c.*, u.username AS user_name
+    SELECT
+      c.*,
+      u.username AS user_name,
+      (SELECT COUNT(*) FROM post_comment_likes WHERE comment_id = c.id) AS likeCount,
+      (SELECT COUNT(*) FROM post_comment_likes WHERE comment_id = c.id AND user_id = ?) AS likedByMe
     FROM post_comments c
     LEFT JOIN users u ON u.id = c.user_id
     WHERE c.post_id = ?
     ORDER BY c.id ASC
     `,
-    [req.params.id],
-    (err, rows) => res.json(rows || [])
+    [userId, postId],
+    (err, rows) => {
+      if (err)
+        return res.status(500).json({ message: "Failed to load comments" });
+      res.json(
+        (rows || []).map((r) => ({
+          ...r,
+          likeCount: Number(r.likeCount || 0),
+          likedByMe: !!r.likedByMe,
+        }))
+      );
+    }
   );
 });
 
 app.post("/api/posts/:id/comments", authRequired, (req, res) => {
+  const parentId = req.body?.parent_comment_id ?? null;
+
   db.run(
-    `INSERT INTO post_comments (post_id, user_id, comment)
-     VALUES (?, ?, ?)`,
-    [req.params.id, req.user.id, String(req.body?.comment || "")],
-    () => res.json({ ok: true })
+    `INSERT INTO post_comments (post_id, user_id, comment, parent_comment_id)
+     VALUES (?, ?, ?, ?)`,
+    [req.params.id, req.user.id, String(req.body?.comment || ""), parentId],
+    (err) => {
+      if (err) return res.status(500).json({ message: "Comment failed" });
+      return res.json({ ok: true });
+    }
   );
+});
+
+// ✅ Delete comment (and its replies + likes)
+function deleteCommentCore(req, res) {
+  const postId = req.params.postId;
+  const commentId = req.params.commentId;
+
+  db.get(
+    `SELECT id, user_id, post_id FROM post_comments WHERE id = ? AND post_id = ?`,
+    [commentId, postId],
+    (err, row) => {
+      if (err) return res.status(500).json({ message: "Delete failed" });
+      if (!row) return res.status(404).json({ message: "Comment not found" });
+      if (row.user_id !== req.user.id) return res.sendStatus(403);
+
+      // delete likes for children + parent
+      db.run(
+        `DELETE FROM post_comment_likes WHERE comment_id IN (
+            SELECT id FROM post_comments WHERE parent_comment_id = ?
+         )`,
+        [commentId],
+        () => {
+          db.run(
+            `DELETE FROM post_comment_likes WHERE comment_id = ?`,
+            [commentId],
+            () => {
+              // delete children replies then parent
+              db.run(
+                `DELETE FROM post_comments WHERE parent_comment_id = ?`,
+                [commentId],
+                () => {
+                  db.run(
+                    `DELETE FROM post_comments WHERE id = ?`,
+                    [commentId],
+                    function (err2) {
+                      if (err2)
+                        return res
+                          .status(500)
+                          .json({ message: "Delete failed" });
+                      return res.json({ ok: true });
+                    }
+                  );
+                }
+              );
+            }
+          );
+        }
+      );
+    }
+  );
+}
+
+app.delete(
+  "/api/posts/:postId/comments/:commentId",
+  authRequired,
+  deleteCommentCore
+);
+
+// ✅ legacy fallback delete comment endpoints (in case frontend tries others)
+app.delete("/api/comments/:commentId", authRequired, (req, res) => {
+  // if you ever use it later, require postId? (keep simple: return 400)
+  return res
+    .status(400)
+    .json({ message: "Use /api/posts/:postId/comments/:commentId" });
+});
+
+// ✅ Like comment endpoint (MAIN)
+function toggleLikeComment(req, res) {
+  const commentId = String(req.params.commentId || "").trim();
+
+  // ensure comment exists
+  db.get(
+    `SELECT id FROM post_comments WHERE id = ?`,
+    [commentId],
+    (e1, cRow) => {
+      if (e1) return res.status(500).json({ message: "Like failed" });
+      if (!cRow) return res.status(404).json({ message: "Comment not found" });
+
+      db.get(
+        `SELECT id FROM post_comment_likes WHERE comment_id = ? AND user_id = ?`,
+        [commentId, req.user.id],
+        (err, row) => {
+          if (row) {
+            db.run(
+              `DELETE FROM post_comment_likes WHERE comment_id = ? AND user_id = ?`,
+              [commentId, req.user.id],
+              () => res.json({ liked: false })
+            );
+          } else {
+            db.run(
+              `INSERT INTO post_comment_likes (comment_id, user_id) VALUES (?, ?)`,
+              [commentId, req.user.id],
+              (e2) => {
+                if (e2) return res.status(500).json({ message: "Like failed" });
+                res.json({ liked: true });
+              }
+            );
+          }
+        }
+      );
+    }
+  );
+}
+
+// ✅ MAIN: POST /api/posts/:postId/comments/:commentId/like
+app.post(
+  "/api/posts/:postId/comments/:commentId/like",
+  authRequired,
+  toggleLikeComment
+);
+
+// ✅ fallback: POST /api/comments/:commentId/like
+app.post("/api/comments/:commentId/like", authRequired, toggleLikeComment);
+
+/* =====================
+   DEBUG: Error handler (prevents silent 500)
+===================== */
+app.use((err, req, res, next) => {
+  console.error("SERVER_ERROR:", err);
+  res.status(500).json({
+    message: "Internal Server Error",
+    detail: String(err?.message || err),
+  });
 });
 
 /* =====================
