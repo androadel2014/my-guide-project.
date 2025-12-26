@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 
 export const CVEditView = ({ lang }) => {
+  const navigate = useNavigate();
+
   const params = useMemo(() => new URLSearchParams(window.location.search), []);
   const cvId = params.get("cvId");
 
@@ -24,7 +27,9 @@ export const CVEditView = ({ lang }) => {
 
   const authHeaders = () => {
     const token = getToken();
-    return token ? { Authorization: `Bearer ${token}` } : {};
+    return {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
   };
 
   // ✅ Normalize any db data to cleanedData
@@ -141,9 +146,11 @@ export const CVEditView = ({ lang }) => {
   };
 
   useEffect(() => {
+    // ✅ cvId لازم
     if (!cvId) {
       setLoading(false);
       toast.error(lang === "ar" ? "cvId غير موجود" : "Missing cvId");
+      navigate("/profile", { replace: true });
       return;
     }
 
@@ -156,7 +163,7 @@ export const CVEditView = ({ lang }) => {
           toast.error(
             lang === "ar" ? "لازم تسجّل دخول تاني" : "Please login again"
           );
-          window.location.href = "/login";
+          navigate("/auth", { replace: true });
           return;
         }
 
@@ -250,7 +257,7 @@ export const CVEditView = ({ lang }) => {
         toast.error(
           lang === "ar" ? "لازم تسجّل دخول تاني" : "Please login again"
         );
-        window.location.href = "/login";
+        navigate("/auth", { replace: true });
         return;
       }
 
@@ -284,7 +291,7 @@ export const CVEditView = ({ lang }) => {
       }
 
       toast.success(lang === "ar" ? "تم حفظ التعديلات ✅" : "Saved ✅");
-      window.location.href = "/profile";
+      navigate("/profile", { replace: true });
     } catch (e) {
       toast.error(
         (lang === "ar" ? "فشل الحفظ" : "Save failed") +
@@ -320,7 +327,7 @@ export const CVEditView = ({ lang }) => {
           </h2>
           <div className="flex gap-2">
             <button
-              onClick={() => (window.location.href = "/profile")}
+              onClick={() => navigate("/profile", { replace: true })}
               className="px-4 py-2 rounded-xl border font-bold"
             >
               {lang === "ar" ? "رجوع" : "Back"}

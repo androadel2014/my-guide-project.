@@ -1,22 +1,56 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Compass, Search, Globe, User, LogOut } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 export const Header = ({ lang, setLang }) => {
   const [user, setUser] = useState(null);
+  const navigate = useNavigate();
 
-  // تحديث حالة المستخدم عند تحميل المكون
-  useEffect(() => {
+  const syncUser = () => {
+    const token = localStorage.getItem("token");
     const savedUser = localStorage.getItem("user");
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
+
+    if (token && savedUser) {
+      try {
+        setUser(JSON.parse(savedUser));
+      } catch {
+        setUser(null);
+      }
+    } else {
+      setUser(null);
     }
+  };
+
+  // ✅ دايمًا خلي الهيدر يعرف أي تغيير في auth
+  useEffect(() => {
+    syncUser();
+
+    // ✅ لو التغيير حصل في تبويب تاني
+    const onStorage = (e) => {
+      if (e.key === "token" || e.key === "user") syncUser();
+    };
+
+    // ✅ لو التغيير حصل في نفس التبويب (Login/Logout)
+    const onAuthChanged = () => syncUser();
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("auth_changed", onAuthChanged);
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("auth_changed", onAuthChanged);
+    };
   }, []);
 
-  // دالة تسجيل الخروج
+  // ✅ تسجيل خروج حقيقي + تحديث الهيدر فورًا
   const handleLogout = () => {
+    localStorage.removeItem("token");
     localStorage.removeItem("user");
-    window.location.reload();
+
+    // ✅ حدث للـ Header (نفس التبويب)
+    window.dispatchEvent(new Event("auth_changed"));
+
+    navigate("/auth", { replace: true });
   };
 
   return (
@@ -31,8 +65,8 @@ export const Header = ({ lang, setLang }) => {
         </span>
       </div>
 
-      {/* --- شريط البحث للديسك توب --- */}
-      <div className="hidden lg:flex items-center bg-white border border-slate-200 px-5 py-3.5 rounded-2xl w-96 shadow-sm focus-within:ring-4 focus-within:ring-blue-50 focus-within:border-blue-300 transition-all">
+      {/* --- شريط البحث --- */}
+      <div className="hidden lg:flex items-center bg-white border border-slate-200 px-5 py-3.5 rounded-2xl w-96 shadow-sm">
         <Search size={20} className="text-slate-400" />
         <input
           type="text"
@@ -44,52 +78,49 @@ export const Header = ({ lang, setLang }) => {
       </div>
 
       <div className="flex items-center gap-3">
-        {/* --- زر تغيير اللغة --- */}
+        {/* --- تغيير اللغة --- */}
         <button
           onClick={() => setLang(lang === "ar" ? "en" : "ar")}
-          className="flex items-center gap-2 px-4 py-2.5 bg-white rounded-xl border border-slate-200 font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm"
+          className="flex items-center gap-2 px-4 py-2.5 bg-white rounded-xl border border-slate-200 font-bold text-slate-700"
         >
           <Globe size={18} className="text-blue-600" />
-          <span className="text-sm pt-0.5">
+          <span className="text-sm">
             {lang === "en" ? "العربية" : "English"}
           </span>
         </button>
 
-        {/* --- حالة المستخدم (مسجل أم لا) --- */}
+        {/* --- المستخدم --- */}
         {user ? (
           <div className="flex items-center gap-3">
-            {/* رابط الملف الشخصي */}
             <Link
               to="/profile"
-              className="flex items-center gap-3 bg-white border border-slate-200 p-1.5 pr-4 rounded-2xl shadow-sm hover:border-blue-300 transition-all cursor-pointer group"
+              className="flex items-center gap-3 bg-white border border-slate-200 p-1.5 pr-4 rounded-2xl"
             >
               <div className="flex flex-col items-end">
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                <span className="text-[10px] text-slate-400 font-bold uppercase">
                   {lang === "ar" ? "حسابي" : "My Account"}
                 </span>
-                <span className="text-sm font-black text-slate-800 group-hover:text-blue-600 transition-colors">
+                <span className="text-sm font-black text-slate-800">
                   {user.username}
                 </span>
               </div>
-              <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center border border-blue-100 group-hover:bg-blue-600 group-hover:text-white transition-all">
+              <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center">
                 <User size={20} />
               </div>
             </Link>
 
-            {/* زر تسجيل الخروج */}
             <button
               onClick={handleLogout}
-              className="p-3 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all cursor-pointer border border-transparent hover:border-red-100"
+              className="p-3 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl"
               title={lang === "ar" ? "خروج" : "Logout"}
             >
               <LogOut size={20} />
             </button>
           </div>
         ) : (
-          /* زر تسجيل الدخول في حال عدم وجود مستخدم */
           <Link
             to="/auth"
-            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 cursor-pointer"
+            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold"
           >
             <User size={18} />
             <span className="text-sm">

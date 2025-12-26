@@ -1,12 +1,15 @@
 import React, { useState } from "react";
 import { UserPlus, Mail, Lock, ArrowLeft } from "lucide-react";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 
 export const AuthView = ({ lang = "en" }) => {
   const API_BASE =
     import.meta.env.VITE_API_BASE_URL ||
     import.meta.env.VITE_API_BASE ||
     "http://localhost:5000";
+
+  const navigate = useNavigate();
 
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -36,15 +39,68 @@ export const AuthView = ({ lang = "en" }) => {
 
   const isEmail = (v) => /.+@.+\..+/.test(String(v || "").trim());
 
+  const normalizeErr = (res, data) => {
+    if (res.status === 401) {
+      return (
+        data?.message ||
+        (lang === "ar"
+          ? "الإيميل/اليوزر أو كلمة السر غلط"
+          : "Wrong credentials")
+      );
+    }
+    if (res.status === 400) {
+      return (
+        data?.message ||
+        (lang === "ar"
+          ? "البيانات ناقصة أو الطلب غلط"
+          : "Bad request — missing/invalid fields")
+      );
+    }
+    return (
+      data?.message || (lang === "ar" ? "حدث خطأ" : "Something went wrong")
+    );
+  };
+
+  // ✅ request helper
+  const postAuth = async (endpoint, payload) => {
+    const res = await fetch(`${API_BASE}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await safeJson(res);
+    return { res, data };
+  };
+
+  const saveAuth = (data) => {
+    const token = data?.token || data?.accessToken || data?.jwt;
+    const user = data?.user || data?.data?.user || data?.me;
+
+    if (!token) {
+      toast.error(
+        lang === "ar"
+          ? "السيرفر لم يُرجع Token"
+          : "Server did not return a token"
+      );
+      return false;
+    }
+
+    localStorage.setItem("token", token);
+    if (user) localStorage.setItem("user", JSON.stringify(user));
+
+    window.dispatchEvent(new Event("auth_changed"));
+    return true;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
 
     const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
 
-    const identifier = formData.identifier.trim();
-    const username = formData.username.trim();
-    const password = formData.password;
+    const identifier = String(formData.identifier || "").trim();
+    const username = String(formData.username || "").trim();
+    const password = String(formData.password || "");
 
     // ✅ Validation
     if (isLogin) {
@@ -68,66 +124,53 @@ export const AuthView = ({ lang = "en" }) => {
     }
 
     setLoading(true);
+
     try {
-      const payload = isLogin
-        ? { email: identifier, password } // backend expects this غالبًا
-        : { username, email: identifier, password };
+      // =========================
+      // ✅ REGISTER
+      // =========================
+      if (!isLogin) {
+        const payload = { username, email: identifier, password };
+        const { res, data } = await postAuth(endpoint, payload);
 
-      const res = await fetch(`${API_BASE}${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+        if (!res.ok) {
+          toast.error(normalizeErr(res, data));
+          return;
+        }
 
-      const data = await safeJson(res);
+        if (!saveAuth(data)) return;
 
-      // ✅ لا نرمي Errors ولا نعمل console.error — بس Toast
+        toast.success(lang === "ar" ? "تم إنشاء الحساب ✅" : "Registered ✅");
+        navigate("/", { replace: true });
+        return;
+      }
+
+      // =========================
+      // ✅ LOGIN (Email OR Username) with auto-retry
+      // =========================
+      // 1) try as email payload first (works with your backend غالبًا)
+      const tryEmailPayload = { email: identifier, password };
+      let { res, data } = await postAuth(endpoint, tryEmailPayload);
+
+      // 2) if failed AND identifier is NOT email → retry as username payload
+      if (!res.ok && !isEmail(identifier)) {
+        const tryUsernamePayload = { username: identifier, password };
+        const retry = await postAuth(endpoint, tryUsernamePayload);
+        res = retry.res;
+        data = retry.data;
+      }
+
       if (!res.ok) {
-        if (res.status === 401) {
-          toast.error(
-            data?.message ||
-              (lang === "ar"
-                ? "الإيميل أو كلمة السر غلط"
-                : "Wrong email or password")
-          );
-          return;
-        }
-
-        if (res.status === 400) {
-          toast.error(
-            data?.message ||
-              (lang === "ar"
-                ? "البيانات ناقصة أو الطلب غلط"
-                : "Bad request — missing/invalid fields")
-          );
-          return;
-        }
-
-        toast.error(
-          data?.message || (lang === "ar" ? "حدث خطأ" : "Something went wrong")
-        );
+        toast.error(normalizeErr(res, data));
         return;
       }
 
-      const token = data?.token || data?.accessToken || data?.jwt;
-      const user = data?.user || data?.data?.user || data?.me;
-
-      if (!token) {
-        toast.error(
-          lang === "ar"
-            ? "السيرفر لم يُرجع Token"
-            : "Server did not return a token"
-        );
-        return;
-      }
-
-      localStorage.setItem("token", token);
-      if (user) localStorage.setItem("user", JSON.stringify(user));
+      if (!saveAuth(data)) return;
 
       toast.success(lang === "ar" ? "تم تسجيل الدخول ✅" : "Logged in ✅");
-      setTimeout(() => (window.location.href = "/"), 250);
-    } catch {
-      // ✅ بدون console.error
+      navigate("/", { replace: true });
+    } catch (err) {
+      console.error(err);
       toast.error(
         lang === "ar"
           ? "تعذر الاتصال بالسيرفر (شغل الباك أولاً)"
@@ -144,7 +187,7 @@ export const AuthView = ({ lang = "en" }) => {
         <div className="p-8">
           <button
             type="button"
-            onClick={() => (window.location.href = "/")}
+            onClick={() => navigate("/", { replace: true })}
             className="flex items-center gap-2 text-slate-400 hover:text-blue-600 mb-8 transition-colors text-sm font-bold cursor-pointer"
           >
             <ArrowLeft size={16} />
@@ -196,7 +239,13 @@ export const AuthView = ({ lang = "en" }) => {
 
             <div>
               <label className="block text-sm font-bold mb-2 pr-1">
-                {lang === "ar" ? "الإيميل" : "Email"}
+                {isLogin
+                  ? lang === "ar"
+                    ? "الإيميل أو اليوزر"
+                    : "Email or Username"
+                  : lang === "ar"
+                  ? "الإيميل"
+                  : "Email"}
               </label>
               <div className="relative">
                 <input

@@ -1,4 +1,4 @@
-// server.js (FULL FILE - copy/paste)
+// server.js (FULL FILE - FINAL WITH LEGACY ENDPOINTS)
 
 const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
@@ -11,11 +11,11 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "CHANGE_ME_SECRET";
 
-// =====================
-// ✅ CORS (SUPER FIX) — no cors package
-// =====================
+/* =====================
+   CORS
+===================== */
 function isAllowedOrigin(origin) {
-  if (!origin) return true; // Postman/curl
+  if (!origin) return true;
   return (
     /^http:\/\/localhost:\d+$/.test(origin) ||
     /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)
@@ -35,29 +35,25 @@ app.use((req, res, next) => {
     );
     res.setHeader(
       "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, X-Requested-With"
+      "Content-Type, Authorization"
     );
-    res.setHeader("Access-Control-Max-Age", "86400");
   }
 
-  if (req.method === "OPTIONS") return res.status(204).end();
+  if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
 
-// =====================
-// Body Parsers
-// =====================
+/* =====================
+   Body Parsers
+===================== */
 app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(express.urlencoded({ extended: true }));
 
-// =====================
-// DB
-// =====================
+/* =====================
+   DB
+===================== */
 const dbPath = path.resolve(__dirname, "database.sqlite");
-const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) console.error("❌ DB Error:", err.message);
-  else console.log("✅ SQLite Connected:", dbPath);
-});
+const db = new sqlite3.Database(dbPath);
 
 db.serialize(() => {
   db.run("PRAGMA foreign_keys = ON");
@@ -65,9 +61,9 @@ db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
+      username TEXT,
+      email TEXT UNIQUE,
+      password_hash TEXT,
       phone TEXT,
       address TEXT,
       bio TEXT,
@@ -80,86 +76,129 @@ db.serialize(() => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       cv_name TEXT,
-      cv_data TEXT NOT NULL,
+      cv_data TEXT,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      content TEXT,
+      category TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS post_likes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      post_id INTEGER,
+      user_id INTEGER,
+      UNIQUE(post_id, user_id)
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS post_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      post_id INTEGER,
+      user_id INTEGER,
+      comment TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 });
 
-// =====================
-// Helpers
-// =====================
-function signToken(user) {
-  return jwt.sign(
-    { id: user.id, email: user.email, username: user.username },
-    JWT_SECRET,
-    { expiresIn: "30d" }
-  );
+/* =====================
+   Helpers
+===================== */
+function signToken(payload) {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: "30d" });
 }
 
 function authRequired(req, res, next) {
-  const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-
-  if (!token) return res.status(401).json({ message: "Unauthorized" });
+  const h = req.headers.authorization || "";
+  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
+  if (!token) return res.sendStatus(401);
 
   try {
     req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch {
-    return res.status(401).json({ message: "Invalid token" });
+    return res.sendStatus(401);
   }
 }
 
-function safeJsonParse(str) {
+function authOptional(req, res, next) {
+  const h = req.headers.authorization || "";
+  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
+  if (!token) return next();
   try {
-    return JSON.parse(str);
+    req.user = jwt.verify(token, JWT_SECRET);
+  } catch {}
+  next();
+}
+
+function safeJsonParse(s) {
+  try {
+    return JSON.parse(s);
   } catch {
     return null;
   }
 }
 
-function toDataStr(cv_data) {
-  return typeof cv_data === "string" ? cv_data : JSON.stringify(cv_data);
+function normalizeCvResponse(row) {
+  const parsed = safeJsonParse(row.cv_data);
+  return {
+    id: row.id,
+    cv_name: row.cv_name,
+    updated_at: row.updated_at,
+    // compatible with your frontend normalizeCvData (object or string)
+    cv_data: parsed || row.cv_data,
+  };
 }
 
-// =====================
-// Health
-// =====================
+/* =====================
+   HEALTH
+===================== */
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
-// =====================
-// AUTH
-// =====================
+/* =====================
+   AUTH
+===================== */
 app.post("/api/auth/register", (req, res) => {
   const { username, email, password } = req.body || {};
+
   if (!username || !email || !password) {
     return res.status(400).json({ message: "Missing fields" });
   }
 
-  const password_hash = bcrypt.hashSync(String(password), 10);
+  const hash = bcrypt.hashSync(password, 10);
 
   db.run(
     `INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)`,
-    [String(username).trim(), String(email).trim(), password_hash],
+    [username.trim(), email.trim().toLowerCase(), hash],
     function (err) {
-      if (err) {
-        if (String(err.message).includes("UNIQUE")) {
-          return res.status(400).json({ message: "Email already exists" });
-        }
-        return res.status(500).json({ message: err.message });
-      }
+      if (err) return res.status(400).json({ message: "Email exists" });
 
       const user = {
         id: this.lastID,
-        username: String(username).trim(),
-        email: String(email).trim(),
+        username: username.trim(),
+        email: email.trim().toLowerCase(),
+        phone: "",
+        address: "",
+        bio: "",
       };
 
       return res.json({
-        message: "Registered successfully",
-        token: signToken(user),
+        token: signToken({
+          id: user.id,
+          username: user.username,
+          email: user.email,
+        }),
         user,
       });
     }
@@ -168,284 +207,367 @@ app.post("/api/auth/register", (req, res) => {
 
 app.post("/api/auth/login", (req, res) => {
   const { email, password } = req.body || {};
-  if (!email || !password) {
+  if (!email || !password)
     return res.status(400).json({ message: "Missing fields" });
-  }
 
   db.get(
-    `SELECT * FROM users WHERE email = ? LIMIT 1`,
-    [String(email).trim()],
-    (err, row) => {
-      if (err) return res.status(500).json({ message: "Server error" });
-      if (!row) return res.status(401).json({ message: "Invalid credentials" });
+    `SELECT * FROM users WHERE email = ?`,
+    [String(email).trim().toLowerCase()],
+    (err, user) => {
+      if (!user) return res.sendStatus(401);
 
-      const ok = bcrypt.compareSync(String(password), row.password_hash);
-      if (!ok) return res.status(401).json({ message: "Invalid credentials" });
+      if (!bcrypt.compareSync(password, user.password_hash)) {
+        return res.sendStatus(401);
+      }
 
-      const user = {
-        id: row.id,
-        username: row.username,
-        email: row.email,
-        phone: row.phone || "",
-        address: row.address || "",
-        bio: row.bio || "",
+      const me = {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        phone: user.phone || "",
+        address: user.address || "",
+        bio: user.bio || "",
       };
 
       return res.json({
-        message: "Login success",
-        token: signToken(user),
-        user,
+        token: signToken({
+          id: user.id,
+          username: user.username,
+          email: user.email,
+        }),
+        user: me,
       });
     }
   );
 });
 
-// =====================
-// USER (ME)
-// =====================
+/* =====================
+   USERS
+===================== */
 app.get("/api/users/me", authRequired, (req, res) => {
   db.get(
     `SELECT id, username, email, phone, address, bio FROM users WHERE id = ?`,
-    [Number(req.user.id)],
-    (err, row) => {
-      if (err) return res.status(500).json({ message: err.message });
-      if (!row) return res.status(404).json({ message: "User not found" });
-      return res.json(row);
+    [req.user.id],
+    (err, me) => {
+      if (!me) return res.sendStatus(404);
+      res.json(me);
     }
   );
 });
 
 app.put("/api/users/me", authRequired, (req, res) => {
   const { username, phone, address, bio } = req.body || {};
+
   db.run(
-    `UPDATE users SET username = ?, phone = ?, address = ?, bio = ? WHERE id = ?`,
+    `
+    UPDATE users
+    SET username = ?, phone = ?, address = ?, bio = ?
+    WHERE id = ?
+    `,
     [
       String(username || "").trim(),
       String(phone || "").trim(),
       String(address || "").trim(),
       String(bio || "").trim(),
-      Number(req.user.id),
+      req.user.id,
     ],
     function (err) {
-      if (err) return res.status(500).json({ message: err.message });
-      return res.json({ message: "Profile updated" });
+      if (err) return res.status(500).json({ message: "Update failed" });
+
+      db.get(
+        `SELECT id, username, email, phone, address, bio FROM users WHERE id = ?`,
+        [req.user.id],
+        (e2, me) => {
+          if (!me) return res.status(500).json({ message: "Update failed" });
+          return res.json(me);
+        }
+      );
     }
   );
 });
 
-// =====================
-// ✅ CVs (FINAL + CLEAN)
-// =====================
+/* =====================
+   CVS (New Endpoints)
+===================== */
 
-// ✅ Create CV
-app.post("/api/cv", authRequired, (req, res) => {
-  const { cv_name, cv_data } = req.body || {};
-  if (!cv_data) return res.status(400).json({ message: "cv_data is required" });
-
-  const dataStr = toDataStr(cv_data);
-  const safeName = (cv_name || "New Resume").toString().trim();
-
-  db.run(
-    `INSERT INTO cvs (user_id, cv_name, cv_data, updated_at)
-     VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
-    [Number(req.user.id), safeName, dataStr],
-    function (err) {
-      if (err) return res.status(500).json({ message: err.message });
-      return res.json({ message: "CV saved", id: this.lastID });
-    }
-  );
-});
-
-// ✅ List user CVs (THIS is what Profile should call)
+// list my cvs
 app.get("/api/cv", authRequired, (req, res) => {
   db.all(
-    `SELECT id, cv_name, updated_at
-     FROM cvs
-     WHERE user_id = ?
-     ORDER BY id DESC`,
-    [Number(req.user.id)],
+    `SELECT id, user_id, cv_name, updated_at FROM cvs WHERE user_id = ? ORDER BY id DESC`,
+    [req.user.id],
     (err, rows) => {
-      if (err) return res.status(500).json({ message: err.message });
-      return res.json(rows || []);
+      if (err) return res.status(500).json({ message: "Failed to load CVs" });
+      res.json(rows || []);
     }
   );
 });
 
-// ✅ Latest CV data
-app.get("/api/cv/latest", authRequired, (req, res) => {
+// get single cv (new)
+app.get("/api/cv/:id", authRequired, (req, res) => {
+  const id = req.params.id;
+
   db.get(
-    `SELECT id, cv_name, cv_data, updated_at
+    `SELECT id, user_id, cv_name, cv_data, updated_at FROM cvs WHERE id = ? AND user_id = ?`,
+    [id, req.user.id],
+    (err, row) => {
+      if (!row) return res.status(404).json({ message: "CV not found" });
+      return res.json(normalizeCvResponse(row));
+    }
+  );
+});
+
+// create cv
+app.post("/api/cv", authRequired, (req, res) => {
+  const { cv_name, cv_data } = req.body || {};
+  const name = String(cv_name || "RESUME").trim();
+  const dataStr =
+    typeof cv_data === "string" ? cv_data : JSON.stringify(cv_data || {});
+
+  db.run(
+    `INSERT INTO cvs (user_id, cv_name, cv_data, updated_at) VALUES (?, ?, ?, datetime('now'))`,
+    [req.user.id, name, dataStr],
+    function (err) {
+      if (err) return res.status(500).json({ message: "Failed to create CV" });
+      res.json({ ok: true, id: this.lastID });
+    }
+  );
+});
+
+// update cv (new)
+app.put("/api/cv/:id", authRequired, (req, res) => {
+  const id = req.params.id;
+  const { cv_name, cv_data } = req.body || {};
+  const name = String(cv_name || "RESUME").trim();
+  const dataStr =
+    typeof cv_data === "string" ? cv_data : JSON.stringify(cv_data || {});
+
+  db.run(
+    `
+    UPDATE cvs
+    SET cv_name = ?, cv_data = ?, updated_at = datetime('now')
+    WHERE id = ? AND user_id = ?
+    `,
+    [name, dataStr, id, req.user.id],
+    function (err) {
+      if (err) return res.status(500).json({ message: "Failed to update CV" });
+      if (this.changes === 0)
+        return res.status(404).json({ message: "CV not found" });
+      res.json({ ok: true });
+    }
+  );
+});
+
+// delete cv (new)
+app.delete("/api/cv/:id", authRequired, (req, res) => {
+  const id = req.params.id;
+
+  db.run(
+    `DELETE FROM cvs WHERE id = ? AND user_id = ?`,
+    [id, req.user.id],
+    function (err) {
+      if (err) return res.status(500).json({ message: "Delete failed" });
+      if (this.changes === 0)
+        return res.status(404).json({ message: "CV not found" });
+      res.json({ ok: true });
+    }
+  );
+});
+
+/* =====================
+   ✅ LEGACY CVS ENDPOINTS (for your current frontend)
+===================== */
+
+// old: GET /api/get-cv/:id
+app.get("/api/get-cv/:id", authRequired, (req, res) => {
+  const id = req.params.id;
+  db.get(
+    `SELECT id, user_id, cv_name, cv_data, updated_at FROM cvs WHERE id = ? AND user_id = ?`,
+    [id, req.user.id],
+    (err, row) => {
+      if (!row) return res.status(404).json({ message: "CV not found" });
+      return res.json(normalizeCvResponse(row));
+    }
+  );
+});
+
+// old: GET /api/get-all-cvs/:userId
+app.get("/api/get-all-cvs/:userId", authRequired, (req, res) => {
+  // ignore param for safety (always my cvs)
+  db.all(
+    `SELECT id, user_id, cv_name, updated_at FROM cvs WHERE user_id = ? ORDER BY id DESC`,
+    [req.user.id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ message: "Failed to load CVs" });
+      res.json(rows || []);
+    }
+  );
+});
+
+// old: GET /api/cv/latest/:userId
+app.get("/api/cv/latest/:userId", authRequired, (req, res) => {
+  db.get(
+    `SELECT id, user_id, cv_name, cv_data, updated_at
      FROM cvs
      WHERE user_id = ?
      ORDER BY id DESC
      LIMIT 1`,
-    [Number(req.user.id)],
+    [req.user.id],
     (err, row) => {
-      if (err) return res.status(500).json({ message: err.message });
-      if (!row) return res.status(404).json({ message: "no_data_found" });
-
-      const parsed = safeJsonParse(row.cv_data);
-      if (!parsed) return res.status(500).json({ message: "Bad CV data" });
-
-      return res.json({
-        id: row.id,
-        cv_name: row.cv_name,
-        cv_data: parsed,
-        updated_at: row.updated_at,
-      });
+      if (!row) return res.status(404).json({ message: "No CV yet" });
+      return res.json(normalizeCvResponse(row));
     }
   );
 });
 
-// ✅ Get CV by id
-app.get("/api/cv/:id", authRequired, (req, res) => {
-  db.get(
-    `SELECT id, cv_name, cv_data, updated_at
-     FROM cvs
-     WHERE id = ? AND user_id = ?`,
-    [Number(req.params.id), Number(req.user.id)],
-    (err, row) => {
-      if (err) return res.status(500).json({ message: err.message });
-      if (!row) return res.status(404).json({ message: "Not found" });
-
-      const parsed = safeJsonParse(row.cv_data);
-      if (!parsed) return res.status(500).json({ message: "Bad CV data" });
-
-      return res.json({
-        id: row.id,
-        cv_name: row.cv_name,
-        cv_data: parsed,
-        updated_at: row.updated_at,
-      });
-    }
-  );
-});
-
-// ✅ Update CV by id
-app.put("/api/cv/:id", authRequired, (req, res) => {
+// ✅ old: PUT /api/update-cv/:id  (THIS FIXES YOUR 404)
+app.put("/api/update-cv/:id", authRequired, (req, res) => {
+  const id = req.params.id;
   const { cv_name, cv_data } = req.body || {};
-  if (!cv_data) return res.status(400).json({ message: "cv_data is required" });
+  const name = String(cv_name || "RESUME").trim();
 
-  const dataStr = toDataStr(cv_data);
-  const safeName = (cv_name || "Professional Resume").toString().trim();
+  const dataStr =
+    typeof cv_data === "string" ? cv_data : JSON.stringify(cv_data || {});
 
   db.run(
-    `UPDATE cvs
-     SET cv_name = ?, cv_data = ?, updated_at = CURRENT_TIMESTAMP
-     WHERE id = ? AND user_id = ?`,
-    [safeName, dataStr, Number(req.params.id), Number(req.user.id)],
+    `
+    UPDATE cvs
+    SET cv_name = ?, cv_data = ?, updated_at = datetime('now')
+    WHERE id = ? AND user_id = ?
+    `,
+    [name, dataStr, id, req.user.id],
     function (err) {
-      if (err) return res.status(500).json({ message: err.message });
+      if (err) return res.status(500).json({ message: "Failed to update CV" });
       if (this.changes === 0)
-        return res.status(404).json({ message: "Not found" });
-
-      return res.json({ message: "Updated" });
+        return res.status(404).json({ message: "CV not found" });
+      res.json({ ok: true });
     }
   );
 });
 
-// ✅ Delete CV
-app.delete("/api/cv/:id", authRequired, (req, res) => {
+// (optional) old: POST /api/create-cv  (لو أي جزء قديم بيستخدمها)
+app.post("/api/create-cv", authRequired, (req, res) => {
+  const { cv_name, cv_data } = req.body || {};
+  const name = String(cv_name || "RESUME").trim();
+  const dataStr =
+    typeof cv_data === "string" ? cv_data : JSON.stringify(cv_data || {});
+
+  db.run(
+    `INSERT INTO cvs (user_id, cv_name, cv_data, updated_at) VALUES (?, ?, ?, datetime('now'))`,
+    [req.user.id, name, dataStr],
+    function (err) {
+      if (err) return res.status(500).json({ message: "Failed to create CV" });
+      res.json({ ok: true, id: this.lastID });
+    }
+  );
+});
+
+// (optional) old: DELETE /api/delete-cv/:id  (لو أي كود قديم بيناديها)
+app.delete("/api/delete-cv/:id", authRequired, (req, res) => {
+  const id = req.params.id;
   db.run(
     `DELETE FROM cvs WHERE id = ? AND user_id = ?`,
-    [Number(req.params.id), Number(req.user.id)],
+    [id, req.user.id],
     function (err) {
-      if (err) return res.status(500).json({ message: err.message });
+      if (err) return res.status(500).json({ message: "Delete failed" });
       if (this.changes === 0)
-        return res.status(404).json({ message: "Not found" });
-      return res.json({ message: "Deleted" });
+        return res.status(404).json({ message: "CV not found" });
+      res.json({ ok: true });
     }
   );
 });
 
-// =====================
-// ✅ Aliases (Support your OLD frontend calls)
-// =====================
+/* =====================
+   POSTS
+===================== */
+app.get("/api/posts", authOptional, (req, res) => {
+  const category = req.query.category;
+  const userId = req.user?.id || 0;
 
-// OLD: GET /api/get-cv/:id  -> same as /api/cv/:id
-app.get("/api/get-cv/:id", authRequired, (req, res) => {
-  db.get(
-    `SELECT id, cv_name, cv_data, updated_at
-     FROM cvs
-     WHERE id = ? AND user_id = ?`,
-    [Number(req.params.id), Number(req.user.id)],
-    (err, row) => {
-      if (err) return res.status(500).json({ message: err.message });
-      if (!row) return res.status(404).json({ message: "Not found" });
+  const where = category ? "WHERE p.category = ?" : "";
+  const params = category ? [category] : [];
 
-      const parsed = safeJsonParse(row.cv_data);
-      if (!parsed) return res.status(500).json({ message: "Bad CV data" });
-
-      return res.json({
-        id: row.id,
-        cv_name: row.cv_name,
-        cv_data: parsed,
-        updated_at: row.updated_at,
-      });
-    }
-  );
-});
-
-// OLD: PUT /api/update-cv/:id -> same as PUT /api/cv/:id
-app.put("/api/update-cv/:id", authRequired, (req, res) => {
-  const { cv_name, cv_data } = req.body || {};
-  if (!cv_data) return res.status(400).json({ message: "cv_data is required" });
-
-  const dataStr = toDataStr(cv_data);
-  const safeName = (cv_name || "Professional Resume").toString().trim();
-
-  db.run(
-    `UPDATE cvs
-     SET cv_name = ?, cv_data = ?, updated_at = CURRENT_TIMESTAMP
-     WHERE id = ? AND user_id = ?`,
-    [safeName, dataStr, Number(req.params.id), Number(req.user.id)],
-    function (err) {
-      if (err) return res.status(500).json({ message: err.message });
-      if (this.changes === 0)
-        return res.status(404).json({ message: "Not found" });
-
-      return res.json({ message: "Updated" });
-    }
-  );
-});
-
-// OLD: GET /api/get-all-cvs/:userId -> return list for the logged in user (ignore param safely)
-app.get("/api/get-all-cvs/:userId", authRequired, (req, res) => {
   db.all(
-    `SELECT id, cv_name, updated_at
-     FROM cvs
-     WHERE user_id = ?
-     ORDER BY id DESC`,
-    [Number(req.user.id)],
+    `
+    SELECT
+      p.*,
+      u.username AS user_name,
+      (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS likeCount,
+      (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id AND user_id = ?) AS likedByMe
+    FROM posts p
+    LEFT JOIN users u ON u.id = p.user_id
+    ${where}
+    ORDER BY p.id DESC
+    `,
+    [userId, ...params],
     (err, rows) => {
-      if (err) return res.status(500).json({ message: err.message });
-      return res.json(rows || []);
+      res.json(
+        (rows || []).map((r) => ({
+          ...r,
+          likedByMe: !!r.likedByMe,
+        }))
+      );
     }
   );
 });
 
-// OLD: POST /api/save-cv -> same as POST /api/cv
-app.post("/api/save-cv", authRequired, (req, res) => {
-  const { cv_name, cv_data } = req.body || {};
-  if (!cv_data) return res.status(400).json({ message: "cv_data is required" });
-
-  const dataStr = toDataStr(cv_data);
-  const safeName = (cv_name || "New Resume").toString().trim();
-
+app.post("/api/posts", authRequired, (req, res) => {
+  const { content, category } = req.body || {};
   db.run(
-    `INSERT INTO cvs (user_id, cv_name, cv_data, updated_at)
-     VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
-    [Number(req.user.id), safeName, dataStr],
-    function (err) {
-      if (err) return res.status(500).json({ message: err.message });
-      return res.json({ message: "CV saved", id: this.lastID });
+    `INSERT INTO posts (user_id, content, category) VALUES (?, ?, ?)`,
+    [req.user.id, String(content || ""), String(category || "")],
+    () => res.json({ ok: true })
+  );
+});
+
+app.post("/api/posts/:id/like", authRequired, (req, res) => {
+  const postId = req.params.id;
+  db.get(
+    `SELECT * FROM post_likes WHERE post_id = ? AND user_id = ?`,
+    [postId, req.user.id],
+    (err, row) => {
+      if (row) {
+        db.run(
+          `DELETE FROM post_likes WHERE post_id = ? AND user_id = ?`,
+          [postId, req.user.id],
+          () => res.json({ liked: false })
+        );
+      } else {
+        db.run(
+          `INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)`,
+          [postId, req.user.id],
+          () => res.json({ liked: true })
+        );
+      }
     }
   );
 });
 
-// =====================
-// Start
-// =====================
+app.get("/api/posts/:id/comments", (req, res) => {
+  db.all(
+    `
+    SELECT c.*, u.username AS user_name
+    FROM post_comments c
+    LEFT JOIN users u ON u.id = c.user_id
+    WHERE c.post_id = ?
+    ORDER BY c.id ASC
+    `,
+    [req.params.id],
+    (err, rows) => res.json(rows || [])
+  );
+});
+
+app.post("/api/posts/:id/comments", authRequired, (req, res) => {
+  db.run(
+    `INSERT INTO post_comments (post_id, user_id, comment)
+     VALUES (?, ?, ?)`,
+    [req.params.id, req.user.id, String(req.body?.comment || "")],
+    () => res.json({ ok: true })
+  );
+});
+
+/* =====================
+   START
+===================== */
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });

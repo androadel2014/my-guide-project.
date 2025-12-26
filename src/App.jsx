@@ -14,10 +14,9 @@ import {
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { HomeView } from "./components/HomeView";
+import { HomeFeedView } from "./components/feed/HomeFeedView";
 
-// ✅ مهم: CVBuilderView عندك عامل export default => استيراد default
 import CVBuilderView from "./components/cvbuilder/CVBuilderView";
-
 import { CVEditView } from "./components/CVEditView";
 import { AuthView } from "./components/AuthView";
 import { ProfileView } from "./components/ProfileView";
@@ -43,8 +42,12 @@ function DetailPageWrapper({ lang }) {
     "auth",
     "profile",
     "start",
+    "feed",
   ];
+
+  // ✅ لو الاسم ده تبع صفحة معروفة، نرجّع null عشان الراوت الأساسي يتعامل
   if (knownPages.includes(pageId)) return null;
+
   return <DetailPage page={pageId} lang={lang} />;
 }
 
@@ -89,14 +92,18 @@ function AppContent() {
 
         <main className="flex-1">
           <Routes>
+            {/* ✅ Home */}
             <Route path="/" element={<HomeView lang={lang} />} />
             <Route path="/home" element={<Navigate to="/" replace />} />
 
-            {/* Public */}
+            {/* ✅ Public */}
             <Route path="/auth" element={<AuthView lang={lang} />} />
             <Route path="/start" element={<StartView lang={lang} />} />
 
-            {/* Protected */}
+            {/* ✅ Feed (separate path only) */}
+            <Route path="/feed" element={<HomeFeedView />} />
+
+            {/* ✅ Protected */}
             <Route
               path="/cv_builder"
               element={
@@ -124,13 +131,13 @@ function AppContent() {
               }
             />
 
-            {/* Detail pages */}
+            {/* ✅ Detail pages */}
             <Route
               path="/:pageId"
               element={<DetailPageWrapper lang={lang} />}
             />
 
-            {/* fallback */}
+            {/* ✅ fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

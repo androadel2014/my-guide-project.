@@ -1,3 +1,4 @@
+// src/components/ProfileView.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   User,
@@ -13,24 +14,50 @@ import {
   X,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 
 import html2pdf from "html2pdf.js";
 import * as docx from "docx";
 import { saveAs } from "file-saver";
 
-export const ProfileView = ({ lang }) => {
-  // ✅ API base from .env (portable)
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+export const ProfileView = ({ lang = "en" }) => {
+  const navigate = useNavigate();
 
-  // ✅ Auth headers helper (Bearer)
+  // ✅ API base from .env (portable)
+  const API_BASE =
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_BASE ||
+    "http://localhost:5000";
+
+  // =========================
+  // ✅ Auth helpers (Bearer)
+  // =========================
+  const getToken = () =>
+    localStorage.getItem("token") ||
+    localStorage.getItem("authToken") ||
+    localStorage.getItem("jwt") ||
+    "";
+
   const authHeaders = () => {
-    const token = localStorage.getItem("token");
+    const token = getToken();
     return {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };
   };
 
+  const hardLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("jwt");
+    localStorage.removeItem("user");
+    window.dispatchEvent(new Event("auth_changed"));
+    navigate("/auth", { replace: true });
+  };
+
+  // =========================
+  // ✅ State
+  // =========================
   const [loading, setLoading] = useState(true);
 
   const [user, setUser] = useState(null);
@@ -53,10 +80,9 @@ export const ProfileView = ({ lang }) => {
   });
 
   // ✅ CV Scores map
-  // { [cvId]: { score, level, colorClass, bulletsCount, skillsCount, expCount, eduCount, tooltip, actions[] } }
   const [cvScores, setCvScores] = useState({});
 
-  // ✅ optional: modal to show all actions (checklist)
+  // ✅ Score modal
   const [scoreModal, setScoreModal] = useState({
     isOpen: false,
     cvId: null,
@@ -71,8 +97,10 @@ export const ProfileView = ({ lang }) => {
     bio: "",
   });
 
+  const arr = (v) => (Array.isArray(v) ? v : []);
+
   // =========================
-  // ✅ Tooltip (same style as badges hover)
+  // ✅ Tooltip
   // =========================
   const Tooltip = ({ text, children }) => (
     <span className="relative inline-flex items-center group/tt">
@@ -86,11 +114,11 @@ export const ProfileView = ({ lang }) => {
   );
 
   // =========================
-  // ✅ 1) Date helpers (SQLite UTC)
+  // ✅ Date helpers (SQLite UTC)
   // =========================
   const parseSqliteUTC = (sqliteDateString) => {
     if (!sqliteDateString) return null;
-    const iso = sqliteDateString.replace(" ", "T") + "Z";
+    const iso = String(sqliteDateString).replace(" ", "T") + "Z";
     const d = new Date(iso);
     return isNaN(d.getTime()) ? null : d;
   };
@@ -111,10 +139,17 @@ export const ProfileView = ({ lang }) => {
   };
 
   // =========================
-  // ✅ 2) Normalize CV data from DB
+  // ✅ Normalize CV data from DB (handles cv_data string)
   // =========================
   const normalizeCvData = (dbPayload) => {
-    const raw = dbPayload?.cv_data ? dbPayload.cv_data : dbPayload;
+    let raw = dbPayload?.cv_data ?? dbPayload;
+
+    // ✅ if cv_data stored as string in DB
+    if (typeof raw === "string") {
+      try {
+        raw = JSON.parse(raw);
+      } catch {}
+    }
 
     const personalInfo =
       raw?.personalInfo ||
@@ -196,7 +231,7 @@ export const ProfileView = ({ lang }) => {
   };
 
   // =========================
-  // ✅ SCORE (smart tooltip + actions)
+  // ✅ SCORE
   // =========================
   const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
@@ -225,7 +260,6 @@ export const ProfileView = ({ lang }) => {
 
     const languagesLen = String(safe?.languages || "").trim().length;
 
-    // ---------- Name ----------
     if (name.length >= 3) score += 12;
     else
       actions.push(
@@ -234,7 +268,6 @@ export const ProfileView = ({ lang }) => {
           : "✦ Add your full name at the top."
       );
 
-    // ---------- Contact ----------
     if (contactClean.length >= 10) score += 12;
     else
       actions.push(
@@ -243,7 +276,6 @@ export const ProfileView = ({ lang }) => {
           : "✦ Add contact: Email + Phone + City/State."
       );
 
-    // ---------- Summary ----------
     if (summary.length >= 40) score += 14;
     else {
       const need = Math.max(0, 40 - summary.length);
@@ -254,7 +286,6 @@ export const ProfileView = ({ lang }) => {
       );
     }
 
-    // ---------- Education ----------
     if (eduCount > 0) score += 12;
     else
       actions.push(
@@ -263,7 +294,6 @@ export const ProfileView = ({ lang }) => {
           : "✦ Add an Education section (school/degree/certificates)."
       );
 
-    // ---------- Experience ----------
     if (expCount > 0) score += 18;
     else
       actions.push(
@@ -272,7 +302,6 @@ export const ProfileView = ({ lang }) => {
           : "✦ Add at least one Work Experience."
       );
 
-    // ---------- Bullets ----------
     if (bulletsCount >= 3) score += 8;
     else {
       const need = Math.max(0, 3 - bulletsCount);
@@ -293,7 +322,6 @@ export const ProfileView = ({ lang }) => {
       );
     }
 
-    // ---------- Skills ----------
     if (skillsCount >= 4) score += 10;
     else {
       const need = Math.max(0, 4 - skillsCount);
@@ -304,7 +332,6 @@ export const ProfileView = ({ lang }) => {
       );
     }
 
-    // ---------- Languages ----------
     if (languagesLen > 0) score += 8;
     else
       actions.push(
@@ -368,7 +395,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
   };
 
   // =========================
-  // ✅ Build CV DOM (same export design)
+  // ✅ Build CV DOM (same design as export)
   // =========================
   const buildCvDocumentNode = (finalCV) => {
     const container = document.createElement("div");
@@ -848,7 +875,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
       }
     }
 
-    const doc = new Document({
+    const docFile = new Document({
       sections: [
         {
           properties: {
@@ -859,48 +886,25 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
       ],
     });
 
-    const blob = await Packer.toBlob(doc);
+    const blob = await Packer.toBlob(docFile);
     const safeName =
       (finalCV.name || "Resume").replace(/\s+/g, "_") || "Resume";
     saveAs(blob, `${safeName}.docx`);
   };
 
-  const handleDownloadSamePage = async (cvId, format) => {
-    try {
-      setDownloading({ cvId, format });
-
-      const res = await fetch(`${API_BASE}/api/cv/${cvId}`, {
-        headers: authHeaders(),
-      });
-
-      if (!res.ok) throw new Error("Failed to load CV");
-
-      const payload = await res.json();
-      const finalCV = normalizeCvData(payload);
-
-      if (format === "pdf") await downloadPDFSamePage(finalCV);
-      else await downloadWordSamePage(finalCV);
-
-      toast.success(
-        lang === "ar" ? "تم التحميل ✅" : "Downloaded successfully ✅"
-      );
-    } catch (e) {
-      console.error(e);
-      toast.error(lang === "ar" ? "فشل التحميل" : "Download failed");
-    } finally {
-      setDownloading({ cvId: null, format: null });
-    }
-  };
-
   // =========================
-  // ✅ Preview modal (scroll inside + ESC + click outside + X)
+  // ✅ Modal helpers (FIXED)
   // =========================
   const closePreview = () => {
     setPreviewModal({ isOpen: false, cvId: null, finalCV: null, title: "" });
   };
 
+  const closeScoreModal = () => {
+    setScoreModal({ isOpen: false, cvId: null, title: "", scoreObj: null });
+  };
+
   useEffect(() => {
-    if (!previewModal.isOpen) return;
+    if (!previewModal.isOpen && !scoreModal.isOpen) return;
 
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -908,7 +912,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
     const onKeyDown = (e) => {
       if (e.key === "Escape") {
         closePreview();
-        setScoreModal({ isOpen: false, cvId: null, title: "", scoreObj: null });
+        closeScoreModal();
       }
     };
 
@@ -918,54 +922,59 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
       document.body.style.overflow = prevOverflow || "";
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [previewModal.isOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewModal.isOpen, scoreModal.isOpen]);
 
-  const handlePreviewCV = async (cvId) => {
+  // =========================
+  // ✅ API: Fetch CVs list
+  // =========================
+  const fetchUserCVs = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/cv/${cvId}`, {
+      const res = await fetch(`${API_BASE}/api/cv`, {
         headers: authHeaders(),
       });
 
-      if (!res.ok) throw new Error("Failed to load CV");
+      if (res.status === 401) return hardLogout();
 
-      const payload = await res.json();
-      const finalCV = normalizeCvData(payload);
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error("fetchUserCVs failed:", payload);
+        setCvList([]);
+        return;
+      }
 
-      setPreviewModal({
-        isOpen: true,
-        cvId,
-        finalCV,
-        title: finalCV?.name || "RESUME",
-      });
-    } catch (e) {
-      console.error(e);
-      toast.error(lang === "ar" ? "فشل فتح المعاينة" : "Preview failed");
+      const list = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload.cvs)
+        ? payload.cvs
+        : Array.isArray(payload.data)
+        ? payload.data
+        : [];
+
+      const normalized = list.map((x) => ({
+        ...x,
+        last_updated: x.updated_at || x.last_updated || x.created_at || "",
+      }));
+
+      setCvList(normalized);
+    } catch (err) {
+      console.error("Error fetching CVs:", err);
+      setCvList([]);
     }
   };
 
-  useEffect(() => {
-    if (!previewModal.isOpen) return;
-    if (!previewModal.finalCV) return;
-    if (!previewContainerRef.current) return;
-
-    previewContainerRef.current.innerHTML = "";
-    const node = buildCvDocumentNode(previewModal.finalCV);
-    previewContainerRef.current.appendChild(node);
-  }, [previewModal.isOpen, previewModal.finalCV]);
-
   // =========================
-  // ✅ Load user + list
+  // ✅ Load user + list + HARD GUARD
   // =========================
   useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      setLoading(false);
+      return hardLogout();
+    }
+
     const init = async () => {
       setLoading(true);
-
-      const token = localStorage.getItem("token");
-      if (!token) {
-        setUser(null);
-        setLoading(false);
-        return;
-      }
 
       // 1) load from localStorage سريعًا
       const savedUser = localStorage.getItem("user");
@@ -982,20 +991,13 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
         } catch {}
       }
 
-      // 2) المصدر الحقيقي: server
+      // 2) source of truth: server
       try {
         const res = await fetch(`${API_BASE}/api/users/me`, {
           headers: authHeaders(),
         });
 
-        // ✅ لو غير مصرح → ساعتها بس نشيل التوكن
-        if (res.status === 401) {
-          localStorage.removeItem("token");
-          localStorage.removeItem("user");
-          setUser(null);
-          setLoading(false);
-          return;
-        }
+        if (res.status === 401) return hardLogout();
 
         const me = await res.json().catch(() => null);
 
@@ -1013,7 +1015,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
         console.error("Failed to load /api/users/me", e);
       }
 
-      // 3) هات الـ CVs
+      // 3) CVs
       await fetchUserCVs();
 
       setLoading(false);
@@ -1023,41 +1025,8 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchUserCVs = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/cv`, {
-        headers: authHeaders(),
-      });
-
-      if (res.status === 401) {
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        setUser(null);
-        return;
-      }
-
-      const data = await res.json().catch(() => []);
-      if (!res.ok) {
-        console.error("fetchUserCVs failed:", data);
-        return;
-      }
-
-      // backend بيرجع: { id, cv_name, updated_at }
-      const normalized = Array.isArray(data)
-        ? data.map((x) => ({
-            ...x,
-            last_updated: x.updated_at,
-          }))
-        : [];
-
-      setCvList(normalized);
-    } catch (err) {
-      console.error("Error fetching CVs:", err);
-    }
-  };
-
   // =========================
-  // ✅ Save profile (ONE version فقط)
+  // ✅ Save profile
   // =========================
   const handleSave = async () => {
     try {
@@ -1072,17 +1041,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
         }),
       });
 
-      if (response.status === 401) {
-        toast.error(
-          lang === "ar"
-            ? "انتهت الجلسة. سجل دخول تاني."
-            : "Session expired. Please login again."
-        );
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        setUser(null);
-        return;
-      }
+      if (response.status === 401) return hardLogout();
 
       const data = await response.json().catch(() => ({}));
 
@@ -1095,7 +1054,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
 
       toast.success(lang === "ar" ? "تم تحديث البيانات" : "Profile Updated");
 
-      const updatedUser = { ...user, ...editData };
+      const updatedUser = { ...(user || {}), ...editData };
       localStorage.setItem("user", JSON.stringify(updatedUser));
       setUser(updatedUser);
 
@@ -1105,6 +1064,9 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
     }
   };
 
+  // =========================
+  // ✅ Delete CV
+  // =========================
   const confirmDelete = async () => {
     try {
       const response = await fetch(`${API_BASE}/api/cv/${deleteModal.cvId}`, {
@@ -1112,17 +1074,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
         headers: authHeaders(),
       });
 
-      if (response.status === 401) {
-        toast.error(
-          lang === "ar"
-            ? "انتهت الجلسة. سجل دخول تاني."
-            : "Session expired. Please login again."
-        );
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        setUser(null);
-        return;
-      }
+      if (response.status === 401) return hardLogout();
 
       const data = await response.json().catch(() => ({}));
 
@@ -1141,19 +1093,23 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
     }
   };
 
-  // ✅ IMPORTANT: useMemo لازم ييجي قبل أي return
+  // =========================
+  // ✅ Sorted CV list
+  // =========================
   const sortedCvList = useMemo(() => {
     return [...(cvList || [])].sort((a, b) => {
       const da = parseSqliteUTC(a.last_updated)?.getTime() || 0;
-      const db = parseSqliteUTC(b.last_updated)?.getTime() || 0;
-      return db - da;
+      const dbb = parseSqliteUTC(b.last_updated)?.getTime() || 0;
+      return dbb - da;
     });
   }, [cvList]);
 
-  // ✅ compute + cache detailed scores for list
+  // =========================
+  // ✅ Compute scores (uses GET /api/get-cv/:id ✅)
+  // =========================
   useEffect(() => {
     if (!sortedCvList?.length) return;
-    if (!localStorage.getItem("token")) return;
+    if (!getToken()) return;
 
     let cancelled = false;
 
@@ -1162,8 +1118,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
         const entries = await Promise.all(
           sortedCvList.map(async (cv) => {
             try {
-              // ✅ خليها نفس endpoint اللي مضمون عندك
-              const res = await fetch(`${API_BASE}/api/cv/${cv.id}`, {
+              const res = await fetch(`${API_BASE}/api/get-cv/${cv.id}`, {
                 headers: authHeaders(),
               });
 
@@ -1195,10 +1150,72 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortedCvList, lang]);
 
-  const closeScoreModal = () =>
-    setScoreModal({ isOpen: false, cvId: null, title: "", scoreObj: null });
+  // =========================
+  // ✅ Preview / Download (uses GET /api/get-cv/:id ✅)
+  // =========================
+  const handlePreviewCV = async (cvId) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/get-cv/${cvId}`, {
+        headers: authHeaders(),
+      });
 
-  // ✅ Loading state (prevents fake logout)
+      if (res.status === 401) return hardLogout();
+      if (!res.ok) throw new Error("Failed to load CV");
+
+      const payload = await res.json();
+      const finalCV = normalizeCvData(payload);
+
+      setPreviewModal({
+        isOpen: true,
+        cvId,
+        finalCV,
+        title: finalCV?.name || "RESUME",
+      });
+    } catch (e) {
+      console.error(e);
+      toast.error(lang === "ar" ? "فشل فتح المعاينة" : "Preview failed");
+    }
+  };
+
+  useEffect(() => {
+    if (!previewModal.isOpen) return;
+    if (!previewModal.finalCV) return;
+    if (!previewContainerRef.current) return;
+
+    previewContainerRef.current.innerHTML = "";
+    const node = buildCvDocumentNode(previewModal.finalCV);
+    previewContainerRef.current.appendChild(node);
+  }, [previewModal.isOpen, previewModal.finalCV]);
+
+  const handleDownloadSamePage = async (cvId, format) => {
+    try {
+      setDownloading({ cvId, format });
+
+      const res = await fetch(`${API_BASE}/api/get-cv/${cvId}`, {
+        headers: authHeaders(),
+      });
+
+      if (res.status === 401) return hardLogout();
+      if (!res.ok) throw new Error("Failed to load CV");
+
+      const payload = await res.json();
+      const finalCV = normalizeCvData(payload);
+
+      if (format === "pdf") await downloadPDFSamePage(finalCV);
+      else await downloadWordSamePage(finalCV);
+
+      toast.success(lang === "ar" ? "تم التحميل ✅" : "Downloaded ✅");
+    } catch (e) {
+      console.error(e);
+      toast.error(lang === "ar" ? "فشل التحميل" : "Download failed");
+    } finally {
+      setDownloading({ cvId: null, format: null });
+    }
+  };
+
+  // =========================
+  // ✅ Loading + Guard
+  // =========================
   if (loading) {
     return (
       <div className="p-20 text-center font-black text-slate-400">
@@ -1207,15 +1224,11 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
     );
   }
 
-  // ✅ No token / no user
-  if (!localStorage.getItem("token") || !user) {
-    return (
-      <div className="p-20 text-center font-bold text-slate-400">
-        {lang === "ar" ? "من فضلك سجل دخول" : "Please login"}
-      </div>
-    );
-  }
+  if (!getToken()) return null;
 
+  // =========================
+  // ✅ Render
+  // =========================
   return (
     <div
       className={`max-w-4xl mx-auto p-6 relative ${
@@ -1223,7 +1236,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
       }`}
       dir={lang === "ar" ? "rtl" : "ltr"}
     >
-      {/* ✅ Score Modal (shows full checklist) */}
+      {/* ✅ Score Modal */}
       {scoreModal.isOpen && (
         <div className="fixed inset-0 z-50">
           <div
@@ -1241,7 +1254,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                   <p className="text-xs text-slate-400 font-bold">
                     {lang === "ar"
                       ? "دي الحاجات اللي تزود بيها التقييم"
-                      : "These are the exact improvements to raise the score"}
+                      : "Exact improvements to raise the score"}
                   </p>
                 </div>
 
@@ -1343,8 +1356,8 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                   </h3>
                   <p className="text-xs text-slate-400 font-bold">
                     {lang === "ar"
-                      ? " اضغط Esc للخروج"
-                      : "Scroll is inside preview only — press Esc to close"}
+                      ? "اضغط Esc للخروج"
+                      : "Scroll inside preview only — press Esc to close"}
                   </p>
                 </div>
 
@@ -1376,7 +1389,6 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                     #cv-document .skill-item { display:flex; align-items:center; gap:8px; }
                     #cv-document .skill-dot { width:6px; height:6px; border-radius:999px; background:#0f172a; display:inline-block; }
                   `}</style>
-
                   <div ref={previewContainerRef} />
                 </div>
               </div>
@@ -1427,6 +1439,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
         </div>
       )}
 
+      {/* ===== Main Card ===== */}
       <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-100">
         <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-10 text-white flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-5">
@@ -1434,8 +1447,8 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
               <User size={40} />
             </div>
             <div>
-              <h2 className="text-3xl font-black">{user.username}</h2>
-              <p className="opacity-80 font-medium">{user.email}</p>
+              <h2 className="text-3xl font-black">{user?.username || ""}</h2>
+              <p className="opacity-80 font-medium">{user?.email || ""}</p>
             </div>
           </div>
 

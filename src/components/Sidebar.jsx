@@ -1,24 +1,55 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { DATA } from "./Data";
 import { Compass, ChevronLeft, LogOut, User } from "lucide-react";
 import { getDir } from "./utils";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 export const Sidebar = ({ lang, page }) => {
   const [user, setUser] = useState(null);
+  const navigate = useNavigate();
 
-  // مراقبة حالة المستخدم المسجل
-  useEffect(() => {
-    const savedUser = localStorage.getItem("user");
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
+  const readUser = () => {
+    try {
+      const savedUser = localStorage.getItem("user");
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch {
+      return null;
     }
+  };
+
+  // ✅ مراقبة حالة المستخدم (عشان تتحدّث بعد login/logout)
+  useEffect(() => {
+    setUser(readUser());
+
+    const onStorage = () => setUser(readUser());
+    const onAuthChanged = () => setUser(readUser());
+
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("auth_changed", onAuthChanged);
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("auth_changed", onAuthChanged);
+    };
   }, []);
 
-  // دالة تسجيل الخروج
+  // ✅ Logout صحيح (يمسح token + user)
   const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("jwt");
     localStorage.removeItem("user");
-    window.location.reload();
+
+    // لو عندك أي مفاتيح تانية قديمة
+    localStorage.removeItem("cv_user");
+    localStorage.removeItem("me");
+
+    setUser(null);
+
+    // notify other components
+    window.dispatchEvent(new Event("auth_changed"));
+
+    navigate("/auth", { replace: true });
   };
 
   return (
@@ -84,11 +115,9 @@ export const Sidebar = ({ lang, page }) => {
         })}
       </div>
 
-      {/* --- الجزء الأسفل: تم ربط اسم المستخدم بصفحة البروفايل --- */}
       <div className="p-4 bg-slate-50/50 border-t border-slate-100 space-y-3">
         {user ? (
           <div className="space-y-2">
-            {/* عرض اسم المستخدم كرابط للملف الشخصي */}
             <Link
               to="/profile"
               className="w-full flex items-center gap-3 px-4 py-3 bg-white border border-slate-100 rounded-2xl shadow-sm hover:border-blue-300 transition-all group"
@@ -106,7 +135,6 @@ export const Sidebar = ({ lang, page }) => {
               </div>
             </Link>
 
-            {/* زر تسجيل الخروج */}
             <button
               onClick={handleLogout}
               className="w-full flex items-center justify-center gap-2 py-3.5 bg-white text-red-500 border border-red-50 rounded-2xl font-bold text-xs hover:bg-red-50 hover:text-red-600 transition-all cursor-pointer shadow-sm"
