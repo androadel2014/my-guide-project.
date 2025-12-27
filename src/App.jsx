@@ -1,6 +1,7 @@
 // src/App.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Toaster } from "react-hot-toast";
+import ProfilePage from "./components/ProfilePage";
 
 import {
   BrowserRouter as Router,
@@ -35,6 +36,8 @@ function ScrollToTop() {
 
 function DetailPageWrapper({ lang }) {
   const { pageId } = useParams();
+
+  // ✅ صفحات معروفة مش "تفاصيل"
   const knownPages = [
     "home",
     "cv_builder",
@@ -43,6 +46,7 @@ function DetailPageWrapper({ lang }) {
     "profile",
     "start",
     "feed",
+    // ✅ مهم: شيلنا "u" عشان /u/:userId يبقى راوت مستقل
   ];
 
   // ✅ لو الاسم ده تبع صفحة معروفة، نرجّع null عشان الراوت الأساسي يتعامل
@@ -62,8 +66,14 @@ function AppContent() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const location = useLocation();
-  const currentPage =
-    location.pathname === "/" ? "home" : location.pathname.substring(1);
+
+  // ✅ currentPage ذكي عشان الـ Sidebar/MobileNav مايتلغبطوش مع /u/:id
+  const currentPage = useMemo(() => {
+    const p = location.pathname || "/";
+    if (p === "/" || p === "/home") return "home";
+    if (p.startsWith("/u/")) return "u";
+    return p.startsWith("/") ? p.substring(1) : p;
+  }, [location.pathname]);
 
   return (
     <div
@@ -100,8 +110,11 @@ function AppContent() {
             <Route path="/auth" element={<AuthView lang={lang} />} />
             <Route path="/start" element={<StartView lang={lang} />} />
 
-            {/* ✅ Feed (separate path only) */}
+            {/* ✅ Feed */}
             <Route path="/feed" element={<HomeFeedView />} />
+
+            {/* ✅ Public Social Profile */}
+            <Route path="/u/:userId" element={<ProfilePage lang={lang} />} />
 
             {/* ✅ Protected */}
             <Route
@@ -122,6 +135,7 @@ function AppContent() {
               }
             />
 
+            {/* ✅ Protected CV profile page */}
             <Route
               path="/profile"
               element={
@@ -131,7 +145,7 @@ function AppContent() {
               }
             />
 
-            {/* ✅ Detail pages */}
+            {/* ✅ Detail pages (dynamic content) */}
             <Route
               path="/:pageId"
               element={<DetailPageWrapper lang={lang} />}

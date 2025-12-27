@@ -458,6 +458,13 @@ export const HomeFeedView = () => {
     return last;
   };
 
+  // ✅ Close any open menus on outside click
+  useEffect(() => {
+    const onDocClick = () => setMenuOpen({});
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, []);
+
   const filteredPosts = useMemo(() => {
     const s = search.trim().toLowerCase();
     if (!s) return posts;
@@ -747,7 +754,7 @@ export const HomeFeedView = () => {
     if (!isLoggedIn) return toast.error("Login first");
 
     setComments((prev) => {
-      const list = prev[postId] || [];
+      const list = Array.isArray(prev[postId]) ? prev[postId] : [];
       const next = list.map((c) => {
         if (c.id !== commentId) return c;
         const likedNow = !(c.likedByMe ?? c.liked_by_me);
@@ -881,7 +888,10 @@ export const HomeFeedView = () => {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 mb-6">
           <div className="flex gap-3">
             <div className="w-11 h-11 rounded-full bg-gray-900 text-white flex items-center justify-center font-bold">
-              {getInitials(me?.name || me?.fullName || "You")}
+              {/* ✅ FIX: prefer username (your localStorage user has it) */}
+              {getInitials(
+                me?.username || me?.name || me?.fullName || me?.email || "You"
+              )}
             </div>
 
             <div className="flex-1">
@@ -986,7 +996,10 @@ export const HomeFeedView = () => {
               myUserId && (p.user_id === myUserId || p.userId === myUserId);
 
             const postProfileUrl = profileHref(p.user_id || p.userId);
-            const tree = buildCommentTree(comments[p.id] || []);
+
+            // ✅ FIX: make sure comments list is always an array
+            const flat = Array.isArray(comments[p.id]) ? comments[p.id] : [];
+            const tree = buildCommentTree(flat);
 
             const likeCount =
               typeof p.likeCount === "number"
@@ -1055,15 +1068,20 @@ export const HomeFeedView = () => {
                       type="button"
                       className="text-gray-400 hover:text-gray-700 rounded-lg px-2 py-1"
                       title="More"
-                      onClick={() =>
-                        setMenuOpen((m) => ({ ...m, [p.id]: !m[p.id] }))
-                      }
+                      onClick={(e) => {
+                        // ✅ FIX: prevent doc click from closing instantly
+                        e.stopPropagation();
+                        setMenuOpen((m) => ({ ...m, [p.id]: !m[p.id] }));
+                      }}
                     >
                       ⋯
                     </button>
 
                     {menuOpen[p.id] && (
-                      <div className="absolute right-0 mt-2 w-44 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden z-20">
+                      <div
+                        className="absolute right-0 mt-2 w-44 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden z-20"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <button
                           type="button"
                           onClick={() => {
@@ -1171,7 +1189,7 @@ export const HomeFeedView = () => {
                 {open && (
                   <div className="mt-4">
                     <div className="space-y-3">
-                      {(comments[p.id] || []).length === 0 ? (
+                      {flat.length === 0 ? (
                         <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3">
                           No comments yet. Be the first to comment.
                         </div>
