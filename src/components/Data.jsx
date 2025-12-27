@@ -1,4 +1,4 @@
-// --- البيانات والمحتوى الكامل ---
+// Data.jsx (FULL FILE - copy/paste)
 
 import {
   Home,
@@ -11,6 +11,7 @@ import {
   CreditCard,
   Bus,
   HeartHandshake,
+  Rss,
 } from "lucide-react";
 
 export const DATA = {
@@ -21,13 +22,23 @@ export const DATA = {
       label: { ar: "الرئيسية", en: "Home" },
       color: "bg-blue-500",
     },
-    // تمت إضافة صفحة الـ CV هنا
+
+    // ✅ Feed page link
+    {
+      id: "feed",
+      icon: Rss,
+      label: { ar: "صفحه التواصل الاجتماعي", en: "Feed" },
+      color: "bg-pink-500",
+    },
+
+    // ✅ CV Builder
     {
       id: "cv_builder",
       icon: Sparkles,
       label: { ar: "مُصمم الـ CV", en: "CV Builder" },
       color: "bg-purple-600",
     },
+
     {
       id: "start",
       icon: Map,
@@ -77,6 +88,7 @@ export const DATA = {
       color: "bg-teal-500",
     },
   ],
+
   hero: {
     title: {
       ar: "بدايتك الصحيحة في أمريكا",
@@ -87,7 +99,7 @@ export const DATA = {
       en: "A comprehensive and simplified guide helping you understand the system, settle, and succeed from day one.",
     },
   },
-  // محتوى الأقسام التفصيلي (نفس القديم)
+
   sections_content: {
     start: {
       title: {
@@ -130,6 +142,7 @@ export const DATA = {
         "حمل تطبيقات الخرائط والترجمة",
       ],
     },
+
     essentials: {
       title: { ar: "الأساسيات القانونية", en: "Legal Essentials" },
       desc: {
@@ -164,6 +177,7 @@ export const DATA = {
       ],
       tips: ["لا تشارك رقم SSN إلا مع الجهات الرسمية والبنوك فقط"],
     },
+
     jobs: {
       title: { ar: "العمل والوظائف", en: "Work & Jobs" },
       desc: {
@@ -201,6 +215,7 @@ export const DATA = {
         "اعرف الحد الأدنى للأجور في ولايتك",
       ],
     },
+
     housing: {
       title: { ar: "السكن والإيجار", en: "Housing & Rent" },
       desc: {
@@ -238,6 +253,7 @@ export const DATA = {
         "تأكد من شمولية الفواتير في الإيجار",
       ],
     },
+
     education: {
       title: { ar: "التعليم واللغة", en: "Education & Language" },
       desc: {
@@ -275,6 +291,7 @@ export const DATA = {
         "استفد من المكتبات العامة فهي كنز مجاني",
       ],
     },
+
     finance: {
       title: { ar: "المال والائتمان", en: "Finance & Credit" },
       desc: {
@@ -308,6 +325,7 @@ export const DATA = {
         "لا تفتح حسابات بنكية كثيرة بلا داع",
       ],
     },
+
     transportation: {
       title: { ar: "المواصلات والقيادة", en: "Transport & Driving" },
       desc: {
@@ -345,6 +363,7 @@ export const DATA = {
         "احذر من السيارات الغارقة (Salvage Title)",
       ],
     },
+
     community: {
       title: { ar: "المجتمع والحياة", en: "Community & Life" },
       desc: {

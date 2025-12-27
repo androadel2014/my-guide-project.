@@ -1,8 +1,8 @@
 // ProfilePage.jsx (FULL FILE - copy/paste)
-// ✅ Changes in this version:
-// - Redesigned Stats box (Followers/Following/Rating/Reviews + Posts/Services/Products) to a modern dashboard style
-// - Rating now shows stars + average in a strong card
-// - Counts cards now have icons, hover, better spacing, responsive layout
+// ✅ Fixes in this version:
+// - ✅ FIX 400 comments: لا نستخدم pp_18 في comments URLs (comments لازم رقم فقط)
+// - ✅ لو البوست id بتاعه pp_.. يبقى comments disabled بدل ما يضرب 400
+// - KEEP: كل شغلك (isMe fallback, safe tabs, edit/delete posts, comment tree, etc)
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -21,7 +21,7 @@ import {
   MessageCircle,
   Share2,
   Trash2,
-  SendHorizonal,
+  SendHorizontal,
   ChevronDown,
   ChevronUp,
   ThumbsUp,
@@ -60,25 +60,107 @@ const safeUrl = (u) => {
   return "https://" + s;
 };
 
+const extractNumericId = (id) => {
+  if (id === null || id === undefined) return null;
+  const s = String(id);
+  const m = s.match(/\d+$/);
+  return m ? Number(m[0]) : null;
+};
+
+// ✅ robust current user id getter (if you store it)
+const getAuthUserId = () => {
+  try {
+    const direct = localStorage.getItem("userId");
+    if (direct) return String(direct);
+
+    const u = localStorage.getItem("user");
+    if (!u) return null;
+    const obj = JSON.parse(u);
+    const id = obj?.id ?? obj?.user_id ?? obj?._id ?? obj?.uid ?? null;
+    return id !== null && id !== undefined ? String(id) : null;
+  } catch {
+    return null;
+  }
+};
+
+// ✅ normalize post id comparisons
+const getPostId = (p) => p?.id ?? p?.post_id ?? p?._id ?? p?.postId ?? null;
+const normId = (v) => {
+  if (v === null || v === undefined) return "";
+  const n = extractNumericId(v);
+  return n !== null ? String(n) : String(v);
+};
+
+// ✅ UPDATED: always show a clear timestamp too
 const formatTime = (value) => {
   if (!value) return "";
   try {
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return "";
+
+    const abs = d.toLocaleString(undefined, {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
     const diff = Date.now() - d.getTime();
     const mins = Math.floor(diff / 60000);
-    if (mins < 1) return "Just now";
-    if (mins < 60) return `${mins}m`;
+
+    if (mins < 1) return `${abs}`;
+    if (mins < 60) return `${mins}m • ${abs}`;
     const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h`;
+    if (hrs < 24) return `${hrs}h • ${abs}`;
     const days = Math.floor(hrs / 24);
-    return `${days}d`;
+    return `${days}d • ${abs}`;
   } catch {
     return "";
   }
 };
 
-// ✅ confirm toast (زي اللي في الـ Feed)
+// ✅ category badge helper
+function getCategory(cat) {
+  const key = String(cat || "General").trim() || "General";
+
+  const map = {
+    General: {
+      label: "General",
+      badge: "bg-gray-50 border-gray-200 text-gray-700",
+      dot: "bg-gray-500",
+    },
+    Taxes: {
+      label: "Taxes",
+      badge: "bg-emerald-50 border-emerald-200 text-emerald-700",
+      dot: "bg-emerald-500",
+    },
+    Housing: {
+      label: "Housing",
+      badge: "bg-indigo-50 border-indigo-200 text-indigo-700",
+      dot: "bg-indigo-500",
+    },
+    Work: {
+      label: "Work",
+      badge: "bg-blue-50 border-blue-200 text-blue-700",
+      dot: "bg-blue-500",
+    },
+    Immigration: {
+      label: "Immigration",
+      badge: "bg-amber-50 border-amber-200 text-amber-700",
+      dot: "bg-amber-500",
+    },
+    Questions: {
+      label: "Questions",
+      badge: "bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700",
+      dot: "bg-fuchsia-500",
+    },
+  };
+
+  return map[key] || map.General;
+}
+
+// ✅ confirm toast
 const toastConfirm = ({
   title = "Are you sure?",
   confirmText = "Delete",
@@ -144,18 +226,20 @@ async function tryFetch(url, options = {}) {
   return data;
 }
 
-// ✅ try multiple endpoints (fallbacks)
 async function tryFetchFallback(urls, options = {}) {
   let lastErr = null;
+
   for (const u of urls) {
     try {
       return await tryFetch(u, options);
     } catch (e) {
       lastErr = e;
-      if (e?.status === 404) continue;
+      const s = e?.status;
+      if (s === 404 || s === 500 || s === 401 || s === 403) continue;
       throw e;
     }
   }
+
   throw lastErr || new Error("Request failed");
 }
 
@@ -215,7 +299,6 @@ export function ProfilePage({ lang }) {
 
   // Modals
   const [editOpen, setEditOpen] = useState(false);
-  const [addPostOpen, setAddPostOpen] = useState(false);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [addProductOpen, setAddProductOpen] = useState(false);
   const [addReviewOpen, setAddReviewOpen] = useState(false);
@@ -233,7 +316,18 @@ export function ProfilePage({ lang }) {
     website: "",
   });
 
-  const [postForm, setPostForm] = useState({ content: "", media_url: "" });
+  // ✅ Feed-like post form (content + media + category)
+  const FEED_CATEGORIES = useMemo(
+    () => ["General", "Taxes", "Housing", "Work", "Immigration", "Questions"],
+    []
+  );
+
+  const [postForm, setPostForm] = useState({
+    content: "",
+    media_url: "",
+    category: "General",
+  });
+
   const [serviceForm, setServiceForm] = useState({
     title: "",
     description: "",
@@ -242,6 +336,7 @@ export function ProfilePage({ lang }) {
     price_value: "",
     location: "",
   });
+
   const [productForm, setProductForm] = useState({
     title: "",
     description: "",
@@ -254,7 +349,12 @@ export function ProfilePage({ lang }) {
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
 
   const canAct = isAuthed();
-  const canEdit = canAct && isMe;
+
+  // ✅ NEW: isMe/canEdit fallback by comparing route userId with authed id
+  const authedId = getAuthUserId();
+  const computedIsMe =
+    !!authedId && !!userId && normId(authedId) === normId(String(userId));
+  const canEdit = canAct && (isMe || computedIsMe);
 
   // ✅ helpers for counters on tabs
   const countPosts = Number(stats?.posts ?? posts.length ?? 0) || 0;
@@ -285,15 +385,24 @@ export function ProfilePage({ lang }) {
 
         if (dead) return;
 
-        // Normalize
         const p =
           data?.profile || data?.user_profile || data?.user || data || null;
         const st = data?.stats || data?.profile_stats || null;
 
         setProfile(p);
         setStats(st);
-        setIsMe(!!data?.isMe || false);
-        setIsFollowing(!!data?.isFollowing || false);
+
+        // ✅ FIX: fallback isMe if backend doesn't send isMe
+        const meId = getAuthUserId();
+        const fallbackIsMe =
+          !!meId && normId(meId) === normId(uid) ? true : false;
+
+        setIsMe(!!data?.isMe || fallbackIsMe);
+
+        // ✅ follow fallback (if backend doesn't send isFollowing keep current)
+        setIsFollowing(
+          typeof data?.isFollowing === "boolean" ? data.isFollowing : false
+        );
 
         setEditForm({
           username: p?.username || "",
@@ -552,32 +661,39 @@ export function ProfilePage({ lang }) {
     } catch {}
   }
 
+  // ✅ CREATE POST
   async function onCreatePost() {
     if (!canEdit) return;
     const content = String(postForm.content || "").trim();
     if (!content) return toast.error("اكتب البوست الأول");
+
+    const category = String(postForm.category || "General").trim() || "General";
+    const media_url = String(postForm.media_url || "").trim() || null;
+
     try {
       await tryFetchFallback(
         [
+          `${API_BASE}/api/posts`,
+          `${API_BASE}/api/feed/posts`,
+          `${API_BASE}/api/post`,
           `${API_BASE}/api/profile/me/posts`,
           `${API_BASE}/api/me/profile/posts`,
           `${API_BASE}/api/profile_posts/me`,
-          `${API_BASE}/api/posts`,
-          `${API_BASE}/api/post`,
-          `${API_BASE}/api/feed/posts`,
         ],
         {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders() },
           body: JSON.stringify({
             content,
-            media_url: String(postForm.media_url || "").trim() || null,
+            media_url,
+            category,
+            topic: category,
           }),
         }
       );
+
       toast.success("Posted");
-      setAddPostOpen(false);
-      setPostForm({ content: "", media_url: "" });
+      setPostForm((s) => ({ ...s, content: "", media_url: "" }));
       setTab("posts");
       await refreshCurrentTab();
       setStats((s) => (s ? { ...s, posts: (s.posts || 0) + 1 } : s));
@@ -586,7 +702,7 @@ export function ProfilePage({ lang }) {
     }
   }
 
-  async function onDeletePost(id) {
+  async function onDeletePost(postId) {
     if (!canEdit) return;
 
     const ok = await toastConfirm({
@@ -595,30 +711,98 @@ export function ProfilePage({ lang }) {
     });
     if (!ok) return;
 
+    const target = normId(postId);
     const prev = posts;
-    setPosts((xs) => xs.filter((p) => p.id !== id));
+
+    // ✅ optimistic remove with normalized id compare
+    setPosts((xs) =>
+      (Array.isArray(xs) ? xs : []).filter((p) => {
+        const pid = normId(getPostId(p));
+        return pid !== target;
+      })
+    );
 
     try {
+      const idForUrl = extractNumericId(postId) ?? postId;
+
       await tryFetchFallback(
         [
-          `${API_BASE}/api/profile/me/posts/${id}`,
-          `${API_BASE}/api/me/profile/posts/${id}`,
-          `${API_BASE}/api/profile_posts/me/${id}`,
-          `${API_BASE}/api/posts/${id}`,
-          `${API_BASE}/api/post/${id}`,
+          `${API_BASE}/api/posts/${idForUrl}`,
+          `${API_BASE}/api/post/${idForUrl}`,
+          `${API_BASE}/api/profile/me/posts/${idForUrl}`,
+          `${API_BASE}/api/me/profile/posts/${idForUrl}`,
+          `${API_BASE}/api/profile_posts/me/${idForUrl}`,
         ],
-        {
-          method: "DELETE",
-          headers: { ...authHeaders() },
-        }
+        { method: "DELETE", headers: { ...authHeaders() } }
       );
+
       toast.success("Deleted");
       setStats((s) =>
         s ? { ...s, posts: Math.max(0, (s.posts || 0) - 1) } : s
       );
+
+      await refreshCurrentTab();
     } catch (e) {
       setPosts(prev);
       toast.error(e.message || "Delete failed");
+    }
+  }
+
+  // ✅ UPDATE POST (Edit)
+  async function onUpdatePost(postId, payload) {
+    if (!canEdit) return;
+
+    const content = String(payload?.content ?? "").trim();
+    if (!content) return toast.error("اكتب محتوى البوست");
+
+    const prev = posts;
+    const target = normId(postId);
+
+    // ✅ optimistic update
+    setPosts((xs) =>
+      (Array.isArray(xs) ? xs : []).map((p) => {
+        const pid = normId(getPostId(p));
+        if (pid !== target) return p;
+        return { ...p, content };
+      })
+    );
+
+    const idForUrl = extractNumericId(postId) ?? postId;
+
+    const urls = [
+      `${API_BASE}/api/posts/${idForUrl}`,
+      `${API_BASE}/api/post/${idForUrl}`,
+      `${API_BASE}/api/profile/me/posts/${idForUrl}`,
+      `${API_BASE}/api/me/profile/posts/${idForUrl}`,
+    ];
+
+    const body = JSON.stringify({
+      content,
+      text: content,
+      body: content,
+      message: content,
+    });
+
+    try {
+      try {
+        await tryFetchFallback(urls, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body,
+        });
+      } catch {
+        await tryFetchFallback(urls, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body,
+        });
+      }
+
+      toast.success("Updated");
+      await refreshCurrentTab();
+    } catch (e) {
+      setPosts(prev);
+      toast.error(e.message || "Update failed");
     }
   }
 
@@ -674,7 +858,9 @@ export function ProfilePage({ lang }) {
     if (!ok) return;
 
     const prev = services;
-    setServices((xs) => xs.filter((s) => s.id !== id));
+    setServices((xs) =>
+      (Array.isArray(xs) ? xs : []).filter((s) => (s.id ?? s.service_id) !== id)
+    );
 
     try {
       await tryFetchFallback(
@@ -683,15 +869,13 @@ export function ProfilePage({ lang }) {
           `${API_BASE}/api/me/profile/services/${id}`,
           `${API_BASE}/api/services/me/${id}`,
         ],
-        {
-          method: "DELETE",
-          headers: { ...authHeaders() },
-        }
+        { method: "DELETE", headers: { ...authHeaders() } }
       );
       toast.success("Deleted");
       setStats((st) =>
         st ? { ...st, services: Math.max(0, (st.services || 0) - 1) } : st
       );
+      await refreshCurrentTab();
     } catch (e) {
       setServices(prev);
       toast.error(e.message || "Delete failed");
@@ -756,7 +940,9 @@ export function ProfilePage({ lang }) {
     if (!ok) return;
 
     const prev = products;
-    setProducts((xs) => xs.filter((p) => p.id !== id));
+    setProducts((xs) =>
+      (Array.isArray(xs) ? xs : []).filter((p) => (p.id ?? p.product_id) !== id)
+    );
 
     try {
       await tryFetchFallback(
@@ -765,15 +951,13 @@ export function ProfilePage({ lang }) {
           `${API_BASE}/api/me/profile/products/${id}`,
           `${API_BASE}/api/products/me/${id}`,
         ],
-        {
-          method: "DELETE",
-          headers: { ...authHeaders() },
-        }
+        { method: "DELETE", headers: { ...authHeaders() } }
       );
       toast.success("Deleted");
       setStats((st) =>
         st ? { ...st, products: Math.max(0, (st.products || 0) - 1) } : st
       );
+      await refreshCurrentTab();
     } catch (e) {
       setProducts(prev);
       toast.error(e.message || "Delete failed");
@@ -782,7 +966,7 @@ export function ProfilePage({ lang }) {
 
   async function onCreateReview() {
     if (!canAct) return toast.error("سجّل دخول الأول عشان تكتب Review");
-    if (isMe) return toast.error("مش ينفع تعمل Review لنفسك");
+    if (isMe || computedIsMe) return toast.error("مش ينفع تعمل Review لنفسك");
     const rating = Number(reviewForm.rating);
     const comment = String(reviewForm.comment || "").trim();
     if (!comment) return toast.error("اكتب تعليقك");
@@ -919,7 +1103,7 @@ export function ProfilePage({ lang }) {
                 Share
               </button>
 
-              {!isMe ? (
+              {!canEdit ? (
                 <button
                   onClick={onFollowToggle}
                   className={classNames(
@@ -979,7 +1163,6 @@ export function ProfilePage({ lang }) {
               </div>
             </div>
 
-            {/* ✅ Redesigned Stats */}
             <StatsPanel
               ratingAvg={ratingAvg}
               ratingCount={countReviews}
@@ -993,7 +1176,7 @@ export function ProfilePage({ lang }) {
         </div>
       </div>
 
-      {/* Tabs + Actions */}
+      {/* Tabs */}
       <div className="mt-4 bg-white border rounded-2xl overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 px-3 py-3 border-b bg-white">
           <TabPill
@@ -1022,16 +1205,6 @@ export function ProfilePage({ lang }) {
           />
 
           <div className="ml-auto flex flex-wrap gap-2">
-            {canEdit && tab === "posts" ? (
-              <button
-                onClick={() => setAddPostOpen(true)}
-                className="px-3 py-2 rounded-xl bg-black text-white hover:bg-gray-900 flex items-center gap-2"
-              >
-                <Plus size={16} />
-                Add post
-              </button>
-            ) : null}
-
             {canEdit && tab === "services" ? (
               <button
                 onClick={() => setAddServiceOpen(true)}
@@ -1052,7 +1225,7 @@ export function ProfilePage({ lang }) {
               </button>
             ) : null}
 
-            {!isMe && tab === "reviews" ? (
+            {!canEdit && tab === "reviews" ? (
               <button
                 onClick={() =>
                   canAct
@@ -1085,6 +1258,12 @@ export function ProfilePage({ lang }) {
               isMe={canEdit}
               canAct={canAct}
               onDelete={onDeletePost}
+              onUpdate={onUpdatePost}
+              showComposer={canEdit}
+              postForm={postForm}
+              setPostForm={setPostForm}
+              categories={FEED_CATEGORIES}
+              onCreatePost={onCreatePost}
             />
           ) : null}
 
@@ -1195,48 +1374,6 @@ export function ProfilePage({ lang }) {
               setEditForm((s) => ({ ...s, bio: e.target.value }))
             }
             placeholder="Tell people about you…"
-          />
-        </div>
-      </Modal>
-
-      <Modal
-        title="Add post"
-        open={addPostOpen}
-        onClose={() => setAddPostOpen(false)}
-        footer={
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => setAddPostOpen(false)}
-              className="px-4 py-2 rounded-xl border hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={onCreatePost}
-              className="px-4 py-2 rounded-xl bg-black text-white hover:bg-gray-900"
-            >
-              Publish
-            </button>
-          </div>
-        }
-      >
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm font-medium">Content</label>
-            <textarea
-              className="mt-1 w-full min-h-[120px] border rounded-2xl p-3 outline-none focus:ring-2 focus:ring-black/10"
-              value={postForm.content}
-              onChange={(e) =>
-                setPostForm((s) => ({ ...s, content: e.target.value }))
-              }
-              placeholder="Write something…"
-            />
-          </div>
-          <Field
-            label="Media URL (optional)"
-            value={postForm.media_url}
-            onChange={(v) => setPostForm((s) => ({ ...s, media_url: v }))}
-            placeholder="https://..."
           />
         </div>
       </Modal>
@@ -1462,7 +1599,6 @@ function StatsPanel({
 
   return (
     <div className="rounded-2xl border bg-gradient-to-b from-gray-50 to-white p-4 shadow-sm">
-      {/* Top: Rating card */}
       <div className="rounded-2xl border bg-white p-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -1494,7 +1630,6 @@ function StatsPanel({
         </div>
       </div>
 
-      {/* Middle: Followers/Following */}
       <div className="mt-3 grid grid-cols-2 gap-3">
         <StatCard
           icon={<Users size={16} />}
@@ -1508,7 +1643,6 @@ function StatsPanel({
         />
       </div>
 
-      {/* Bottom: Posts/Services/Products */}
       <div className="mt-3 grid grid-cols-3 gap-3">
         <StatMini
           icon={<MessageCircle size={16} />}
@@ -1527,7 +1661,6 @@ function StatsPanel({
         />
       </div>
 
-      {/* Small note */}
       <div className="mt-3 flex items-center justify-center">
         <span className="text-[11px] px-2 py-1 rounded-full bg-gray-100 border text-gray-600">
           Profile stats
@@ -1607,11 +1740,14 @@ function normalizeComment(c) {
   const parentId = c.parent_id ?? c.parentId ?? c.reply_to ?? c.replyTo ?? null;
   const postId = c.post_id ?? c.postId ?? c.threadKey ?? c.postID ?? null;
 
+  const authorId = c.author_id ?? c.user_id ?? c.userId ?? c.uid ?? null;
+
   return {
     ...c,
     id,
     post_id: postId,
     parent_id: parentId,
+    author_id: authorId,
     content:
       c.content ?? c.text ?? c.comment ?? c.body ?? c.message ?? c.value ?? "",
     author_name:
@@ -1634,7 +1770,7 @@ function buildCommentTree(flat = []) {
   const map = new Map();
   const roots = [];
 
-  flat.forEach((raw) => {
+  (Array.isArray(flat) ? flat : []).forEach((raw) => {
     const c = normalizeComment(raw);
     if (!c || !c.id) return;
     map.set(c.id, { ...c, replies: [] });
@@ -1667,30 +1803,197 @@ function buildCommentTree(flat = []) {
    Tabs
 ========================= */
 
-function PostsTab({ API_BASE, profile, items, isMe, canAct, onDelete }) {
+function PostsTab({
+  API_BASE,
+  profile,
+  items,
+  isMe,
+  canAct,
+  onDelete,
+  onUpdate,
+  showComposer,
+  postForm,
+  setPostForm,
+  categories,
+  onCreatePost,
+}) {
+  const safeItems = Array.isArray(items) ? items : [];
   return (
     <div className="space-y-4">
-      {items.map((p) => (
-        <PostCard
-          key={p.id}
-          API_BASE={API_BASE}
-          post={p}
+      {showComposer ? (
+        <ProfileComposer
           profile={profile}
-          isMe={isMe}
-          canAct={canAct}
-          onDelete={() => onDelete(p.id)}
+          postForm={postForm}
+          setPostForm={setPostForm}
+          categories={categories}
+          onCreatePost={onCreatePost}
         />
-      ))}
+      ) : null}
 
-      {!items.length ? (
+      {safeItems.map((p, idx) => {
+        const rawId = getPostId(p);
+        const key = String(rawId ?? `row_${idx}`);
+        return (
+          <PostCard
+            key={key}
+            API_BASE={API_BASE}
+            post={p}
+            profile={profile}
+            isMe={isMe}
+            canAct={canAct}
+            onDelete={() => onDelete(rawId)}
+            onUpdate={(payload) => onUpdate(rawId, payload)}
+          />
+        );
+      })}
+
+      {!safeItems.length ? (
         <div className="text-sm text-gray-500">No posts yet.</div>
       ) : null}
     </div>
   );
 }
 
-function PostCard({ API_BASE, post, profile, isMe, canAct, onDelete }) {
-  const postId = post.id ?? post.post_id ?? post._id;
+function ProfileComposer({
+  profile,
+  postForm,
+  setPostForm,
+  categories,
+  onCreatePost,
+}) {
+  const authorName =
+    profile?.display_name || profile?.username || profile?.name || "You";
+  const avatar = profile?.avatar_url || "";
+
+  const category = String(postForm.category || "General").trim() || "General";
+
+  return (
+    <div className="border rounded-2xl bg-white overflow-hidden">
+      <div className="p-4 flex items-start gap-3">
+        <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-900 text-white flex items-center justify-center font-bold">
+          {avatar ? (
+            <img src={avatar} alt="a" className="w-full h-full object-cover" />
+          ) : (
+            getInitials(authorName)
+          )}
+        </div>
+
+        <div className="flex-1">
+          <textarea
+            className="w-full min-h-[110px] border rounded-2xl p-3 outline-none focus:ring-2 focus:ring-black/10"
+            value={postForm.content}
+            onChange={(e) =>
+              setPostForm((s) => ({ ...s, content: e.target.value }))
+            }
+            placeholder="احكي تجربتك، اسأل سؤال، أو شارك معلومة تساعد غيرك… ✍️"
+          />
+
+          <div className="mt-3 flex flex-col md:flex-row md:items-center gap-2">
+            <div className="flex-1">
+              <div className="text-xs text-gray-500 hidden md:block">
+                Category
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  className="border rounded-2xl px-4 py-3 bg-white outline-none focus:ring-2 focus:ring-black/10"
+                  value={postForm.category}
+                  onChange={(e) =>
+                    setPostForm((s) => ({ ...s, category: e.target.value }))
+                  }
+                >
+                  {categories.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+
+                <span
+                  className={classNames(
+                    "inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs border",
+                    getCategory(category).badge
+                  )}
+                >
+                  <span
+                    className={classNames(
+                      "w-2 h-2 rounded-full",
+                      getCategory(category).dot
+                    )}
+                  />
+                  {getCategory(category).label}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onCreatePost}
+                className="px-5 py-3 rounded-2xl bg-black text-white hover:bg-gray-900 font-semibold"
+              >
+                Post
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================
+   ✅ FIX: comments ids
+========================= */
+
+// ✅ pp_18 = profile_posts id (مش مربوط بـ /api/posts/:id/comments)
+// ✅ p_18 = post id (ممكن يتحول لـ 18)
+const normalizeFeedPostId = (raw) => {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+
+  if (s.startsWith("p_")) {
+    const n = Number(s.slice(2));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  if (s.startsWith("pp_")) return null;
+
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+function PostCard({
+  API_BASE,
+  post,
+  profile,
+  isMe,
+  canAct,
+  onDelete,
+  onUpdate,
+}) {
+  const rawPostId = getPostId(post);
+
+  // ✅ الرقم الحقيقي اللي ينفع للـ comments endpoints
+  const numericPostId = useMemo(() => {
+    const s = String(rawPostId ?? "").trim();
+    if (!s) return null;
+
+    // ✅ IMPORTANT: pp_ لازم يتقفّل قبل أي extraction
+    if (s.startsWith("pp_")) return null;
+
+    const direct = normalizeFeedPostId(s);
+    if (direct) return direct;
+
+    const extracted = extractNumericId(s);
+    return extracted || null;
+  }, [rawPostId]);
+
+  // ✅ ده الوحيد اللي نستخدمه في URLs
+  const postIdForComments = numericPostId ? String(numericPostId) : null;
+
+  // ✅ optimistic/local فقط
+  const idForUrl = numericPostId ?? rawPostId;
+
   const created = formatTime(post.created_at || post.createdAt) || "";
 
   const authorName =
@@ -1713,25 +2016,50 @@ function PostCard({ API_BASE, post, profile, isMe, canAct, onDelete }) {
   const [openComments, setOpenComments] = useState(true);
 
   const [draft, setDraft] = useState("");
-  const [replyTo, setReplyTo] = useState(null); // comment id
-  const [showRepliesMap, setShowRepliesMap] = useState({}); // commentId => bool
+  const [replyTo, setReplyTo] = useState(null);
+  const [showRepliesMap, setShowRepliesMap] = useState({});
+
+  // ✅ edit modal state
+  const [editOpen, setEditOpen] = useState(false);
+  const [editContent, setEditContent] = useState(String(post.content || ""));
 
   const tree = useMemo(() => buildCommentTree(comments), [comments]);
 
+  const makeCommentGetUrls = (pid) => [
+    `${API_BASE}/api/post_comments/${encodeURIComponent(pid)}`,
+    `${API_BASE}/api/comments/${encodeURIComponent(pid)}`,
+    `${API_BASE}/api/comments/post/${encodeURIComponent(pid)}`,
+    `${API_BASE}/api/posts/${encodeURIComponent(pid)}/comments`,
+    `${API_BASE}/api/post/${encodeURIComponent(pid)}/comments`,
+  ];
+
+  const makeCommentPostUrls = (pid) => [
+    // ✅ الأهم: ده غالبًا اللي الـ Feed شغال عليه
+    `${API_BASE}/api/comments`,
+    `${API_BASE}/api/comments/post/${encodeURIComponent(pid)}`,
+
+    // ✅ احتياط لو السيرفر شغال nested
+    `${API_BASE}/api/posts/${encodeURIComponent(pid)}/comments`,
+    `${API_BASE}/api/post/${encodeURIComponent(pid)}/comments`,
+  ];
+
+  const makeCommentDeleteUrls = (pid, commentId) => [
+    `${API_BASE}/api/comments/${commentId}`,
+    `${API_BASE}/api/comment/${commentId}`,
+    `${API_BASE}/api/posts/${encodeURIComponent(pid)}/comments/${commentId}`,
+    `${API_BASE}/api/post/${encodeURIComponent(pid)}/comments/${commentId}`,
+  ];
+
   async function loadComments() {
-    if (!postId) return;
+    if (!postIdForComments) {
+      setComments([]);
+      return;
+    }
+
     setCommentsLoading(true);
     try {
-      const r = await tryFetchFallback(
-        [
-          `${API_BASE}/api/posts/${postId}/comments`,
-          `${API_BASE}/api/post/${postId}/comments`,
-          `${API_BASE}/api/comments/post/${postId}`,
-          `${API_BASE}/api/post_comments/${postId}`,
-          `${API_BASE}/api/comments/${postId}`,
-        ],
-        { headers: { ...authHeaders() } }
-      );
+      const urls = makeCommentGetUrls(postIdForComments);
+      const r = await tryFetchFallback(urls, { headers: { ...authHeaders() } });
 
       const items =
         r?.comments ||
@@ -1739,8 +2067,9 @@ function PostCard({ API_BASE, post, profile, isMe, canAct, onDelete }) {
         r?.data ||
         r?.results ||
         (Array.isArray(r) ? r : []);
+
       setComments(Array.isArray(items) ? items : []);
-    } catch (e) {
+    } catch {
       setComments([]);
     } finally {
       setCommentsLoading(false);
@@ -1750,18 +2079,21 @@ function PostCard({ API_BASE, post, profile, isMe, canAct, onDelete }) {
   useEffect(() => {
     loadComments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [postId]);
-
+  }, [String(postIdForComments ?? "")]);
   async function onSendComment() {
     if (!canAct) return toast.error("سجّل دخول الأول");
+    if (!postIdForComments) return toast.error("التعليقات غير متاحة للبوست ده");
+
     const content = String(draft || "").trim();
     if (!content) return;
 
-    const payload = replyTo ? { content, parent_id: replyTo } : { content };
+    const payload = replyTo
+      ? { content, parent_id: replyTo, post_id: postIdForComments }
+      : { content, post_id: postIdForComments };
 
     const optimistic = {
       id: "tmp_" + Math.random().toString(16).slice(2),
-      post_id: postId,
+      post_id: postIdForComments,
       parent_id: replyTo || null,
       content,
       author_name: "You",
@@ -1770,6 +2102,7 @@ function PostCard({ API_BASE, post, profile, isMe, canAct, onDelete }) {
       likes_count: 0,
       is_liked: false,
       can_delete: true,
+      author_id: getAuthUserId(),
     };
 
     setComments((xs) => [...xs, optimistic]);
@@ -1777,19 +2110,14 @@ function PostCard({ API_BASE, post, profile, isMe, canAct, onDelete }) {
     setReplyTo(null);
 
     try {
-      await tryFetchFallback(
-        [
-          `${API_BASE}/api/posts/${postId}/comments`,
-          `${API_BASE}/api/post/${postId}/comments`,
-          `${API_BASE}/api/comments/post/${postId}`,
-          `${API_BASE}/api/comments`,
-        ],
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify(payload),
-        }
-      );
+      const urls = makeCommentPostUrls(postIdForComments);
+
+      await tryFetchFallback(urls, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(payload),
+      });
+
       await loadComments();
     } catch (e) {
       setComments((xs) => xs.filter((c) => c.id !== optimistic.id));
@@ -1808,15 +2136,14 @@ function PostCard({ API_BASE, post, profile, isMe, canAct, onDelete }) {
     setComments((xs) => xs.filter((c) => (c.id ?? c.comment_id) !== commentId));
 
     try {
-      await tryFetchFallback(
-        [
-          `${API_BASE}/api/comments/${commentId}`,
-          `${API_BASE}/api/comment/${commentId}`,
-          `${API_BASE}/api/posts/${postId}/comments/${commentId}`,
-          `${API_BASE}/api/post/${postId}/comments/${commentId}`,
-        ],
-        { method: "DELETE", headers: { ...authHeaders() } }
-      );
+      if (!postIdForComments) throw new Error("Missing post id for comments");
+      const urls = makeCommentDeleteUrls(postIdForComments, commentId);
+
+      await tryFetchFallback(urls, {
+        method: "DELETE",
+        headers: { ...authHeaders() },
+      });
+
       toast.success("Deleted");
       await loadComments();
     } catch (e) {
@@ -1855,7 +2182,7 @@ function PostCard({ API_BASE, post, profile, isMe, canAct, onDelete }) {
           headers: { "Content-Type": "application/json", ...authHeaders() },
         }
       );
-    } catch (e) {
+    } catch {
       await loadComments();
     }
   }
@@ -1864,8 +2191,51 @@ function PostCard({ API_BASE, post, profile, isMe, canAct, onDelete }) {
     setShowRepliesMap((m) => ({ ...m, [commentId]: !m[commentId] }));
   }
 
+  function openEdit() {
+    setEditContent(String(post.content || ""));
+    setEditOpen(true);
+  }
+
+  async function saveEdit() {
+    const content = String(editContent || "").trim();
+    if (!content) return toast.error("اكتب محتوى البوست");
+    await onUpdate({ content });
+    setEditOpen(false);
+  }
+
   return (
     <div className="border rounded-2xl bg-white overflow-hidden">
+      {/* Edit modal */}
+      <Modal
+        title="Edit post"
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setEditOpen(false)}
+              className="px-4 py-2 rounded-xl border hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={saveEdit}
+              className="px-4 py-2 rounded-xl bg-black text-white hover:bg-gray-900"
+            >
+              Save
+            </button>
+          </div>
+        }
+      >
+        <label className="text-sm font-medium">Content</label>
+        <textarea
+          className="mt-2 w-full min-h-[160px] border rounded-2xl p-3 outline-none focus:ring-2 focus:ring-black/10"
+          value={editContent}
+          onChange={(e) => setEditContent(e.target.value)}
+          placeholder="Update your post…"
+        />
+      </Modal>
+
       <div className="px-4 py-3 flex items-start gap-3">
         <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-900 text-white flex items-center justify-center font-bold">
           {authorAvatar ? (
@@ -1887,13 +2257,22 @@ function PostCard({ API_BASE, post, profile, isMe, canAct, onDelete }) {
             </div>
 
             {isMe ? (
-              <button
-                onClick={onDelete}
-                className="p-2 rounded-xl hover:bg-gray-50 text-red-600"
-                title="Delete post"
-              >
-                <Trash2 size={16} />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={openEdit}
+                  className="p-2 rounded-xl hover:bg-gray-50 text-gray-700"
+                  title="Edit post"
+                >
+                  <Pencil size={16} />
+                </button>
+                <button
+                  onClick={onDelete}
+                  className="p-2 rounded-xl hover:bg-gray-50 text-red-600"
+                  title="Delete post"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
             ) : null}
           </div>
 
@@ -1923,12 +2302,11 @@ function PostCard({ API_BASE, post, profile, isMe, canAct, onDelete }) {
             {openComments ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
 
-          <button
-            onClick={loadComments}
-            className="text-xs px-3 py-1.5 rounded-xl border bg-white hover:bg-gray-50"
-          >
-            Refresh
-          </button>
+          {!postIdForComments ? (
+            <span className="text-xs text-gray-500">
+              Comments not available for this post id
+            </span>
+          ) : null}
         </div>
 
         {openComments ? (
@@ -1992,10 +2370,11 @@ function PostCard({ API_BASE, post, profile, isMe, canAct, onDelete }) {
                     onClick={onSendComment}
                     className="px-4 py-3 rounded-2xl bg-black text-white hover:bg-gray-900 flex items-center gap-2"
                   >
-                    <SendHorizonal size={16} />
+                    <SendHorizontal size={16} />
                     Send
                   </button>
                 </div>
+
                 {!canAct ? (
                   <div className="text-xs text-gray-500 mt-2">
                     لازم تسجّل دخول عشان تكتب تعليق.
@@ -2031,7 +2410,17 @@ function CommentNode({
   const authorName = node.author_name || "User";
   const avatar = node.author_avatar || "";
 
-  const canDelete = !!node.can_delete || (!!isMe && authorName === "You");
+  const meId = getAuthUserId();
+  const nodeAuthorId =
+    node.author_id ?? node.user_id ?? node.userId ?? node.uid ?? null;
+
+  const canDelete =
+    !!node.can_delete ||
+    (canAct &&
+      meId &&
+      nodeAuthorId !== null &&
+      String(nodeAuthorId) === String(meId)) ||
+    authorName === "You";
 
   const likes = Number(node.likes_count ?? 0) || 0;
   const liked = !!node.is_liked;
@@ -2141,10 +2530,14 @@ function CommentNode({
 }
 
 function ServicesTab({ items, isMe, onDelete }) {
+  const safeItems = Array.isArray(items) ? items : [];
   return (
     <div className="space-y-3">
-      {items.map((s) => (
-        <div key={s.id} className="border rounded-2xl p-4 bg-white">
+      {safeItems.map((s) => (
+        <div
+          key={s.id ?? s.service_id}
+          className="border rounded-2xl p-4 bg-white"
+        >
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="font-semibold flex items-center gap-2">
@@ -2167,7 +2560,7 @@ function ServicesTab({ items, isMe, onDelete }) {
 
             {isMe ? (
               <button
-                onClick={() => onDelete(s.id)}
+                onClick={() => onDelete(s.id ?? s.service_id)}
                 className="p-2 rounded-xl hover:bg-gray-50 text-red-600"
                 title="Delete"
               >
@@ -2183,7 +2576,7 @@ function ServicesTab({ items, isMe, onDelete }) {
           ) : null}
         </div>
       ))}
-      {!items.length ? (
+      {!safeItems.length ? (
         <div className="text-sm text-gray-500">No services yet.</div>
       ) : null}
     </div>
@@ -2191,10 +2584,14 @@ function ServicesTab({ items, isMe, onDelete }) {
 }
 
 function ProductsTab({ items, isMe, onDelete }) {
+  const safeItems = Array.isArray(items) ? items : [];
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      {items.map((p) => (
-        <div key={p.id} className="border rounded-2xl overflow-hidden bg-white">
+      {safeItems.map((p) => (
+        <div
+          key={p.id ?? p.product_id}
+          className="border rounded-2xl overflow-hidden bg-white"
+        >
           {Array.isArray(p.images) && p.images[0] ? (
             <img
               src={p.images[0]}
@@ -2221,7 +2618,7 @@ function ProductsTab({ items, isMe, onDelete }) {
 
               {isMe ? (
                 <button
-                  onClick={() => onDelete(p.id)}
+                  onClick={() => onDelete(p.id ?? p.product_id)}
                   className="p-2 rounded-xl hover:bg-gray-50 text-red-600"
                   title="Delete"
                 >
@@ -2251,7 +2648,7 @@ function ProductsTab({ items, isMe, onDelete }) {
           </div>
         </div>
       ))}
-      {!items.length ? (
+      {!safeItems.length ? (
         <div className="text-sm text-gray-500">No products yet.</div>
       ) : null}
     </div>
@@ -2259,14 +2656,15 @@ function ProductsTab({ items, isMe, onDelete }) {
 }
 
 function ReviewsTab({ items, ratingAvg, ratingCount }) {
+  const safeItems = Array.isArray(items) ? items : [];
   const dist = useMemo(() => {
     const buckets = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-    (items || []).forEach((r) => {
+    safeItems.forEach((r) => {
       const n = Math.max(1, Math.min(5, Number(r.rating) || 0));
       if (n) buckets[n] += 1;
     });
     return buckets;
-  }, [items]);
+  }, [safeItems]);
 
   const max = Math.max(1, ...Object.values(dist));
 
@@ -2310,9 +2708,7 @@ function ReviewsTab({ items, ratingAvg, ratingCount }) {
                 <div className="flex-1 h-2 rounded-full bg-gray-100 overflow-hidden border">
                   <div
                     className="h-full bg-gray-900"
-                    style={{
-                      width: `${Math.round((dist[n] / max) * 100)}%`,
-                    }}
+                    style={{ width: `${Math.round((dist[n] / max) * 100)}%` }}
                   />
                 </div>
                 <div className="w-10 text-xs text-gray-500 text-right">
@@ -2325,8 +2721,11 @@ function ReviewsTab({ items, ratingAvg, ratingCount }) {
       </div>
 
       <div className="space-y-3">
-        {items.map((r) => (
-          <div key={r.id} className="border rounded-2xl p-4 bg-white">
+        {safeItems.map((r) => (
+          <div
+            key={r.id ?? r.review_id}
+            className="border rounded-2xl p-4 bg-white"
+          >
             <div className="flex items-center justify-between">
               <div className="font-semibold">{r.author_name || "User"}</div>
               <div className="flex items-center gap-1 text-sm">
@@ -2348,7 +2747,7 @@ function ReviewsTab({ items, ratingAvg, ratingCount }) {
           </div>
         ))}
 
-        {!items.length ? (
+        {!safeItems.length ? (
           <div className="text-sm text-gray-500">No reviews yet.</div>
         ) : null}
       </div>

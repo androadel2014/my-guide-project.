@@ -1,5 +1,8 @@
-// server.js (FULL FILE - FINAL: SOCIAL PROFILE + ALIASES + FEED + COMMENTS + LIKES + SAFE ALTER)
+// server.js (FULL FILE - UPDATED: +LEGACY post_comments ALIASES FIX 404)
 
+// =====================
+// Imports
+// =====================
 const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
@@ -11,6 +14,10 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || "CHANGE_ME_SECRET";
 
+// ✅ خليه true مؤقتًا لو عايز تشوف تحذيرات ALTER / أعمدة ناقصة + SQL errors
+const ALTER_LOG = false;
+const SQL_LOG = true;
+
 /* =====================
    CORS
 ===================== */
@@ -21,7 +28,6 @@ function isAllowedOrigin(origin) {
     /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)
   );
 }
-
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
@@ -31,7 +37,7 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader(
       "Access-Control-Allow-Methods",
-      "GET,POST,PUT,DELETE,OPTIONS"
+      "GET,POST,PUT,PATCH,DELETE,OPTIONS"
     );
     res.setHeader(
       "Access-Control-Allow-Headers",
@@ -55,14 +61,124 @@ app.use(express.urlencoded({ extended: true }));
 const dbPath = path.resolve(__dirname, "database.sqlite");
 const db = new sqlite3.Database(dbPath);
 
+db.serialize(() => {
+  db.run("PRAGMA foreign_keys = ON");
+  db.run("PRAGMA journal_mode = WAL");
+  db.run("PRAGMA synchronous = NORMAL");
+  db.run("PRAGMA busy_timeout = 5000");
+});
+
 function safeAlterTable(sql) {
-  // ignore "duplicate column name" & similar
-  db.run(sql, (err) => {});
+  db.run(sql, (err) => {
+    if (!err) return;
+    const msg = String(err.message || "");
+    const ignorable =
+      msg.includes("duplicate column") ||
+      msg.includes("already exists") ||
+      msg.includes("no such table") ||
+      msg.includes("cannot add a NOT NULL column") ||
+      false;
+
+    if (!ignorable && ALTER_LOG) {
+      console.warn("SAFE_ALTER_WARNING:", msg, "SQL:", sql);
+    }
+  });
 }
 
+// ✅ DB wrappers (logs the real SQL errors that cause 500)
+function dbAll(sql, params, cb) {
+  db.all(sql, params, (err, rows) => {
+    if (err && SQL_LOG) {
+      console.error("SQL_ERROR:", err.message);
+      console.error("SQL:", sql);
+      console.error("PARAMS:", params);
+    }
+    cb(err, rows);
+  });
+}
+function dbGet(sql, params, cb) {
+  db.get(sql, params, (err, row) => {
+    if (err && SQL_LOG) {
+      console.error("SQL_ERROR:", err.message);
+      console.error("SQL:", sql);
+      console.error("PARAMS:", params);
+    }
+    cb(err, row);
+  });
+}
+function dbRun(sql, params, cb) {
+  db.run(sql, params, function (err) {
+    if (err && SQL_LOG) {
+      console.error("SQL_ERROR:", err.message);
+      console.error("SQL:", sql);
+      console.error("PARAMS:", params);
+    }
+    cb && cb.call(this, err);
+  });
+}
+
+function safeTrim(v) {
+  return String(v ?? "").trim();
+}
+
+function safeUrl(v) {
+  const s = safeTrim(v);
+  return s || "";
+}
+
+function safeJsonParse(s) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+function normalizeCvResponse(row) {
+  const parsed = safeJsonParse(row.cv_data);
+  return {
+    id: row.id,
+    cv_name: row.cv_name,
+    updated_at: row.updated_at,
+    cv_data: parsed || row.cv_data,
+  };
+}
+
+function toInt(v) {
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/* =====================
+   ✅ helpers for flexible ids
+===================== */
+function parseAnyPostId(raw) {
+  const s = safeTrim(raw || "");
+  if (!s) return { kind: "bad" };
+
+  if (s.startsWith("p_")) {
+    const id = toInt(s.slice(2));
+    return id ? { kind: "feed", id } : { kind: "bad" };
+  }
+  if (s.startsWith("pp_")) {
+    const id = toInt(s.slice(3));
+    return id ? { kind: "profile", id } : { kind: "bad" };
+  }
+
+  // numeric (unknown: could be feed OR profile)
+  const id = toInt(s);
+  return id ? { kind: "numeric", id } : { kind: "bad" };
+}
+
+/* =====================
+   Schema
+===================== */
 db.serialize(() => {
   db.run("PRAGMA foreign_keys = ON");
 
+  /* =====================
+     USERS
+  ===================== */
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,6 +192,9 @@ db.serialize(() => {
     )
   `);
 
+  /* =====================
+     CVS
+  ===================== */
   db.run(`
     CREATE TABLE IF NOT EXISTS cvs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,39 +205,67 @@ db.serialize(() => {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_cvs_user ON cvs(user_id)`);
 
+  /* =====================
+     FEED POSTS
+  ===================== */
   db.run(`
     CREATE TABLE IF NOT EXISTS posts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      content TEXT,
+      user_id INTEGER NOT NULL,
+      content TEXT NOT NULL,
       category TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_posts_user ON posts(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at)`);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS post_likes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      post_id INTEGER,
-      user_id INTEGER,
-      UNIQUE(post_id, user_id)
+      post_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      UNIQUE(post_id, user_id),
+      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
+  db.run(
+    `CREATE INDEX IF NOT EXISTS idx_post_likes_post ON post_likes(post_id)`
+  );
+  db.run(
+    `CREATE INDEX IF NOT EXISTS idx_post_likes_user ON post_likes(user_id)`
+  );
 
   db.run(`
     CREATE TABLE IF NOT EXISTS post_comments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      post_id INTEGER,
-      user_id INTEGER,
-      comment TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      post_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      comment TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      parent_comment_id INTEGER,
+      FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
 
-  // ✅ SAFE: replies
+  // ✅ SAFE: لو جدول قديم ناقص العمود
   safeAlterTable(
     `ALTER TABLE post_comments ADD COLUMN parent_comment_id INTEGER`
+  );
+
+  db.run(
+    `CREATE INDEX IF NOT EXISTS idx_comments_post ON post_comments(post_id)`
+  );
+  db.run(
+    `CREATE INDEX IF NOT EXISTS idx_comments_user ON post_comments(user_id)`
+  );
+  db.run(
+    `CREATE INDEX IF NOT EXISTS idx_comments_parent ON post_comments(parent_comment_id)`
   );
 
   db.run(`
@@ -127,12 +274,19 @@ db.serialize(() => {
       comment_id INTEGER NOT NULL,
       user_id INTEGER NOT NULL,
       UNIQUE(comment_id, user_id),
-      FOREIGN KEY (comment_id) REFERENCES post_comments(id) ON DELETE CASCADE
+      FOREIGN KEY (comment_id) REFERENCES post_comments(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
+  db.run(
+    `CREATE INDEX IF NOT EXISTS idx_comment_likes_comment ON post_comment_likes(comment_id)`
+  );
+  db.run(
+    `CREATE INDEX IF NOT EXISTS idx_comment_likes_user ON post_comment_likes(user_id)`
+  );
 
   /* =====================
-     ✅ SOCIAL PROFILE TABLES
+     SOCIAL PROFILE TABLES
   ===================== */
   db.run(`
     CREATE TABLE IF NOT EXISTS user_profile (
@@ -152,6 +306,22 @@ db.serialize(() => {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     )
   `);
+
+  // ✅ SAFE ALTERS: لو user_profile قديم ناقص أعمدة
+  safeAlterTable(`ALTER TABLE user_profile ADD COLUMN username TEXT`);
+  safeAlterTable(`ALTER TABLE user_profile ADD COLUMN display_name TEXT`);
+  safeAlterTable(`ALTER TABLE user_profile ADD COLUMN avatar_url TEXT`);
+  safeAlterTable(`ALTER TABLE user_profile ADD COLUMN cover_url TEXT`);
+  safeAlterTable(`ALTER TABLE user_profile ADD COLUMN bio TEXT`);
+  safeAlterTable(`ALTER TABLE user_profile ADD COLUMN location TEXT`);
+  safeAlterTable(`ALTER TABLE user_profile ADD COLUMN phone TEXT`);
+  safeAlterTable(`ALTER TABLE user_profile ADD COLUMN whatsapp TEXT`);
+  safeAlterTable(`ALTER TABLE user_profile ADD COLUMN website TEXT`);
+  safeAlterTable(
+    `ALTER TABLE user_profile ADD COLUMN is_verified INTEGER DEFAULT 0`
+  );
+  safeAlterTable(`ALTER TABLE user_profile ADD COLUMN created_at TEXT`);
+  safeAlterTable(`ALTER TABLE user_profile ADD COLUMN updated_at TEXT`);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS follows (
@@ -175,6 +345,10 @@ db.serialize(() => {
     )
   `);
 
+  // ✅ أهم حتة: لو profile_posts قديم ناقص media_url أو created_at -> كان بيعمل 500
+  safeAlterTable(`ALTER TABLE profile_posts ADD COLUMN media_url TEXT`);
+  safeAlterTable(`ALTER TABLE profile_posts ADD COLUMN created_at TEXT`);
+
   db.run(`
     CREATE TABLE IF NOT EXISTS services (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,7 +356,7 @@ db.serialize(() => {
       title TEXT NOT NULL,
       description TEXT,
       category TEXT,
-      price_type TEXT DEFAULT 'negotiable', -- fixed | negotiable | starting_at
+      price_type TEXT DEFAULT 'negotiable',
       price_value REAL,
       location TEXT,
       is_active INTEGER DEFAULT 1,
@@ -234,7 +408,7 @@ db.serialize(() => {
 });
 
 /* =====================
-   Helpers
+   Auth Helpers
 ===================== */
 function signToken(payload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "30d" });
@@ -262,46 +436,23 @@ function authOptional(req, res, next) {
   next();
 }
 
-function safeJsonParse(s) {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return null;
-  }
-}
-
-function normalizeCvResponse(row) {
-  const parsed = safeJsonParse(row.cv_data);
-  return {
-    id: row.id,
-    cv_name: row.cv_name,
-    updated_at: row.updated_at,
-    cv_data: parsed || row.cv_data,
-  };
-}
-
-function safeTrim(v) {
-  return String(v ?? "").trim();
-}
-
-function safeUrl(v) {
-  const s = safeTrim(v);
-  return s || "";
-}
-
+/* =====================
+   Profile bootstrap
+===================== */
 function ensureProfileRow(userId, cb) {
-  db.get(
+  dbGet(
     `SELECT up.user_id FROM user_profile up WHERE up.user_id = ?`,
     [userId],
     (e1, row) => {
       if (e1) return cb(e1);
       if (row) return cb(null);
 
-      db.get(
+      dbGet(
         `SELECT id, username FROM users WHERE id = ?`,
         [userId],
         (e2, u) => {
           if (e2) return cb(e2);
+
           const baseUsername = safeTrim(u?.username) || `user${userId}`;
           const displayName = safeTrim(u?.username) || `User ${userId}`;
 
@@ -315,18 +466,18 @@ function ensureProfileRow(userId, cb) {
           (function tryInsert(i) {
             if (i >= candidates.length) {
               const last = `user${userId}_${Date.now()}`;
-              return db.run(
+              return dbRun(
                 `INSERT OR IGNORE INTO user_profile (user_id, username, display_name) VALUES (?,?,?)`,
                 [userId, last, displayName],
                 () => cb(null)
               );
             }
 
-            db.run(
+            dbRun(
               `INSERT OR IGNORE INTO user_profile (user_id, username, display_name) VALUES (?,?,?)`,
               [userId, candidates[i], displayName],
               function () {
-                db.get(
+                dbGet(
                   `SELECT user_id FROM user_profile WHERE user_id = ?`,
                   [userId],
                   (e3, okRow) => {
@@ -346,33 +497,17 @@ function ensureProfileRow(userId, cb) {
 
 /* ✅ delete feed-post (posts table) safely with cascades */
 function deleteFeedPostOwnedBy(userId, postId, res) {
-  db.get(`SELECT id, user_id FROM posts WHERE id = ?`, [postId], (err, row) => {
+  const pid = toInt(postId);
+  if (!pid) return res.status(400).json({ message: "Bad postId" });
+
+  dbGet(`SELECT id, user_id FROM posts WHERE id = ?`, [pid], (err, row) => {
     if (err) return res.status(500).json({ message: "Delete failed" });
     if (!row) return res.status(404).json({ message: "Post not found" });
     if (row.user_id !== userId) return res.sendStatus(403);
 
-    db.run(`DELETE FROM post_likes WHERE post_id = ?`, [postId], () => {
-      db.run(
-        `DELETE FROM post_comment_likes WHERE comment_id IN (SELECT id FROM post_comments WHERE post_id = ?)`,
-        [postId],
-        () => {
-          db.run(
-            `DELETE FROM post_comments WHERE post_id = ?`,
-            [postId],
-            () => {
-              db.run(
-                `DELETE FROM posts WHERE id = ?`,
-                [postId],
-                function (err2) {
-                  if (err2)
-                    return res.status(500).json({ message: "Delete failed" });
-                  return res.json({ ok: true });
-                }
-              );
-            }
-          );
-        }
-      );
+    dbRun(`DELETE FROM posts WHERE id = ?`, [pid], function (err2) {
+      if (err2) return res.status(500).json({ message: "Delete failed" });
+      return res.json({ ok: true });
     });
   });
 }
@@ -393,16 +528,16 @@ app.post("/api/auth/register", (req, res) => {
 
   const hash = bcrypt.hashSync(password, 10);
 
-  db.run(
+  dbRun(
     `INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)`,
-    [username.trim(), email.trim().toLowerCase(), hash],
+    [safeTrim(username), safeTrim(email).toLowerCase(), hash],
     function (err) {
       if (err) return res.status(400).json({ message: "Email exists" });
 
       const user = {
         id: this.lastID,
-        username: username.trim(),
-        email: email.trim().toLowerCase(),
+        username: safeTrim(username),
+        email: safeTrim(email).toLowerCase(),
         phone: "",
         address: "",
         bio: "",
@@ -427,9 +562,9 @@ app.post("/api/auth/login", (req, res) => {
   if (!email || !password)
     return res.status(400).json({ message: "Missing fields" });
 
-  db.get(
+  dbGet(
     `SELECT * FROM users WHERE email = ?`,
-    [String(email).trim().toLowerCase()],
+    [safeTrim(email).toLowerCase()],
     (err, user) => {
       if (!user) return res.sendStatus(401);
       if (!bcrypt.compareSync(password, user.password_hash))
@@ -462,7 +597,7 @@ app.post("/api/auth/login", (req, res) => {
    USERS
 ===================== */
 app.get("/api/users/me", authRequired, (req, res) => {
-  db.get(
+  dbGet(
     `SELECT id, username, email, phone, address, bio FROM users WHERE id = ?`,
     [req.user.id],
     (err, me) => {
@@ -475,23 +610,23 @@ app.get("/api/users/me", authRequired, (req, res) => {
 app.put("/api/users/me", authRequired, (req, res) => {
   const { username, phone, address, bio } = req.body || {};
 
-  db.run(
+  dbRun(
     `
     UPDATE users
     SET username = ?, phone = ?, address = ?, bio = ?
     WHERE id = ?
     `,
     [
-      String(username || "").trim(),
-      String(phone || "").trim(),
-      String(address || "").trim(),
-      String(bio || "").trim(),
+      safeTrim(username),
+      safeTrim(phone),
+      safeTrim(address),
+      safeTrim(bio),
       req.user.id,
     ],
     function (err) {
       if (err) return res.status(500).json({ message: "Update failed" });
 
-      db.get(
+      dbGet(
         `SELECT id, username, email, phone, address, bio FROM users WHERE id = ?`,
         [req.user.id],
         (e2, me) => {
@@ -507,7 +642,7 @@ app.put("/api/users/me", authRequired, (req, res) => {
    CVS (New)
 ===================== */
 app.get("/api/cv", authRequired, (req, res) => {
-  db.all(
+  dbAll(
     `SELECT id, user_id, cv_name, updated_at FROM cvs WHERE user_id = ? ORDER BY id DESC`,
     [req.user.id],
     (err, rows) => {
@@ -518,8 +653,10 @@ app.get("/api/cv", authRequired, (req, res) => {
 });
 
 app.get("/api/cv/:id", authRequired, (req, res) => {
-  const id = req.params.id;
-  db.get(
+  const id = toInt(req.params.id);
+  if (!id) return res.status(400).json({ message: "Bad id" });
+
+  dbGet(
     `SELECT id, user_id, cv_name, cv_data, updated_at FROM cvs WHERE id = ? AND user_id = ?`,
     [id, req.user.id],
     (err, row) => {
@@ -531,11 +668,11 @@ app.get("/api/cv/:id", authRequired, (req, res) => {
 
 app.post("/api/cv", authRequired, (req, res) => {
   const { cv_name, cv_data } = req.body || {};
-  const name = String(cv_name || "RESUME").trim();
+  const name = safeTrim(cv_name || "RESUME");
   const dataStr =
     typeof cv_data === "string" ? cv_data : JSON.stringify(cv_data || {});
 
-  db.run(
+  dbRun(
     `INSERT INTO cvs (user_id, cv_name, cv_data, updated_at) VALUES (?, ?, ?, datetime('now'))`,
     [req.user.id, name, dataStr],
     function (err) {
@@ -546,13 +683,15 @@ app.post("/api/cv", authRequired, (req, res) => {
 });
 
 app.put("/api/cv/:id", authRequired, (req, res) => {
-  const id = req.params.id;
+  const id = toInt(req.params.id);
+  if (!id) return res.status(400).json({ message: "Bad id" });
+
   const { cv_name, cv_data } = req.body || {};
-  const name = String(cv_name || "RESUME").trim();
+  const name = safeTrim(cv_name || "RESUME");
   const dataStr =
     typeof cv_data === "string" ? cv_data : JSON.stringify(cv_data || {});
 
-  db.run(
+  dbRun(
     `
     UPDATE cvs
     SET cv_name = ?, cv_data = ?, updated_at = datetime('now')
@@ -569,8 +708,10 @@ app.put("/api/cv/:id", authRequired, (req, res) => {
 });
 
 app.delete("/api/cv/:id", authRequired, (req, res) => {
-  const id = req.params.id;
-  db.run(
+  const id = toInt(req.params.id);
+  if (!id) return res.status(400).json({ message: "Bad id" });
+
+  dbRun(
     `DELETE FROM cvs WHERE id = ? AND user_id = ?`,
     [id, req.user.id],
     function (err) {
@@ -586,8 +727,10 @@ app.delete("/api/cv/:id", authRequired, (req, res) => {
    ✅ LEGACY CVS ENDPOINTS
 ===================== */
 app.get("/api/get-cv/:id", authRequired, (req, res) => {
-  const id = req.params.id;
-  db.get(
+  const id = toInt(req.params.id);
+  if (!id) return res.status(400).json({ message: "Bad id" });
+
+  dbGet(
     `SELECT id, user_id, cv_name, cv_data, updated_at FROM cvs WHERE id = ? AND user_id = ?`,
     [id, req.user.id],
     (err, row) => {
@@ -598,7 +741,7 @@ app.get("/api/get-cv/:id", authRequired, (req, res) => {
 });
 
 app.get("/api/get-all-cvs/:userId", authRequired, (req, res) => {
-  db.all(
+  dbAll(
     `SELECT id, user_id, cv_name, updated_at FROM cvs WHERE user_id = ? ORDER BY id DESC`,
     [req.user.id],
     (err, rows) => {
@@ -609,7 +752,7 @@ app.get("/api/get-all-cvs/:userId", authRequired, (req, res) => {
 });
 
 app.get("/api/cv/latest/:userId", authRequired, (req, res) => {
-  db.get(
+  dbGet(
     `SELECT id, user_id, cv_name, cv_data, updated_at
      FROM cvs
      WHERE user_id = ?
@@ -624,13 +767,15 @@ app.get("/api/cv/latest/:userId", authRequired, (req, res) => {
 });
 
 app.put("/api/update-cv/:id", authRequired, (req, res) => {
-  const id = req.params.id;
+  const id = toInt(req.params.id);
+  if (!id) return res.status(400).json({ message: "Bad id" });
+
   const { cv_name, cv_data } = req.body || {};
-  const name = String(cv_name || "RESUME").trim();
+  const name = safeTrim(cv_name || "RESUME");
   const dataStr =
     typeof cv_data === "string" ? cv_data : JSON.stringify(cv_data || {});
 
-  db.run(
+  dbRun(
     `
     UPDATE cvs
     SET cv_name = ?, cv_data = ?, updated_at = datetime('now')
@@ -648,11 +793,11 @@ app.put("/api/update-cv/:id", authRequired, (req, res) => {
 
 app.post("/api/create-cv", authRequired, (req, res) => {
   const { cv_name, cv_data } = req.body || {};
-  const name = String(cv_name || "RESUME").trim();
+  const name = safeTrim(cv_name || "RESUME");
   const dataStr =
     typeof cv_data === "string" ? cv_data : JSON.stringify(cv_data || {});
 
-  db.run(
+  dbRun(
     `INSERT INTO cvs (user_id, cv_name, cv_data, updated_at) VALUES (?, ?, ?, datetime('now'))`,
     [req.user.id, name, dataStr],
     function (err) {
@@ -663,8 +808,10 @@ app.post("/api/create-cv", authRequired, (req, res) => {
 });
 
 app.delete("/api/delete-cv/:id", authRequired, (req, res) => {
-  const id = req.params.id;
-  db.run(
+  const id = toInt(req.params.id);
+  if (!id) return res.status(400).json({ message: "Bad id" });
+
+  dbRun(
     `DELETE FROM cvs WHERE id = ? AND user_id = ?`,
     [id, req.user.id],
     function (err) {
@@ -679,16 +826,14 @@ app.delete("/api/delete-cv/:id", authRequired, (req, res) => {
 /* =====================
    ✅ SOCIAL PROFILE APIs
 ===================== */
-
-// core handler to reuse for aliases
 function getProfileCore(req, res) {
-  const targetId = Number(req.params.userId);
+  const targetId = toInt(req.params.userId);
   if (!targetId) return res.status(400).json({ message: "Bad userId" });
 
   ensureProfileRow(targetId, (e0) => {
     if (e0) return res.status(500).json({ message: "Failed" });
 
-    db.get(
+    dbGet(
       `SELECT * FROM user_profile WHERE user_id = ?`,
       [targetId],
       (e1, p) => {
@@ -697,20 +842,19 @@ function getProfileCore(req, res) {
 
         const meId = req.user?.id || 0;
 
-        db.get(
+        dbGet(
           `SELECT COUNT(*) c FROM follows WHERE following_id = ?`,
           [targetId],
           (eF1, rFollowers) => {
             if (eF1) return res.status(500).json({ message: "Failed" });
 
-            db.get(
+            dbGet(
               `SELECT COUNT(*) c FROM follows WHERE follower_id = ?`,
               [targetId],
               (eF2, rFollowing) => {
                 if (eF2) return res.status(500).json({ message: "Failed" });
 
-                // ✅ POSTS COUNT = profile_posts + feed posts (posts)
-                db.get(
+                dbGet(
                   `
                   SELECT
                     (SELECT COUNT(*) FROM profile_posts WHERE user_id = ?) +
@@ -720,14 +864,14 @@ function getProfileCore(req, res) {
                   (eP, rPosts) => {
                     if (eP) return res.status(500).json({ message: "Failed" });
 
-                    db.get(
+                    dbGet(
                       `SELECT COUNT(*) c FROM services WHERE user_id = ? AND is_active = 1`,
                       [targetId],
                       (eS, rServices) => {
                         if (eS)
                           return res.status(500).json({ message: "Failed" });
 
-                        db.get(
+                        dbGet(
                           `SELECT COUNT(*) c FROM products WHERE user_id = ? AND is_available = 1`,
                           [targetId],
                           (ePr, rProducts) => {
@@ -736,7 +880,7 @@ function getProfileCore(req, res) {
                                 .status(500)
                                 .json({ message: "Failed" });
 
-                            db.get(
+                            dbGet(
                               `SELECT COALESCE(AVG(rating),0) avg FROM reviews WHERE user_id = ?`,
                               [targetId],
                               (eR1, rAvg) => {
@@ -745,7 +889,7 @@ function getProfileCore(req, res) {
                                     .status(500)
                                     .json({ message: "Failed" });
 
-                                db.get(
+                                dbGet(
                                   `SELECT COUNT(*) c FROM reviews WHERE user_id = ?`,
                                   [targetId],
                                   (eR2, rCnt) => {
@@ -771,7 +915,7 @@ function getProfileCore(req, res) {
 
                                     if (!meId) return res.json(base);
 
-                                    db.get(
+                                    dbGet(
                                       `SELECT 1 x FROM follows WHERE follower_id = ? AND following_id = ?`,
                                       [meId, targetId],
                                       (eF3, fRow) => {
@@ -804,11 +948,9 @@ function getProfileCore(req, res) {
   });
 }
 
-// MAIN + ALIAS
 app.get("/api/profile/:userId", authOptional, getProfileCore);
-app.get("/api/profiles/:userId", authOptional, getProfileCore); // ✅ alias
+app.get("/api/profiles/:userId", authOptional, getProfileCore);
 
-// Update my profile
 app.put("/api/profile/me", authRequired, (req, res) => {
   const userId = req.user.id;
 
@@ -827,7 +969,7 @@ app.put("/api/profile/me", authRequired, (req, res) => {
     const website = safeUrl(body.website);
 
     function doUpdate() {
-      db.run(
+      dbRun(
         `
         UPDATE user_profile
         SET
@@ -859,7 +1001,7 @@ app.put("/api/profile/me", authRequired, (req, res) => {
           if (e2)
             return res.status(500).json({ message: "Profile update failed" });
 
-          db.get(
+          dbGet(
             `SELECT * FROM user_profile WHERE user_id = ?`,
             [userId],
             (e3, p) => {
@@ -876,7 +1018,7 @@ app.put("/api/profile/me", authRequired, (req, res) => {
 
     if (!username) return doUpdate();
 
-    db.get(
+    dbGet(
       `SELECT user_id FROM user_profile WHERE username = ? AND user_id != ?`,
       [username, userId],
       (e1, row) => {
@@ -889,15 +1031,14 @@ app.put("/api/profile/me", authRequired, (req, res) => {
   });
 });
 
-// Follow / Unfollow (main + alias)
 function followCore(req, res) {
   const me = req.user.id;
-  const target = Number(req.params.userId);
+  const target = toInt(req.params.userId);
   if (!target) return res.status(400).json({ message: "Bad userId" });
   if (me === target)
     return res.status(400).json({ message: "Cannot follow yourself" });
 
-  db.run(
+  dbRun(
     `INSERT OR IGNORE INTO follows (follower_id, following_id) VALUES (?, ?)`,
     [me, target],
     (err) => {
@@ -909,10 +1050,10 @@ function followCore(req, res) {
 
 function unfollowCore(req, res) {
   const me = req.user.id;
-  const target = Number(req.params.userId);
+  const target = toInt(req.params.userId);
   if (!target) return res.status(400).json({ message: "Bad userId" });
 
-  db.run(
+  dbRun(
     `DELETE FROM follows WHERE follower_id = ? AND following_id = ?`,
     [me, target],
     (err) => {
@@ -924,66 +1065,74 @@ function unfollowCore(req, res) {
 
 app.post("/api/profile/:userId/follow", authRequired, followCore);
 app.delete("/api/profile/:userId/follow", authRequired, unfollowCore);
-app.post("/api/profiles/:userId/follow", authRequired, followCore); // alias
-app.delete("/api/profiles/:userId/follow", authRequired, unfollowCore); // alias
+app.post("/api/profiles/:userId/follow", authRequired, followCore);
+app.delete("/api/profiles/:userId/follow", authRequired, unfollowCore);
 
-/* ===== Tabs: PROFILE POSTS (✅ NOW RETURNS BOTH profile_posts + feed posts) ===== */
+/* ===== Tabs: PROFILE POSTS (✅ returns profile_posts + feed posts) ===== */
 function getProfilePostsCore(req, res) {
-  const userId = Number(req.params.userId);
+  const userId = toInt(req.params.userId);
   if (!userId) return res.status(400).json({ message: "Bad userId" });
 
-  db.all(
-    `
-    SELECT
-      ('pp_' || pp.id) AS id,
-      pp.user_id AS user_id,
-      pp.content AS content,
-      pp.media_url AS media_url,
-      pp.created_at AS created_at,
-      NULL AS category,
-      'profile' AS source,
-      u.username AS user_name
-    FROM profile_posts pp
-    LEFT JOIN users u ON u.id = pp.user_id
-    WHERE pp.user_id = ?
+  const sql = `
+    SELECT *
+    FROM (
+      SELECT
+        ('pp_' || pp.id) AS id,
+        pp.user_id AS user_id,
+        pp.content AS content,
+        pp.media_url AS media_url,
+        pp.created_at AS created_at,
+        NULL AS category,
+        'profile' AS source,
+        u.username AS user_name
+      FROM profile_posts pp
+      LEFT JOIN users u ON u.id = pp.user_id
+      WHERE pp.user_id = ?
 
-    UNION ALL
+      UNION ALL
 
-    SELECT
-      ('p_' || p.id) AS id,
-      p.user_id AS user_id,
-      p.content AS content,
-      NULL AS media_url,
-      p.created_at AS created_at,
-      p.category AS category,
-      'feed' AS source,
-      u2.username AS user_name
-    FROM posts p
-    LEFT JOIN users u2 ON u2.id = p.user_id
-    WHERE p.user_id = ?
-
+      SELECT
+        ('p_' || p.id) AS id,
+        p.user_id AS user_id,
+        p.content AS content,
+        NULL AS media_url,
+        p.created_at AS created_at,
+        p.category AS category,
+        'feed' AS source,
+        u2.username AS user_name
+      FROM posts p
+      LEFT JOIN users u2 ON u2.id = p.user_id
+      WHERE p.user_id = ?
+    )
     ORDER BY datetime(created_at) DESC
     LIMIT 200
-    `,
-    [userId, userId],
-    (err, rows) => {
-      if (err) return res.status(500).json({ message: "Failed to load posts" });
-      res.json({ posts: rows || [] });
-    }
-  );
+  `;
+
+  dbAll(sql, [userId, userId], (err, rows) => {
+    if (err) return res.status(500).json({ message: "Failed to load posts" });
+    res.json({ posts: rows || [] });
+  });
 }
 
 app.get("/api/profile/:userId/posts", authOptional, getProfilePostsCore);
-app.get("/api/profiles/:userId/posts", authOptional, getProfilePostsCore); // alias
-app.get("/api/profile_posts/:userId", authOptional, getProfilePostsCore); // ✅ alias اللي في الكونسل
+app.get("/api/profiles/:userId/posts", authOptional, getProfilePostsCore);
+
+app.get("/api/profile_posts/:userId", authOptional, getProfilePostsCore);
 app.get("/api/profile_posts/:userId/posts", authOptional, getProfilePostsCore);
+
+// ✅ NEW: dash aliases (fix 404 from frontend)
+app.get("/api/profile-posts/:userId", authOptional, getProfilePostsCore);
+app.get("/api/profile-posts/:userId/posts", authOptional, getProfilePostsCore);
+
+// ✅ NEW: users alias (fix 404: /api/users/2/posts)
+app.get("/api/users/:userId/posts", authOptional, getProfilePostsCore);
 
 app.post("/api/profile/me/posts", authRequired, (req, res) => {
   const content = safeTrim(req.body?.content);
   const media_url = safeUrl(req.body?.media_url);
   if (!content) return res.status(400).json({ message: "Empty post" });
 
-  db.run(
+  dbRun(
     `INSERT INTO profile_posts (user_id, content, media_url) VALUES (?, ?, ?)`,
     [req.user.id, content, media_url || null],
     function (err) {
@@ -993,19 +1142,156 @@ app.post("/api/profile/me/posts", authRequired, (req, res) => {
   );
 });
 
-/* ✅ delete supports both:
-   - pp_<id>  => profile_posts
-   - p_<id>   => posts (feed table) with cascades
-*/
+// ✅ NEW: GET single profile/me post (supports pp_ / p_ / numeric)
+app.get("/api/profile/me/posts/:postId", authRequired, (req, res) => {
+  const parsed = parseAnyPostId(req.params.postId);
+
+  if (parsed.kind === "bad") {
+    return res.status(400).json({ message: "Bad postId" });
+  }
+
+  // explicit profile
+  if (parsed.kind === "profile") {
+    return dbGet(
+      `SELECT id, user_id, content, media_url, created_at
+       FROM profile_posts
+       WHERE id = ? AND user_id = ?`,
+      [parsed.id, req.user.id],
+      (err, row) => {
+        if (err) return res.status(500).json({ message: "Failed" });
+        if (!row) return res.status(404).json({ message: "Not found" });
+        res.json({ ...row, id: `pp_${row.id}`, source: "profile" });
+      }
+    );
+  }
+
+  // explicit feed
+  if (parsed.kind === "feed") {
+    return dbGet(
+      `SELECT p.*, u.username AS user_name
+       FROM posts p
+       LEFT JOIN users u ON u.id = p.user_id
+       WHERE p.id = ? AND p.user_id = ?`,
+      [parsed.id, req.user.id],
+      (err, row) => {
+        if (err) return res.status(500).json({ message: "Failed" });
+        if (!row) return res.status(404).json({ message: "Not found" });
+        res.json({ ...row, id: `p_${row.id}`, source: "feed" });
+      }
+    );
+  }
+
+  // numeric: try feed first then profile
+  dbGet(
+    `SELECT p.*, u.username AS user_name
+     FROM posts p
+     LEFT JOIN users u ON u.id = p.user_id
+     WHERE p.id = ? AND p.user_id = ?`,
+    [parsed.id, req.user.id],
+    (e1, feedRow) => {
+      if (e1) return res.status(500).json({ message: "Failed" });
+      if (feedRow) {
+        return res.json({ ...feedRow, id: `p_${feedRow.id}`, source: "feed" });
+      }
+
+      dbGet(
+        `SELECT id, user_id, content, media_url, created_at
+         FROM profile_posts
+         WHERE id = ? AND user_id = ?`,
+        [parsed.id, req.user.id],
+        (e2, profRow) => {
+          if (e2) return res.status(500).json({ message: "Failed" });
+          if (!profRow) return res.status(404).json({ message: "Not found" });
+          res.json({ ...profRow, id: `pp_${profRow.id}`, source: "profile" });
+        }
+      );
+    }
+  );
+});
+
+/* ========= UPDATE Profile / Feed Post (PUT + PATCH) ========= */
+function updateMyPostCore(req, res) {
+  const parsed = parseAnyPostId(req.params.postId);
+  const content = safeTrim(req.body?.content);
+
+  if (parsed.kind === "bad")
+    return res.status(400).json({ message: "Bad postId" });
+  if (!content) return res.status(400).json({ message: "Empty content" });
+
+  // explicit profile
+  if (parsed.kind === "profile") {
+    return dbRun(
+      `UPDATE profile_posts SET content = ? WHERE id = ? AND user_id = ?`,
+      [content, parsed.id, req.user.id],
+      function (err) {
+        if (err) return res.status(500).json({ message: "Update failed" });
+        if (this.changes === 0)
+          return res.status(404).json({ message: "Post not found" });
+        return res.json({ ok: true });
+      }
+    );
+  }
+
+  // explicit feed
+  if (parsed.kind === "feed") {
+    return dbRun(
+      `UPDATE posts SET content = ? WHERE id = ? AND user_id = ?`,
+      [content, parsed.id, req.user.id],
+      function (err) {
+        if (err) return res.status(500).json({ message: "Update failed" });
+        if (this.changes === 0)
+          return res.status(404).json({ message: "Post not found" });
+        return res.json({ ok: true });
+      }
+    );
+  }
+
+  // numeric: try feed first then profile
+  dbGet(
+    `SELECT id FROM posts WHERE id = ? AND user_id = ?`,
+    [parsed.id, req.user.id],
+    (e1, existsFeed) => {
+      if (e1) return res.status(500).json({ message: "Update failed" });
+
+      if (existsFeed) {
+        return dbRun(
+          `UPDATE posts SET content = ? WHERE id = ? AND user_id = ?`,
+          [content, parsed.id, req.user.id],
+          function (err) {
+            if (err) return res.status(500).json({ message: "Update failed" });
+            if (this.changes === 0)
+              return res.status(404).json({ message: "Post not found" });
+            return res.json({ ok: true });
+          }
+        );
+      }
+
+      return dbRun(
+        `UPDATE profile_posts SET content = ? WHERE id = ? AND user_id = ?`,
+        [content, parsed.id, req.user.id],
+        function (err) {
+          if (err) return res.status(500).json({ message: "Update failed" });
+          if (this.changes === 0)
+            return res.status(404).json({ message: "Post not found" });
+          return res.json({ ok: true });
+        }
+      );
+    }
+  );
+}
+
+app.put("/api/profile/me/posts/:postId", authRequired, updateMyPostCore);
+app.patch("/api/profile/me/posts/:postId", authRequired, updateMyPostCore);
+
 app.delete("/api/profile/me/posts/:postId", authRequired, (req, res) => {
-  const raw = String(req.params.postId || "").trim();
+  const raw = safeTrim(req.params.postId || "");
   if (!raw) return res.status(400).json({ message: "Bad postId" });
 
   if (raw.startsWith("pp_")) {
-    const postId = Number(raw.slice(3));
+    const postId = toInt(raw.slice(3));
     if (!postId) return res.status(400).json({ message: "Bad postId" });
 
-    db.run(
+    dbRun(
       `DELETE FROM profile_posts WHERE id = ? AND user_id = ?`,
       [postId, req.user.id],
       function (err) {
@@ -1019,33 +1305,42 @@ app.delete("/api/profile/me/posts/:postId", authRequired, (req, res) => {
   }
 
   if (raw.startsWith("p_")) {
-    const postId = Number(raw.slice(2));
-    if (!postId) return res.status(400).json({ message: "Bad postId" });
+    const postId = raw.slice(2);
     return deleteFeedPostOwnedBy(req.user.id, postId, res);
   }
 
-  // fallback: assume profile_posts numeric
-  const numeric = Number(raw);
+  const numeric = toInt(raw);
   if (!numeric) return res.status(400).json({ message: "Bad postId" });
 
-  db.run(
-    `DELETE FROM profile_posts WHERE id = ? AND user_id = ?`,
+  // numeric: try feed delete then profile delete
+  dbGet(
+    `SELECT id FROM posts WHERE id = ? AND user_id = ?`,
     [numeric, req.user.id],
-    function (err) {
-      if (err) return res.status(500).json({ message: "Delete post failed" });
-      if (this.changes === 0)
-        return res.status(404).json({ message: "Post not found" });
-      res.json({ ok: true });
+    (e1, existsFeed) => {
+      if (e1) return res.status(500).json({ message: "Delete post failed" });
+      if (existsFeed) return deleteFeedPostOwnedBy(req.user.id, numeric, res);
+
+      dbRun(
+        `DELETE FROM profile_posts WHERE id = ? AND user_id = ?`,
+        [numeric, req.user.id],
+        function (err) {
+          if (err)
+            return res.status(500).json({ message: "Delete post failed" });
+          if (this.changes === 0)
+            return res.status(404).json({ message: "Post not found" });
+          res.json({ ok: true });
+        }
+      );
     }
   );
 });
 
 /* ===== Tabs: SERVICES ===== */
 function getServicesCore(req, res) {
-  const userId = Number(req.params.userId);
+  const userId = toInt(req.params.userId);
   if (!userId) return res.status(400).json({ message: "Bad userId" });
 
-  db.all(
+  dbAll(
     `
     SELECT *
     FROM services
@@ -1063,7 +1358,7 @@ function getServicesCore(req, res) {
 }
 
 app.get("/api/profile/:userId/services", authOptional, getServicesCore);
-app.get("/api/profiles/:userId/services", authOptional, getServicesCore); // alias
+app.get("/api/profiles/:userId/services", authOptional, getServicesCore);
 
 app.post("/api/profile/me/services", authRequired, (req, res) => {
   const title = safeTrim(req.body?.title);
@@ -1078,7 +1373,7 @@ app.post("/api/profile/me/services", authRequired, (req, res) => {
 
   if (!title) return res.status(400).json({ message: "Missing title" });
 
-  db.run(
+  dbRun(
     `
     INSERT INTO services (user_id, title, description, category, price_type, price_value, location, is_active)
     VALUES (?, ?, ?, ?, ?, ?, ?, 1)
@@ -1101,10 +1396,10 @@ app.post("/api/profile/me/services", authRequired, (req, res) => {
 });
 
 app.delete("/api/profile/me/services/:id", authRequired, (req, res) => {
-  const id = Number(req.params.id);
+  const id = toInt(req.params.id);
   if (!id) return res.status(400).json({ message: "Bad id" });
 
-  db.run(
+  dbRun(
     `UPDATE services SET is_active = 0 WHERE id = ? AND user_id = ?`,
     [id, req.user.id],
     function (err) {
@@ -1119,10 +1414,10 @@ app.delete("/api/profile/me/services/:id", authRequired, (req, res) => {
 
 /* ===== Tabs: PRODUCTS ===== */
 function getProductsCore(req, res) {
-  const userId = Number(req.params.userId);
+  const userId = toInt(req.params.userId);
   if (!userId) return res.status(400).json({ message: "Bad userId" });
 
-  db.all(
+  dbAll(
     `
     SELECT *
     FROM products
@@ -1145,7 +1440,7 @@ function getProductsCore(req, res) {
 }
 
 app.get("/api/profile/:userId/products", authOptional, getProductsCore);
-app.get("/api/profiles/:userId/products", authOptional, getProductsCore); // alias
+app.get("/api/profiles/:userId/products", authOptional, getProductsCore);
 
 app.post("/api/profile/me/products", authRequired, (req, res) => {
   const title = safeTrim(req.body?.title);
@@ -1160,7 +1455,7 @@ app.post("/api/profile/me/products", authRequired, (req, res) => {
 
   if (!title) return res.status(400).json({ message: "Missing title" });
 
-  db.run(
+  dbRun(
     `
     INSERT INTO products (user_id, title, description, price, currency, images_json, location, is_available)
     VALUES (?, ?, ?, ?, ?, ?, ?, 1)
@@ -1183,10 +1478,10 @@ app.post("/api/profile/me/products", authRequired, (req, res) => {
 });
 
 app.delete("/api/profile/me/products/:id", authRequired, (req, res) => {
-  const id = Number(req.params.id);
+  const id = toInt(req.params.id);
   if (!id) return res.status(400).json({ message: "Bad id" });
 
-  db.run(
+  dbRun(
     `UPDATE products SET is_available = 0 WHERE id = ? AND user_id = ?`,
     [id, req.user.id],
     function (err) {
@@ -1201,10 +1496,10 @@ app.delete("/api/profile/me/products/:id", authRequired, (req, res) => {
 
 /* ===== Tabs: REVIEWS ===== */
 function getReviewsCore(req, res) {
-  const userId = Number(req.params.userId);
+  const userId = toInt(req.params.userId);
   if (!userId) return res.status(400).json({ message: "Bad userId" });
 
-  db.all(
+  dbAll(
     `
     SELECT r.*, u.username AS author_name
     FROM reviews r
@@ -1223,10 +1518,10 @@ function getReviewsCore(req, res) {
 }
 
 app.get("/api/profile/:userId/reviews", authOptional, getReviewsCore);
-app.get("/api/profiles/:userId/reviews", authOptional, getReviewsCore); // alias
+app.get("/api/profiles/:userId/reviews", authOptional, getReviewsCore);
 
 app.post("/api/profile/:userId/reviews", authRequired, (req, res) => {
-  const userId = Number(req.params.userId);
+  const userId = toInt(req.params.userId);
   if (!userId) return res.status(400).json({ message: "Bad userId" });
   if (userId === req.user.id)
     return res.status(400).json({ message: "You cannot review yourself" });
@@ -1239,7 +1534,7 @@ app.post("/api/profile/:userId/reviews", authRequired, (req, res) => {
   }
   if (!comment) return res.status(400).json({ message: "Empty comment" });
 
-  db.run(
+  dbRun(
     `
     INSERT INTO reviews (user_id, author_id, rating, comment)
     VALUES (?, ?, ?, ?)
@@ -1260,13 +1555,13 @@ app.post("/api/profile/:userId/reviews", authRequired, (req, res) => {
    FEED POSTS
 ===================== */
 app.get("/api/posts", authOptional, (req, res) => {
-  const category = req.query.category;
+  const category = safeTrim(req.query.category);
   const userId = req.user?.id || 0;
 
   const where = category ? "WHERE p.category = ?" : "";
   const params = category ? [category] : [];
 
-  db.all(
+  dbAll(
     `
     SELECT
       p.*,
@@ -1294,11 +1589,87 @@ app.get("/api/posts", authOptional, (req, res) => {
   );
 });
 
+function updateFeedPostCore(req, res) {
+  const parsed = parseAnyPostId(req.params.id);
+  const content = safeTrim(req.body?.content);
+  const category = safeTrim(req.body?.category);
+
+  // allow /api/posts/p_17 too
+  const id =
+    parsed.kind === "feed"
+      ? parsed.id
+      : parsed.kind === "numeric"
+      ? parsed.id
+      : null;
+  if (!id) return res.status(400).json({ message: "Bad id" });
+  if (!content) return res.status(400).json({ message: "Empty content" });
+
+  dbRun(
+    `UPDATE posts SET content = ?, category = COALESCE(?, category) WHERE id = ? AND user_id = ?`,
+    [content, category || null, id, req.user.id],
+    function (err) {
+      if (err) return res.status(500).json({ message: "Update failed" });
+      if (this.changes === 0)
+        return res.status(404).json({ message: "Post not found" });
+      res.json({ ok: true });
+    }
+  );
+}
+
+app.put("/api/posts/:id", authRequired, updateFeedPostCore);
+app.patch("/api/posts/:id", authRequired, updateFeedPostCore);
+
+// ✅ NEW: GET single feed post (supports /api/posts/17 and /api/posts/p_17)
+function getSingleFeedPost(req, res) {
+  const parsed = parseAnyPostId(req.params.id);
+  const id =
+    parsed.kind === "feed"
+      ? parsed.id
+      : parsed.kind === "numeric"
+      ? parsed.id
+      : null;
+
+  if (!id) return res.status(400).json({ message: "Bad id" });
+
+  const userId = req.user?.id || 0;
+
+  dbGet(
+    `
+    SELECT
+      p.*,
+      u.username AS user_name,
+      (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS likeCount,
+      (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id AND user_id = ?) AS likedByMe,
+      (SELECT COUNT(*) FROM post_comments WHERE post_id = p.id) AS commentCount
+    FROM posts p
+    LEFT JOIN users u ON u.id = p.user_id
+    WHERE p.id = ?
+    `,
+    [userId, id],
+    (err, row) => {
+      if (err) return res.status(500).json({ message: "Failed" });
+      if (!row) return res.status(404).json({ message: "Post not found" });
+      res.json({
+        ...row,
+        likedByMe: !!row.likedByMe,
+        commentCount: Number(row.commentCount || 0),
+        likeCount: Number(row.likeCount || 0),
+      });
+    }
+  );
+}
+app.get("/api/posts/:id", authOptional, getSingleFeedPost);
+app.get("/api/post/:id", authOptional, getSingleFeedPost);
+
 app.post("/api/posts", authRequired, (req, res) => {
-  const { content, category } = req.body || {};
-  db.run(
+  const content = safeTrim(req.body?.content);
+  const category = safeTrim(req.body?.category);
+
+  if (!content) return res.status(400).json({ message: "Empty post" });
+
+  dbRun(
     `INSERT INTO posts (user_id, content, category) VALUES (?, ?, ?)`,
-    [req.user.id, String(content || ""), String(category || "")],
+    [req.user.id, content, category || null],
     (err) => {
       if (err) return res.status(500).json({ message: "Create post failed" });
       res.json({ ok: true });
@@ -1308,78 +1679,96 @@ app.post("/api/posts", authRequired, (req, res) => {
 
 /* ========= DELETE Post ========= */
 function deletePostById(req, res) {
-  const postId = String(req.params.id || "").trim();
+  const parsed = parseAnyPostId(req.params.id);
+  const id =
+    parsed.kind === "feed"
+      ? parsed.id
+      : parsed.kind === "numeric"
+      ? parsed.id
+      : null;
 
-  db.get(`SELECT id, user_id FROM posts WHERE id = ?`, [postId], (err, row) => {
-    if (err) return res.status(500).json({ message: "Delete failed" });
-    if (!row) return res.status(404).json({ message: "Post not found" });
-    if (row.user_id !== req.user.id) return res.sendStatus(403);
-
-    db.run(`DELETE FROM post_likes WHERE post_id = ?`, [postId], () => {
-      db.run(
-        `DELETE FROM post_comment_likes WHERE comment_id IN (SELECT id FROM post_comments WHERE post_id = ?)`,
-        [postId],
-        () => {
-          db.run(
-            `DELETE FROM post_comments WHERE post_id = ?`,
-            [postId],
-            () => {
-              db.run(
-                `DELETE FROM posts WHERE id = ?`,
-                [postId],
-                function (err2) {
-                  if (err2)
-                    return res.status(500).json({ message: "Delete failed" });
-                  return res.json({ ok: true });
-                }
-              );
-            }
-          );
-        }
-      );
-    });
-  });
+  if (!id) return res.status(400).json({ message: "Bad id" });
+  return deleteFeedPostOwnedBy(req.user.id, id, res);
 }
 
 app.delete("/api/posts/:id", authRequired, deletePostById);
-// legacy fallbacks
 app.delete("/api/posts/delete/:id", authRequired, deletePostById);
 app.delete("/api/delete-post/:id", authRequired, deletePostById);
 app.delete("/api/post/:id", authRequired, deletePostById);
 app.post("/api/posts/:id/delete", authRequired, deletePostById);
 app.post("/api/posts/delete/:id", authRequired, deletePostById);
 
+// ✅ NEW: aliases for "weird" frontend delete tries
+app.delete("/api/me/profile/posts/:postId", authRequired, (req, res, next) => {
+  req.url = `/api/profile/me/posts/${req.params.postId}`;
+  next();
+});
+
+/* ========= LIKE Post ========= */
 app.post("/api/posts/:id/like", authRequired, (req, res) => {
-  const postId = req.params.id;
-  db.get(
-    `SELECT * FROM post_likes WHERE post_id = ? AND user_id = ?`,
-    [postId, req.user.id],
-    (err, row) => {
-      if (row) {
-        db.run(
-          `DELETE FROM post_likes WHERE post_id = ? AND user_id = ?`,
-          [postId, req.user.id],
-          () => res.json({ liked: false })
-        );
-      } else {
-        db.run(
-          `INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)`,
-          [postId, req.user.id],
-          () => res.json({ liked: true })
-        );
+  const parsed = parseAnyPostId(req.params.id);
+  const postId =
+    parsed.kind === "feed"
+      ? parsed.id
+      : parsed.kind === "numeric"
+      ? parsed.id
+      : null;
+
+  if (!postId) return res.status(400).json({ message: "Bad postId" });
+
+  dbGet(`SELECT id FROM posts WHERE id = ?`, [postId], (e0, pRow) => {
+    if (e0) return res.status(500).json({ message: "Like failed" });
+    if (!pRow) return res.status(404).json({ message: "Post not found" });
+
+    dbGet(
+      `SELECT id FROM post_likes WHERE post_id = ? AND user_id = ?`,
+      [postId, req.user.id],
+      (err, row) => {
+        if (err) return res.status(500).json({ message: "Like failed" });
+
+        if (row) {
+          dbRun(
+            `DELETE FROM post_likes WHERE post_id = ? AND user_id = ?`,
+            [postId, req.user.id],
+            () => res.json({ liked: false })
+          );
+        } else {
+          dbRun(
+            `INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)`,
+            [postId, req.user.id],
+            (e2) => {
+              if (e2) return res.status(500).json({ message: "Like failed" });
+              res.json({ liked: true });
+            }
+          );
+        }
       }
-    }
-  );
+    );
+  });
 });
 
 /* =====================
    COMMENTS (LIKES + REPLIES)
 ===================== */
-app.get("/api/posts/:id/comments", authOptional, (req, res) => {
-  const postId = req.params.id;
+
+// ✅ (1) Core: GET comments for feed post
+function getFeedPostCommentsCore(req, res, postIdOverride = null) {
+  const postId =
+    postIdOverride ||
+    (() => {
+      const parsed = parseAnyPostId(req.params.id);
+      return parsed.kind === "feed"
+        ? parsed.id
+        : parsed.kind === "numeric"
+        ? parsed.id
+        : null;
+    })();
+
+  if (!postId) return res.status(400).json({ message: "Bad postId" });
+
   const userId = req.user?.id || 0;
 
-  db.all(
+  dbAll(
     `
     SELECT
       c.*,
@@ -1404,27 +1793,93 @@ app.get("/api/posts/:id/comments", authOptional, (req, res) => {
       );
     }
   );
+}
+
+// ✅ (2) Core: POST comment
+function createFeedPostCommentCore(req, res, postIdOverride = null) {
+  const postId =
+    postIdOverride ||
+    (() => {
+      const parsed = parseAnyPostId(req.params.id);
+      return parsed.kind === "feed"
+        ? parsed.id
+        : parsed.kind === "numeric"
+        ? parsed.id
+        : null;
+    })();
+
+  if (!postId) return res.status(400).json({ message: "Bad postId" });
+
+  const comment = safeTrim(req.body?.comment);
+  if (!comment) return res.status(400).json({ message: "Empty comment" });
+
+  const parentIdRaw = req.body?.parent_comment_id ?? null;
+  const parentId =
+    parentIdRaw === null || parentIdRaw === "" ? null : toInt(parentIdRaw);
+
+  dbGet(`SELECT id FROM posts WHERE id = ?`, [postId], (e0, pRow) => {
+    if (e0) return res.status(500).json({ message: "Comment failed" });
+    if (!pRow) return res.status(404).json({ message: "Post not found" });
+
+    const insertNow = () => {
+      dbRun(
+        `INSERT INTO post_comments (post_id, user_id, comment, parent_comment_id)
+         VALUES (?, ?, ?, ?)`,
+        [postId, req.user.id, comment, parentId],
+        (err) => {
+          if (err) return res.status(500).json({ message: "Comment failed" });
+          return res.json({ ok: true });
+        }
+      );
+    };
+
+    if (!parentId) return insertNow();
+
+    dbGet(
+      `SELECT id, post_id FROM post_comments WHERE id = ?`,
+      [parentId],
+      (e1, pr) => {
+        if (e1) return res.status(500).json({ message: "Comment failed" });
+        if (!pr)
+          return res.status(404).json({ message: "Parent comment not found" });
+        if (Number(pr.post_id) !== postId)
+          return res.status(400).json({ message: "Parent comment mismatch" });
+        insertNow();
+      }
+    );
+  });
+}
+
+// ✅ ROUTES: canonical
+app.get("/api/posts/:id/comments", authOptional, (req, res) =>
+  getFeedPostCommentsCore(req, res)
+);
+app.post("/api/posts/:id/comments", authRequired, (req, res) =>
+  createFeedPostCommentCore(req, res)
+);
+
+// ✅✅✅ (A) LEGACY ALIASES: fix 404 shown in your screenshot
+// Frontend is calling: /api/post_comments/:postId
+app.get("/api/post_comments/:postId", authOptional, (req, res) => {
+  const postId = toInt(req.params.postId);
+  if (!postId) return res.status(400).json({ message: "Bad postId" });
+  return getFeedPostCommentsCore(req, res, postId);
 });
 
-app.post("/api/posts/:id/comments", authRequired, (req, res) => {
-  const parentId = req.body?.parent_comment_id ?? null;
-
-  db.run(
-    `INSERT INTO post_comments (post_id, user_id, comment, parent_comment_id)
-     VALUES (?, ?, ?, ?)`,
-    [req.params.id, req.user.id, String(req.body?.comment || ""), parentId],
-    (err) => {
-      if (err) return res.status(500).json({ message: "Comment failed" });
-      return res.json({ ok: true });
-    }
-  );
+app.post("/api/post_comments/:postId", authRequired, (req, res) => {
+  const postId = toInt(req.params.postId);
+  if (!postId) return res.status(400).json({ message: "Bad postId" });
+  return createFeedPostCommentCore(req, res, postId);
 });
 
+// ✅ delete comment core (same as yours)
 function deleteCommentCore(req, res) {
-  const postId = req.params.postId;
-  const commentId = req.params.commentId;
+  const postId = toInt(req.params.postId);
+  const commentId = toInt(req.params.commentId);
+  if (!postId || !commentId)
+    return res.status(400).json({ message: "Bad ids" });
 
-  db.get(
+  dbGet(
     `SELECT id, user_id, post_id FROM post_comments WHERE id = ? AND post_id = ?`,
     [commentId, postId],
     (err, row) => {
@@ -1432,19 +1887,19 @@ function deleteCommentCore(req, res) {
       if (!row) return res.status(404).json({ message: "Comment not found" });
       if (row.user_id !== req.user.id) return res.sendStatus(403);
 
-      db.run(
+      dbRun(
         `DELETE FROM post_comment_likes WHERE comment_id IN (SELECT id FROM post_comments WHERE parent_comment_id = ?)`,
         [commentId],
         () => {
-          db.run(
-            `DELETE FROM post_comment_likes WHERE comment_id = ?`,
+          dbRun(
+            `DELETE FROM post_comments WHERE parent_comment_id = ?`,
             [commentId],
             () => {
-              db.run(
-                `DELETE FROM post_comments WHERE parent_comment_id = ?`,
+              dbRun(
+                `DELETE FROM post_comment_likes WHERE comment_id = ?`,
                 [commentId],
                 () => {
-                  db.run(
+                  dbRun(
                     `DELETE FROM post_comments WHERE id = ?`,
                     [commentId],
                     function (err2) {
@@ -1471,28 +1926,39 @@ app.delete(
   deleteCommentCore
 );
 
-function toggleLikeComment(req, res) {
-  const commentId = String(req.params.commentId || "").trim();
+// ✅ LEGACY delete alias (مش لازم في الصورة بس بيفيد)
+app.delete(
+  "/api/post_comments/:postId/:commentId",
+  authRequired,
+  deleteCommentCore
+);
 
-  db.get(
+// ✅ like comment core
+function toggleLikeComment(req, res) {
+  const commentId = toInt(req.params.commentId);
+  if (!commentId) return res.status(400).json({ message: "Bad commentId" });
+
+  dbGet(
     `SELECT id FROM post_comments WHERE id = ?`,
     [commentId],
     (e1, cRow) => {
       if (e1) return res.status(500).json({ message: "Like failed" });
       if (!cRow) return res.status(404).json({ message: "Comment not found" });
 
-      db.get(
+      dbGet(
         `SELECT id FROM post_comment_likes WHERE comment_id = ? AND user_id = ?`,
         [commentId, req.user.id],
         (err, row) => {
+          if (err) return res.status(500).json({ message: "Like failed" });
+
           if (row) {
-            db.run(
+            dbRun(
               `DELETE FROM post_comment_likes WHERE comment_id = ? AND user_id = ?`,
               [commentId, req.user.id],
               () => res.json({ liked: false })
             );
           } else {
-            db.run(
+            dbRun(
               `INSERT INTO post_comment_likes (comment_id, user_id) VALUES (?, ?)`,
               [commentId, req.user.id],
               (e2) => {
@@ -1514,6 +1980,13 @@ app.post(
 );
 app.post("/api/comments/:commentId/like", authRequired, toggleLikeComment);
 
+// ✅ LEGACY like alias (اختياري لكنه بيغطي أي كود قديم)
+app.post(
+  "/api/post_comments/:postId/:commentId/like",
+  authRequired,
+  toggleLikeComment
+);
+
 /* =====================
    DEBUG: Error handler
 ===================== */
@@ -1530,4 +2003,5 @@ app.use((err, req, res, next) => {
 ===================== */
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log("✅ DB PATH:", dbPath);
 });

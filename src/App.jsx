@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Toaster } from "react-hot-toast";
 import ProfilePage from "./components/ProfilePage";
-
 import {
   BrowserRouter as Router,
   Routes,
@@ -114,6 +113,8 @@ function AppContent() {
             <Route path="/feed" element={<HomeFeedView />} />
 
             {/* ✅ Public Social Profile */}
+            {/* ✅ لازم posts تيجي قبل profile */}
+
             <Route path="/u/:userId" element={<ProfilePage lang={lang} />} />
 
             {/* ✅ Protected */}
@@ -151,7 +152,7 @@ function AppContent() {
               element={<DetailPageWrapper lang={lang} />}
             />
 
-            {/* ✅ fallback */}
+            {/* ✅ fallback (لازم يكون آخر حاجة) */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
