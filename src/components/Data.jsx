@@ -81,6 +81,8 @@ export const DATA = {
       label: { ar: "النقل", en: "Transport" },
       color: "bg-orange-500",
     },
+
+    // ✅ Community (ONE item only)
     {
       id: "community",
       icon: HeartHandshake,

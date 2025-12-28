@@ -11,6 +11,8 @@ import {
   useParams,
 } from "react-router-dom";
 
+import CommunityView from "./components/community/CommunityView";
+
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
 import { HomeView } from "./components/HomeView";
@@ -127,6 +129,7 @@ function AppContent() {
               }
             />
 
+            <Route path="/community" element={<CommunityView />} />
             <Route
               path="/cv_edit"
               element={

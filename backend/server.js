@@ -36,16 +36,20 @@ app.use((req, res, next) => {
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader(
-      "Access-Control-Allow-Methods",
-      "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-    );
-    res.setHeader(
       "Access-Control-Allow-Headers",
       "Content-Type, Authorization"
     );
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+    );
   }
 
-  if (req.method === "OPTIONS") return res.sendStatus(204);
+  // ✅ IMPORTANT: preflight
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+
   next();
 });
 
@@ -133,6 +137,451 @@ function safeJsonParse(s) {
     return null;
   }
 }
+// =====================
+// Community: Places & Groups (CRUD) ✅ FIX 500 (adds missing columns)
+// =====================
+
+// Helper: run sqlite safely
+function run(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+      if (err) reject(err);
+      else resolve(this);
+    });
+  });
+}
+function all(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
+    });
+  });
+}
+function get(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) reject(err);
+      else resolve(row || null);
+    });
+  });
+}
+
+async function ensureCommunityTables() {
+  // ✅ create if missing
+  await run(
+    db,
+    `CREATE TABLE IF NOT EXISTS community_places (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      category TEXT,
+      state TEXT,
+      city TEXT,
+      address TEXT,
+      phone TEXT,
+      website TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`
+  );
+
+  await run(
+    db,
+    `CREATE TABLE IF NOT EXISTS community_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      platform TEXT,
+      link TEXT,
+      state TEXT,
+      city TEXT,
+      topic TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`
+  );
+
+  // ✅ IMPORTANT: if tables already existed, add missing cols safely
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN category TEXT`);
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN state TEXT`);
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN city TEXT`);
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN address TEXT`);
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN phone TEXT`);
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN website TEXT`);
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN notes TEXT`);
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN created_at TEXT`);
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN updated_at TEXT`);
+
+  safeAlterTable(`ALTER TABLE community_groups ADD COLUMN platform TEXT`);
+  safeAlterTable(`ALTER TABLE community_groups ADD COLUMN link TEXT`);
+  safeAlterTable(`ALTER TABLE community_groups ADD COLUMN state TEXT`);
+  safeAlterTable(`ALTER TABLE community_groups ADD COLUMN city TEXT`);
+  safeAlterTable(`ALTER TABLE community_groups ADD COLUMN topic TEXT`);
+  safeAlterTable(`ALTER TABLE community_groups ADD COLUMN notes TEXT`);
+  safeAlterTable(`ALTER TABLE community_groups ADD COLUMN created_at TEXT`);
+  safeAlterTable(`ALTER TABLE community_groups ADD COLUMN updated_at TEXT`);
+}
+
+ensureCommunityTables().catch(console.error);
+
+// ---------------------
+// GET list: Places
+// ---------------------
+app.get("/api/community/places", async (req, res) => {
+  try {
+    const { q = "", state = "", city = "", category = "" } = req.query;
+
+    const where = [];
+    const params = [];
+
+    if (q.trim()) {
+      where.push("(name LIKE ? OR notes LIKE ? OR address LIKE ?)");
+      params.push(`%${q.trim()}%`, `%${q.trim()}%`, `%${q.trim()}%`);
+    }
+    if (state) {
+      where.push("state = ?");
+      params.push(state);
+    }
+    if (city.trim()) {
+      where.push("LOWER(city) = LOWER(?)");
+      params.push(city.trim());
+    }
+    if (category) {
+      where.push("category = ?");
+      params.push(category);
+    }
+
+    const sql =
+      `SELECT * FROM community_places ` +
+      (where.length ? `WHERE ${where.join(" AND ")} ` : "") +
+      `ORDER BY id DESC`;
+
+    const rows = await all(db, sql, params);
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to load places" });
+  }
+});
+
+// ✅ GET by id: Place
+app.get("/api/community/places/:id", async (req, res) => {
+  try {
+    const row = await get(db, `SELECT * FROM community_places WHERE id = ?`, [
+      req.params.id,
+    ]);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    res.json(row);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed" });
+  }
+});
+
+// ✅ POST: Place
+app.post("/api/community/places", async (req, res) => {
+  try {
+    const {
+      name,
+      category = "",
+      state = "",
+      city = "",
+      address = "",
+      phone = "",
+      website = "",
+      notes = "",
+    } = req.body || {};
+
+    if (!name || !String(name).trim())
+      return res.status(400).json({ error: "Name is required" });
+
+    const r = await run(
+      db,
+      `INSERT INTO community_places (name, category, state, city, address, phone, website, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        String(name).trim(),
+        category,
+        state,
+        String(city || "").trim(),
+        String(address || "").trim(),
+        String(phone || "").trim(),
+        String(website || "").trim(),
+        String(notes || "").trim(),
+      ]
+    );
+
+    const created = await get(
+      db,
+      `SELECT * FROM community_places WHERE id = ?`,
+      [r.lastID]
+    );
+    res.json(created);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to create place" });
+  }
+});
+
+// ✅ PUT/PATCH: Place (Update)
+async function updatePlace(req, res) {
+  try {
+    const id = req.params.id;
+    const existing = await get(
+      db,
+      `SELECT * FROM community_places WHERE id = ?`,
+      [id]
+    );
+    if (!existing) return res.status(404).json({ error: "Not found" });
+
+    const b = req.body || {};
+    const next = {
+      name: b.name ?? existing.name,
+      category: b.category ?? existing.category,
+      state: b.state ?? existing.state,
+      city: b.city ?? existing.city,
+      address: b.address ?? existing.address,
+      phone: b.phone ?? existing.phone,
+      website: b.website ?? existing.website,
+      notes: b.notes ?? existing.notes,
+    };
+
+    if (!String(next.name || "").trim())
+      return res.status(400).json({ error: "Name is required" });
+
+    await run(
+      db,
+      `UPDATE community_places
+       SET name=?, category=?, state=?, city=?, address=?, phone=?, website=?, notes=?, updated_at=datetime('now')
+       WHERE id=?`,
+      [
+        String(next.name).trim(),
+        next.category || "",
+        next.state || "",
+        String(next.city || "").trim(),
+        String(next.address || "").trim(),
+        String(next.phone || "").trim(),
+        String(next.website || "").trim(),
+        String(next.notes || "").trim(),
+        id,
+      ]
+    );
+
+    const updated = await get(
+      db,
+      `SELECT * FROM community_places WHERE id = ?`,
+      [id]
+    );
+    res.json(updated);
+  } catch (e) {
+    console.error("updatePlace error:", e);
+    res.status(500).json({ error: String(e?.message || "Failed to update") });
+  }
+}
+app.put("/api/community/places/:id", updatePlace);
+app.patch("/api/community/places/:id", updatePlace);
+
+// ✅ DELETE: Place
+app.delete("/api/community/places/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const existing = await get(
+      db,
+      `SELECT * FROM community_places WHERE id = ?`,
+      [id]
+    );
+    if (!existing) return res.status(404).json({ error: "Not found" });
+
+    await run(db, `DELETE FROM community_places WHERE id = ?`, [id]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to delete place" });
+  }
+});
+
+// ---------------------
+// Groups (CRUD)
+// ---------------------
+app.get("/api/community/groups", async (req, res) => {
+  try {
+    const {
+      q = "",
+      state = "",
+      city = "",
+      platform = "",
+      topic = "",
+    } = req.query;
+
+    const where = [];
+    const params = [];
+
+    if (q.trim()) {
+      where.push("(name LIKE ? OR notes LIKE ?)");
+      params.push(`%${q.trim()}%`, `%${q.trim()}%`);
+    }
+    if (state) {
+      where.push("state = ?");
+      params.push(state);
+    }
+    if (city.trim()) {
+      where.push("LOWER(city)=LOWER(?)");
+      params.push(city.trim());
+    }
+    if (platform) {
+      where.push("platform = ?");
+      params.push(platform);
+    }
+    if (topic) {
+      where.push("topic = ?");
+      params.push(topic);
+    }
+
+    const sql =
+      `SELECT * FROM community_groups ` +
+      (where.length ? `WHERE ${where.join(" AND ")} ` : "") +
+      `ORDER BY id DESC`;
+
+    const rows = await all(db, sql, params);
+    res.json(rows);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to load groups" });
+  }
+});
+
+app.get("/api/community/groups/:id", async (req, res) => {
+  try {
+    const row = await get(db, `SELECT * FROM community_groups WHERE id = ?`, [
+      req.params.id,
+    ]);
+    if (!row) return res.status(404).json({ error: "Not found" });
+    res.json(row);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed" });
+  }
+});
+
+app.post("/api/community/groups", async (req, res) => {
+  try {
+    const {
+      name,
+      platform = "",
+      link = "",
+      state = "",
+      city = "",
+      topic = "",
+      notes = "",
+    } = req.body || {};
+
+    if (!name || !String(name).trim())
+      return res.status(400).json({ error: "Name is required" });
+    if (!link || !String(link).trim())
+      return res.status(400).json({ error: "Link is required" });
+
+    const r = await run(
+      db,
+      `INSERT INTO community_groups (name, platform, link, state, city, topic, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        String(name).trim(),
+        platform,
+        String(link).trim(),
+        state,
+        String(city || "").trim(),
+        topic,
+        String(notes || "").trim(),
+      ]
+    );
+
+    const created = await get(
+      db,
+      `SELECT * FROM community_groups WHERE id = ?`,
+      [r.lastID]
+    );
+    res.json(created);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to create group" });
+  }
+});
+
+async function updateGroup(req, res) {
+  try {
+    const id = req.params.id;
+    const existing = await get(
+      db,
+      `SELECT * FROM community_groups WHERE id = ?`,
+      [id]
+    );
+    if (!existing) return res.status(404).json({ error: "Not found" });
+
+    const b = req.body || {};
+    const next = {
+      name: b.name ?? existing.name,
+      platform: b.platform ?? existing.platform,
+      link: b.link ?? existing.link,
+      state: b.state ?? existing.state,
+      city: b.city ?? existing.city,
+      topic: b.topic ?? existing.topic,
+      notes: b.notes ?? existing.notes,
+    };
+
+    if (!String(next.name || "").trim())
+      return res.status(400).json({ error: "Name is required" });
+    if (!String(next.link || "").trim())
+      return res.status(400).json({ error: "Link is required" });
+
+    await run(
+      db,
+      `UPDATE community_groups
+       SET name=?, platform=?, link=?, state=?, city=?, topic=?, notes=?, updated_at=datetime('now')
+       WHERE id=?`,
+      [
+        String(next.name).trim(),
+        next.platform || "",
+        String(next.link).trim(),
+        next.state || "",
+        String(next.city || "").trim(),
+        next.topic || "",
+        String(next.notes || "").trim(),
+        id,
+      ]
+    );
+
+    const updated = await get(
+      db,
+      `SELECT * FROM community_groups WHERE id = ?`,
+      [id]
+    );
+    res.json(updated);
+  } catch (e) {
+    console.error("updateGroup error:", e);
+    res.status(500).json({ error: String(e?.message || "Failed to update") });
+  }
+}
+app.put("/api/community/groups/:id", updateGroup);
+app.patch("/api/community/groups/:id", updateGroup);
+
+app.delete("/api/community/groups/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const existing = await get(
+      db,
+      `SELECT * FROM community_groups WHERE id = ?`,
+      [id]
+    );
+    if (!existing) return res.status(404).json({ error: "Not found" });
+
+    await run(db, `DELETE FROM community_groups WHERE id = ?`, [id]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Failed to delete group" });
+  }
+});
 
 function normalizeCvResponse(row) {
   const parsed = safeJsonParse(row.cv_data);
@@ -1699,10 +2148,16 @@ app.post("/api/posts/:id/delete", authRequired, deletePostById);
 app.post("/api/posts/delete/:id", authRequired, deletePostById);
 
 // ✅ NEW: aliases for "weird" frontend delete tries
-app.delete("/api/me/profile/posts/:postId", authRequired, (req, res, next) => {
-  req.url = `/api/profile/me/posts/${req.params.postId}`;
-  next();
-});
+app.delete("/api/me/profile/posts/:postId", authRequired, (req, res) =>
+  app._router.handle(
+    {
+      ...req,
+      url: `/api/profile/me/posts/${req.params.postId}`,
+      method: "DELETE",
+    },
+    res
+  )
+);
 
 /* ========= LIKE Post ========= */
 app.post("/api/posts/:id/like", authRequired, (req, res) => {
@@ -1986,17 +2441,6 @@ app.post(
   authRequired,
   toggleLikeComment
 );
-
-/* =====================
-   DEBUG: Error handler
-===================== */
-app.use((err, req, res, next) => {
-  console.error("SERVER_ERROR:", err);
-  res.status(500).json({
-    message: "Internal Server Error",
-    detail: String(err?.message || err),
-  });
-});
 
 /* =====================
    START
