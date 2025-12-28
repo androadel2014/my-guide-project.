@@ -15,7 +15,23 @@ import {
   RefreshCw,
   MoreVertical,
   Navigation,
-  Check,
+  UtensilsCrossed,
+  Coffee,
+  Croissant,
+  ShoppingBag,
+  Sparkles,
+  Trees,
+  Ticket,
+  Landmark,
+  Church,
+  GraduationCap,
+  Stethoscope,
+  Scale,
+  Car,
+  Wrench,
+  Scissors,
+  ShoppingCart,
+  MessageCircle,
 } from "lucide-react";
 
 const API_BASE =
@@ -77,6 +93,7 @@ const US_STATES = [
   "DC",
 ];
 
+// ✅ ممكن تسيبهم زي ما هما (labels للـ UI)
 const PLACE_CATEGORIES = [
   "Restaurant",
   "Cafe",
@@ -105,7 +122,6 @@ const GROUP_PLATFORMS = [
   "Meetup",
   "Other",
 ];
-
 const GROUP_TOPICS = [
   "Immigration",
   "Jobs",
@@ -153,6 +169,252 @@ function useOutsideClick(ref, onOutside) {
     return () => document.removeEventListener("mousedown", handler);
   }, [ref, onOutside]);
 }
+
+/* =========================
+   ✅ CATEGORY → UI (Banner)
+========================= */
+
+// يحول أي label (حتى القديم) لKey ثابت
+function normalizePlaceCategoryKey(raw) {
+  const v = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (!v) return "other";
+
+  // دعم القديم + الجديد
+  if (v.includes("restaurant")) return "restaurant";
+  if (v === "cafe" || v.includes("cafe")) return "cafe";
+  if (v.includes("bakery")) return "bakery";
+  if (
+    v.includes("grocery") ||
+    v.includes("arab market") ||
+    v.includes("market")
+  )
+    return "grocery";
+  if (v.includes("things to do")) return "todo";
+  if (v.includes("park") || v.includes("outdoors")) return "park";
+  if (v.includes("attraction")) return "attraction";
+  if (v.includes("mosque")) return "mosque";
+  if (v.includes("church")) return "church";
+  if (v.includes("school") || v.includes("daycare")) return "school";
+  if (v.includes("clinic") || v.includes("doctor")) return "clinic";
+  if (v.includes("lawyer") || v.includes("immigration")) return "lawyer";
+  if (v.includes("car")) return "car";
+  if (v.includes("handyman") || v.includes("home services")) return "handyman";
+  if (v.includes("barber") || v.includes("beauty")) return "beauty";
+  if (v.includes("shopping") || v.includes("mall")) return "shopping";
+  return "other";
+}
+
+function normalizeGroupPlatformKey(raw) {
+  const v = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (!v) return "other";
+  if (v.includes("facebook")) return "facebook";
+  if (v.includes("whatsapp")) return "whatsapp";
+  if (v.includes("telegram")) return "telegram";
+  if (v.includes("discord")) return "discord";
+  if (v.includes("meetup")) return "meetup";
+  return "other";
+}
+
+const PLACE_BANNER = {
+  restaurant: {
+    label: "Restaurant",
+    Icon: UtensilsCrossed,
+    bg: "from-orange-50 to-orange-100 border-orange-200",
+    icon: "bg-orange-600",
+  },
+  cafe: {
+    label: "Cafe",
+    Icon: Coffee,
+    bg: "from-amber-50 to-amber-100 border-amber-200",
+    icon: "bg-amber-600",
+  },
+  bakery: {
+    label: "Bakery",
+    Icon: Croissant,
+    bg: "from-yellow-50 to-yellow-100 border-yellow-200",
+    icon: "bg-yellow-600",
+  },
+  grocery: {
+    label: "Grocery / Arab Market",
+    Icon: ShoppingBag,
+    bg: "from-sky-50 to-sky-100 border-sky-200",
+    icon: "bg-sky-600",
+  },
+  todo: {
+    label: "Things to do",
+    Icon: Sparkles,
+    bg: "from-fuchsia-50 to-fuchsia-100 border-fuchsia-200",
+    icon: "bg-fuchsia-600",
+  },
+  park: {
+    label: "Park / Outdoors",
+    Icon: Trees,
+    bg: "from-green-50 to-green-100 border-green-200",
+    icon: "bg-green-600",
+  },
+  attraction: {
+    label: "Attraction",
+    Icon: Ticket,
+    bg: "from-violet-50 to-violet-100 border-violet-200",
+    icon: "bg-violet-600",
+  },
+  mosque: {
+    label: "Mosque",
+    Icon: Landmark,
+    bg: "from-emerald-50 to-emerald-100 border-emerald-200",
+    icon: "bg-emerald-600",
+  },
+  church: {
+    label: "Church",
+    Icon: Church,
+    bg: "from-indigo-50 to-indigo-100 border-indigo-200",
+    icon: "bg-indigo-600",
+  },
+  school: {
+    label: "School / Daycare",
+    Icon: GraduationCap,
+    bg: "from-blue-50 to-blue-100 border-blue-200",
+    icon: "bg-blue-600",
+  },
+  clinic: {
+    label: "Clinic / Doctor",
+    Icon: Stethoscope,
+    bg: "from-red-50 to-red-100 border-red-200",
+    icon: "bg-red-600",
+  },
+  lawyer: {
+    label: "Lawyer / Immigration",
+    Icon: Scale,
+    bg: "from-slate-50 to-slate-100 border-slate-200",
+    icon: "bg-slate-700",
+  },
+  car: {
+    label: "Car Services",
+    Icon: Car,
+    bg: "from-gray-50 to-gray-100 border-gray-200",
+    icon: "bg-gray-800",
+  },
+  handyman: {
+    label: "Handyman / Home Services",
+    Icon: Wrench,
+    bg: "from-teal-50 to-teal-100 border-teal-200",
+    icon: "bg-teal-700",
+  },
+  beauty: {
+    label: "Barber / Beauty",
+    Icon: Scissors,
+    bg: "from-pink-50 to-pink-100 border-pink-200",
+    icon: "bg-pink-600",
+  },
+  shopping: {
+    label: "Shopping / Mall",
+    Icon: ShoppingCart,
+    bg: "from-zinc-50 to-zinc-100 border-zinc-200",
+    icon: "bg-zinc-800",
+  },
+  other: {
+    label: "Place",
+    Icon: Building2,
+    bg: "from-gray-50 to-gray-100 border-gray-200",
+    icon: "bg-gray-700",
+  },
+};
+
+const GROUP_BANNER = {
+  facebook: {
+    label: "Facebook Group",
+    Icon: Users,
+    bg: "from-blue-50 to-blue-100 border-blue-200",
+    icon: "bg-blue-600",
+  },
+  whatsapp: {
+    label: "WhatsApp Group",
+    Icon: MessageCircle,
+    bg: "from-emerald-50 to-emerald-100 border-emerald-200",
+    icon: "bg-emerald-600",
+  },
+  telegram: {
+    label: "Telegram Group",
+    Icon: MessageCircle,
+    bg: "from-sky-50 to-sky-100 border-sky-200",
+    icon: "bg-sky-600",
+  },
+  discord: {
+    label: "Discord",
+    Icon: Users,
+    bg: "from-indigo-50 to-indigo-100 border-indigo-200",
+    icon: "bg-indigo-600",
+  },
+  meetup: {
+    label: "Meetup",
+    Icon: Users,
+    bg: "from-orange-50 to-orange-100 border-orange-200",
+    icon: "bg-orange-600",
+  },
+  other: {
+    label: "Group",
+    Icon: Users,
+    bg: "from-gray-50 to-gray-100 border-gray-200",
+    icon: "bg-gray-700",
+  },
+};
+
+function CardBanner({ type, placeCategory, groupPlatform, subtitleRight }) {
+  const isPlace = type === "place";
+
+  let ui = isPlace ? PLACE_BANNER.other : GROUP_BANNER.other;
+  if (isPlace) {
+    const key = normalizePlaceCategoryKey(placeCategory);
+    ui = PLACE_BANNER[key] || PLACE_BANNER.other;
+  } else {
+    const key = normalizeGroupPlatformKey(groupPlatform);
+    ui = GROUP_BANNER[key] || GROUP_BANNER.other;
+  }
+
+  const Icon = ui.Icon;
+
+  return (
+    <div
+      className={classNames(
+        "w-full rounded-2xl border bg-gradient-to-r px-4 py-3 flex items-center justify-between",
+        ui.bg
+      )}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <div
+          className={classNames(
+            "w-9 h-9 rounded-xl flex items-center justify-center shrink-0",
+            ui.icon
+          )}
+        >
+          <Icon className="w-5 h-5 text-white" />
+        </div>
+        <div className="min-w-0">
+          <div className="font-extrabold text-gray-900 leading-5 truncate">
+            {ui.label}
+          </div>
+          <div className="text-xs text-gray-600 mt-0.5 truncate">
+            {isPlace ? "Curated for newcomers" : "Join & connect with people"}
+          </div>
+        </div>
+      </div>
+
+      {subtitleRight ? (
+        <div className="hidden sm:inline-flex text-xs font-semibold text-gray-700 rounded-full bg-white/70 border border-gray-200 px-2.5 py-1">
+          {subtitleRight}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* =========================
+   UI Components
+========================= */
 
 function Modal({ open, onClose, title, subtitle, children }) {
   useEffect(() => {
@@ -215,7 +477,7 @@ function Dropdown({ align = "right", trigger, children, open, setOpen }) {
         <div
           className={classNames(
             "absolute z-50 mt-2 min-w-[220px] rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden",
-            align === "right" ? "left-0" : "right-0"
+            align === "right" ? "left-0" : "right-0" // ✅ fixed
           )}
         >
           {children}
@@ -251,6 +513,10 @@ function MenuItem({ icon: Icon, title, desc, onClick, danger }) {
     </button>
   );
 }
+
+/* =========================
+   Page
+========================= */
 
 export default function CommunityView() {
   const [tab, setTab] = useState("places"); // places | groups
@@ -426,10 +692,7 @@ export default function CommunityView() {
 
         const res = await fetch(`${API_BASE}/api/community/places`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeaders(),
-          },
+          headers: { "Content-Type": "application/json", ...authHeaders() },
           body: JSON.stringify({
             name: pName.trim(),
             category: pCategory,
@@ -458,10 +721,7 @@ export default function CommunityView() {
 
         const res = await fetch(`${API_BASE}/api/community/groups`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeaders(),
-          },
+          headers: { "Content-Type": "application/json", ...authHeaders() },
           body: JSON.stringify({
             name: gName.trim(),
             platform: gPlatform,
@@ -601,12 +861,6 @@ export default function CommunityView() {
       toast.error("Delete failed");
     }
   }
-
-  const chip = (text) => (
-    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200">
-      {text || "Other"}
-    </span>
-  );
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
@@ -1299,6 +1553,8 @@ export default function CommunityView() {
 
 function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
   const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+  useOutsideClick(menuRef, () => setOpen(false)); // ✅ close on outside click
 
   const placeMapUrl =
     tab === "places"
@@ -1308,14 +1564,29 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
   const locText =
     [it.city, it.state].filter(Boolean).join(", ") || "Location not set";
 
+  const badgeText =
+    tab === "places" ? it.category || "Other" : it.platform || "Other";
+
+  const rightSubtitle =
+    tab === "places"
+      ? [it.city, it.state].filter(Boolean).join(", ") || ""
+      : it.topic || "";
+
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition">
-      <div className="flex items-start justify-between gap-3">
+    <div className="rounded-2xl relative border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition">
+      {/* ✅ Banner */}
+      <CardBanner
+        type={tab === "places" ? "place" : "group"}
+        placeCategory={it.category}
+        groupPlatform={it.platform}
+        subtitleRight={rightSubtitle}
+      />
+
+      <div className="mt-4 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             {tab === "places" && placeMapUrl ? (
               <a
-                href={placeMapUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="text-base md:text-lg font-extrabold text-gray-900 truncate hover:underline cursor-pointer"
@@ -1329,10 +1600,8 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
               </div>
             )}
 
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200">
-              {tab === "places"
-                ? it.category || "Other"
-                : it.platform || "Other"}
+            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-white border border-gray-200 text-gray-700">
+              {badgeText}
             </span>
           </div>
 
@@ -1402,7 +1671,7 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
                 href={safeUrl(it.link)}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bggray-50 hover:bg-gray-50"
+                className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
               >
                 <Globe size={16} />
                 Open Link
@@ -1420,41 +1689,39 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
 
         {/* Actions */}
         {isLoggedIn ? (
-          <div className="shrink-0">
-            <div className="relative">
-              <button
-                onClick={() => setOpen((v) => !v)}
-                className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50"
-                title="Actions"
-              >
-                <MoreVertical size={18} />
-              </button>
+          <div className="shrink-0" ref={menuRef}>
+            <button
+              onClick={() => setOpen((v) => !v)}
+              className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50"
+              title="Actions"
+            >
+              <MoreVertical size={18} />
+            </button>
 
-              {open ? (
-                <div className="absolute right-0 mt-2 w-44 rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden z-50">
-                  <button
-                    onClick={() => {
-                      setOpen(false);
-                      onEdit();
-                    }}
-                    className="w-full px-3 py-2.5 text-left hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold"
-                  >
-                    <Pencil size={16} />
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => {
-                      setOpen(false);
-                      onDelete();
-                    }}
-                    className="w-full px-3 py-2.5 text-left hover:bg-red-50 flex items-center gap-2 text-sm font-semibold text-red-600"
-                  >
-                    <Trash2 size={16} />
-                    Delete
-                  </button>
-                </div>
-              ) : null}
-            </div>
+            {open ? (
+              <div className="absolute mt-2 left-0 w-44 rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden z-50">
+                <button
+                  onClick={() => {
+                    setOpen(false);
+                    onEdit();
+                  }}
+                  className="w-full px-3 py-2.5 text-left hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold"
+                >
+                  <Pencil size={16} />
+                  Edit
+                </button>
+                <button
+                  onClick={() => {
+                    setOpen(false);
+                    onDelete();
+                  }}
+                  className="w-full px-3 py-2.5 text-left hover:bg-red-50 flex items-center gap-2 text-sm font-semibold text-red-600"
+                >
+                  <Trash2 size={16} />
+                  Delete
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
