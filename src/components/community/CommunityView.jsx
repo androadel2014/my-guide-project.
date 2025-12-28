@@ -1,5 +1,13 @@
+// CommunityView.jsx (FULL FILE - copy/paste)
+// ✅ Changes in this version (اللي طلبته بالظبط):
+// 1) ✅ حذف كل أزرار الـ Copy (Address/Phone/Link/Website) — ملوش لازمة
+// 2) ✅ إضافة Rating + Reviews Count على كارد المكان (Places)
+// 3) ✅ الكارد كله clickable للـ Places ويفتح صفحة المكان: /community/place/:id (placeholder route هنحطه في App.jsx)
+// 4) ✅ سيبنا Open Map + Address link + Tel + Website (كلهم يشتغلوا) + عملنا stopPropagation عشان مايفتحش صفحة التفاصيل بالغلط
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 import {
   Plus,
   Search,
@@ -32,6 +40,9 @@ import {
   Scissors,
   ShoppingCart,
   MessageCircle,
+  LocateFixed,
+  ChevronRight,
+  Star,
 } from "lucide-react";
 
 const API_BASE =
@@ -174,14 +185,11 @@ function useOutsideClick(ref, onOutside) {
    ✅ CATEGORY → UI (Banner)
 ========================= */
 
-// يحول أي label (حتى القديم) لKey ثابت
 function normalizePlaceCategoryKey(raw) {
   const v = String(raw || "")
     .trim()
     .toLowerCase();
   if (!v) return "other";
-
-  // دعم القديم + الجديد
   if (v.includes("restaurant")) return "restaurant";
   if (v === "cafe" || v.includes("cafe")) return "cafe";
   if (v.includes("bakery")) return "bakery";
@@ -365,8 +373,8 @@ const GROUP_BANNER = {
 
 function CardBanner({ type, placeCategory, groupPlatform, subtitleRight }) {
   const isPlace = type === "place";
-
   let ui = isPlace ? PLACE_BANNER.other : GROUP_BANNER.other;
+
   if (isPlace) {
     const key = normalizePlaceCategoryKey(placeCategory);
     ui = PLACE_BANNER[key] || PLACE_BANNER.other;
@@ -476,8 +484,8 @@ function Dropdown({ align = "right", trigger, children, open, setOpen }) {
       {open ? (
         <div
           className={classNames(
-            "absolute z-50 mt-2 min-w-[220px] rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden",
-            align === "right" ? "left-0" : "right-0" // ✅ fixed
+            "absolute z-50 mt-2 min-w-[240px] rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden",
+            align === "right" ? "right-0" : "left-0"
           )}
         >
           {children}
@@ -487,30 +495,44 @@ function Dropdown({ align = "right", trigger, children, open, setOpen }) {
   );
 }
 
-function MenuItem({ icon: Icon, title, desc, onClick, danger }) {
+function MenuItem({ icon: Icon, title, desc, onClick, danger, rightEl }) {
   return (
     <button
       onClick={onClick}
       className={classNames(
-        "w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start gap-3",
+        "w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start justify-between gap-3",
         danger ? "text-red-600" : "text-gray-800"
       )}
     >
-      <div
-        className={classNames(
-          "mt-0.5 w-9 h-9 rounded-xl flex items-center justify-center border",
-          danger ? "border-red-200 bg-red-50" : "border-gray-200 bg-gray-50"
-        )}
-      >
-        <Icon size={18} />
+      <div className="flex items-start gap-3 min-w-0">
+        <div
+          className={classNames(
+            "mt-0.5 w-9 h-9 rounded-xl flex items-center justify-center border shrink-0",
+            danger ? "border-red-200 bg-red-50" : "border-gray-200 bg-gray-50"
+          )}
+        >
+          <Icon size={18} />
+        </div>
+        <div className="min-w-0">
+          <div className="font-semibold leading-5">{title}</div>
+          {desc ? (
+            <div className="text-xs text-gray-500 mt-0.5">{desc}</div>
+          ) : null}
+        </div>
       </div>
-      <div className="min-w-0">
-        <div className="font-semibold leading-5">{title}</div>
-        {desc ? (
-          <div className="text-xs text-gray-500 mt-0.5">{desc}</div>
-        ) : null}
-      </div>
+      {rightEl ? (
+        <div className="shrink-0 text-gray-400 mt-1">{rightEl}</div>
+      ) : null}
     </button>
+  );
+}
+
+function SectionTitle({ title, desc }) {
+  return (
+    <div className="mb-2">
+      <div className="text-sm font-extrabold text-gray-900">{title}</div>
+      {desc ? <div className="text-xs text-gray-500 mt-0.5">{desc}</div> : null}
+    </div>
   );
 }
 
@@ -519,11 +541,12 @@ function MenuItem({ icon: Icon, title, desc, onClick, danger }) {
 ========================= */
 
 export default function CommunityView() {
+  const navigate = useNavigate();
+
   const [tab, setTab] = useState("places"); // places | groups
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
 
-  // ✅ لو في توكن يبقى يقدر يعمل Add/Edit/Delete
   const [isLoggedIn, setIsLoggedIn] = useState(!!getToken());
   useEffect(() => {
     const onStorage = () => setIsLoggedIn(!!getToken());
@@ -547,6 +570,7 @@ export default function CommunityView() {
   const [openAdd, setOpenAdd] = useState(false);
   const [addType, setAddType] = useState("place"); // place | group
   const [openAddMenu, setOpenAddMenu] = useState(false);
+  const [openAddSubmenu, setOpenAddSubmenu] = useState(""); // "" | "place" | "group"
 
   // edit modal
   const [openEdit, setOpenEdit] = useState(false);
@@ -620,6 +644,46 @@ export default function CommunityView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  // ✅ datalist cities (autocomplete) based on current items + state filter
+  const citySuggestions = useMemo(() => {
+    const s = new Set();
+    for (const it of items) {
+      if (!it) continue;
+      const st = String(it.state || "")
+        .trim()
+        .toUpperCase();
+      const c = String(it.city || "").trim();
+      if (!c) continue;
+
+      const selectedState = state || "";
+      if (selectedState) {
+        if (st === String(selectedState).toUpperCase()) s.add(c);
+      } else {
+        s.add(c);
+      }
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [items, state]);
+
+  // ✅ datalist for Add/Edit forms based on chosen form state
+  const formCitySuggestions = useMemo(() => {
+    const s = new Set();
+    const selectedState = addType === "place" ? pState : gState;
+
+    for (const it of items) {
+      if (!it) continue;
+      const st = String(it.state || "")
+        .trim()
+        .toUpperCase();
+      const c = String(it.city || "").trim();
+      if (!c) continue;
+
+      if (!selectedState) s.add(c);
+      else if (st === String(selectedState).toUpperCase()) s.add(c);
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [items, pState, gState, addType]);
+
   function requireLoginOrToast() {
     const ok = !!getToken();
     if (!ok) toast.error("Login required");
@@ -629,6 +693,20 @@ export default function CommunityView() {
   function openAddModal(type) {
     if (!requireLoginOrToast()) return;
     setAddType(type);
+    setOpenAdd(true);
+  }
+
+  function openAddModalPresetPlace(cat) {
+    if (!requireLoginOrToast()) return;
+    setAddType("place");
+    setPCategory(cat);
+    setOpenAdd(true);
+  }
+
+  function openAddModalPresetGroup(plat) {
+    if (!requireLoginOrToast()) return;
+    setAddType("group");
+    setGPlatform(plat);
     setOpenAdd(true);
   }
 
@@ -862,6 +940,35 @@ export default function CommunityView() {
     }
   }
 
+  // ✅ Near me (simple)
+  async function nearMe() {
+    try {
+      if (!navigator.geolocation)
+        return toast.error("Geolocation not supported");
+      toast.loading("Getting your location…", { id: "geo" });
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords || {};
+          toast.success("Location detected. Choose State then Apply.", {
+            id: "geo",
+          });
+
+          setQ((prev) => prev || "nearby");
+          setCity(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+        },
+        (err) => {
+          console.error(err);
+          toast.error("Location permission denied", { id: "geo" });
+        },
+        { enableHighAccuracy: false, timeout: 9000 }
+      );
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to get location", { id: "geo" });
+    }
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       {/* Header */}
@@ -891,6 +998,15 @@ export default function CommunityView() {
             Refresh
           </button>
 
+          <button
+            onClick={nearMe}
+            className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-800 inline-flex items-center gap-2"
+            title="Near me (fills city with coordinates)"
+          >
+            <LocateFixed size={16} />
+            Near me
+          </button>
+
           {isLoggedIn ? (
             <Dropdown
               open={openAddMenu}
@@ -902,24 +1018,121 @@ export default function CommunityView() {
                 </button>
               }
             >
+              {/* Top level */}
+              <div className="p-3">
+                <SectionTitle
+                  title="Quick Add"
+                  desc="Choose type directly (faster)"
+                />
+              </div>
+
               <MenuItem
                 icon={Building2}
-                title="Add Place"
+                title="Add Place…"
                 desc="Restaurant, mosque, church, clinics…"
-                onClick={() => {
-                  setOpenAddMenu(false);
-                  openAddModal("place");
-                }}
+                rightEl={<ChevronRight size={16} />}
+                onClick={() =>
+                  setOpenAddSubmenu((v) => (v === "place" ? "" : "place"))
+                }
               />
               <MenuItem
                 icon={Users}
-                title="Add Group"
+                title="Add Group…"
                 desc="Facebook, WhatsApp, Telegram…"
-                onClick={() => {
-                  setOpenAddMenu(false);
-                  openAddModal("group");
-                }}
+                rightEl={<ChevronRight size={16} />}
+                onClick={() =>
+                  setOpenAddSubmenu((v) => (v === "group" ? "" : "group"))
+                }
               />
+
+              {/* Place submenu */}
+              {openAddSubmenu === "place" ? (
+                <div className="border-t border-gray-100">
+                  <div className="px-4 py-2 text-xs font-bold text-gray-600 bg-gray-50">
+                    Places presets
+                  </div>
+
+                  {[
+                    { label: "Restaurant", icon: UtensilsCrossed },
+                    { label: "Mosque", icon: Landmark },
+                    { label: "Church", icon: Church },
+                    { label: "Clinic / Doctor", icon: Stethoscope },
+                    { label: "School / Daycare", icon: GraduationCap },
+                    { label: "Grocery / Arab Market", icon: ShoppingBag },
+                    { label: "Things to do", icon: Ticket },
+                    { label: "Park / Outdoors", icon: Trees },
+                    { label: "Car Services", icon: Car },
+                    { label: "Handyman / Home Services", icon: Wrench },
+                  ].map((x) => (
+                    <button
+                      key={x.label}
+                      onClick={() => {
+                        setOpenAddMenu(false);
+                        setOpenAddSubmenu("");
+                        openAddModalPresetPlace(x.label);
+                      }}
+                      className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold"
+                    >
+                      <x.icon size={16} className="text-gray-700" />
+                      {x.label}
+                    </button>
+                  ))}
+
+                  <button
+                    onClick={() => {
+                      setOpenAddMenu(false);
+                      setOpenAddSubmenu("");
+                      openAddModal("place");
+                    }}
+                    className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold text-gray-800 border-t border-gray-100"
+                  >
+                    <Building2 size={16} />
+                    Custom Place (all categories)
+                  </button>
+                </div>
+              ) : null}
+
+              {/* Group submenu */}
+              {openAddSubmenu === "group" ? (
+                <div className="border-t border-gray-100">
+                  <div className="px-4 py-2 text-xs font-bold text-gray-600 bg-gray-50">
+                    Groups presets
+                  </div>
+
+                  {[
+                    { label: "Facebook", icon: Users },
+                    { label: "WhatsApp", icon: MessageCircle },
+                    { label: "Telegram", icon: MessageCircle },
+                    { label: "Discord", icon: Users },
+                    { label: "Meetup", icon: Users },
+                  ].map((x) => (
+                    <button
+                      key={x.label}
+                      onClick={() => {
+                        setOpenAddMenu(false);
+                        setOpenAddSubmenu("");
+                        openAddModalPresetGroup(x.label);
+                      }}
+                      className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold"
+                    >
+                      <x.icon size={16} className="text-gray-700" />
+                      {x.label}
+                    </button>
+                  ))}
+
+                  <button
+                    onClick={() => {
+                      setOpenAddMenu(false);
+                      setOpenAddSubmenu("");
+                      openAddModal("group");
+                    }}
+                    className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold text-gray-800 border-t border-gray-100"
+                  >
+                    <Users size={16} />
+                    Custom Group (all platforms)
+                  </button>
+                </div>
+              ) : null}
             </Dropdown>
           ) : null}
         </div>
@@ -1002,8 +1215,14 @@ export default function CommunityView() {
               value={city}
               onChange={(e) => setCity(e.target.value)}
               placeholder="e.g. Fairfax"
+              list="city-suggestions"
               className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
             />
+            <datalist id="city-suggestions">
+              {citySuggestions.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </div>
 
           {tab === "places" ? (
@@ -1112,6 +1331,9 @@ export default function CommunityView() {
                 isLoggedIn={isLoggedIn}
                 onEdit={() => openEditModal(it)}
                 onDelete={() => removeItem(it.id)}
+                onOpen={() => {
+                  if (tab === "places") navigate(`/community/place/${it.id}`);
+                }}
               />
             ))}
           </div>
@@ -1177,6 +1399,7 @@ export default function CommunityView() {
               <input
                 value={pCity}
                 onChange={(e) => setPCity(e.target.value)}
+                list="form-city-suggestions"
                 className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
                 placeholder="e.g. Fairfax"
               />
@@ -1225,6 +1448,12 @@ export default function CommunityView() {
                 placeholder="What’s special about this place?"
               />
             </div>
+
+            <datalist id="form-city-suggestions">
+              {formCitySuggestions.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1293,6 +1522,7 @@ export default function CommunityView() {
               <input
                 value={gCity}
                 onChange={(e) => setGCity(e.target.value)}
+                list="form-city-suggestions"
                 className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
                 placeholder="e.g. Alexandria"
               />
@@ -1319,6 +1549,12 @@ export default function CommunityView() {
                 placeholder="Rules, who it’s for, etc."
               />
             </div>
+
+            <datalist id="form-city-suggestions">
+              {formCitySuggestions.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </div>
         )}
 
@@ -1396,6 +1632,7 @@ export default function CommunityView() {
               <input
                 value={pCity}
                 onChange={(e) => setPCity(e.target.value)}
+                list="form-city-suggestions"
                 className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
               />
             </div>
@@ -1439,6 +1676,12 @@ export default function CommunityView() {
                 className="mt-1 w-full min-h-[110px] py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
               />
             </div>
+
+            <datalist id="form-city-suggestions">
+              {formCitySuggestions.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1506,6 +1749,7 @@ export default function CommunityView() {
               <input
                 value={gCity}
                 onChange={(e) => setGCity(e.target.value)}
+                list="form-city-suggestions"
                 className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
               />
             </div>
@@ -1529,6 +1773,12 @@ export default function CommunityView() {
                 className="mt-1 w-full min-h-[110px] py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
               />
             </div>
+
+            <datalist id="form-city-suggestions">
+              {formCitySuggestions.map((c) => (
+                <option key={c} value={c} />
+              ))}
+            </datalist>
           </div>
         )}
 
@@ -1547,14 +1797,26 @@ export default function CommunityView() {
           </button>
         </div>
       </Modal>
+
+      {/* ✅ NOTE for next step */}
+      <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="font-extrabold">Next (after this):</div>
+        <div className="mt-1">
+          تفاصيل صفحة المكان + الريفيوهات (نظبطها بعد ما “الدي” يبان بروفيشنال).
+        </div>
+      </div>
     </div>
   );
 }
 
-function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
+/* =========================
+   Card
+========================= */
+
+function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
-  useOutsideClick(menuRef, () => setOpen(false)); // ✅ close on outside click
+  useOutsideClick(menuRef, () => setOpen(false));
 
   const placeMapUrl =
     tab === "places"
@@ -1563,7 +1825,6 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
 
   const locText =
     [it.city, it.state].filter(Boolean).join(", ") || "Location not set";
-
   const badgeText =
     tab === "places" ? it.category || "Other" : it.platform || "Other";
 
@@ -1572,9 +1833,38 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
       ? [it.city, it.state].filter(Boolean).join(", ") || ""
       : it.topic || "";
 
+  const cardClickable = tab === "places" && typeof onOpen === "function";
+
+  // ✅ Rating + Reviews Count (fallbacks)
+  const ratingRaw =
+    it.avg_rating ?? it.rating_avg ?? it.rating ?? it.avgRating ?? 0;
+
+  const reviewsRaw =
+    it.reviews_count ?? it.review_count ?? it.reviews ?? it.reviewCount ?? 0;
+
+  const rating = Number(ratingRaw) || 0;
+  const reviewsCount = Number(reviewsRaw) || 0;
+
+  const ratingText = reviewsCount > 0 ? rating.toFixed(1) : "New";
+
   return (
-    <div className="rounded-2xl relative border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition">
-      {/* ✅ Banner */}
+    <div
+      role={cardClickable ? "button" : undefined}
+      tabIndex={cardClickable ? 0 : undefined}
+      onClick={() => {
+        if (!cardClickable) return;
+        onOpen();
+      }}
+      onKeyDown={(e) => {
+        if (!cardClickable) return;
+        if (e.key === "Enter" || e.key === " ") onOpen();
+      }}
+      className={classNames(
+        "rounded-2xl relative border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition hover:ring-2 hover:ring-black/5",
+        cardClickable ? "cursor-pointer" : ""
+      )}
+    >
+      {/* Banner */}
       <CardBanner
         type={tab === "places" ? "place" : "group"}
         placeCategory={it.category}
@@ -1585,24 +1875,25 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
       <div className="mt-4 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            {tab === "places" && placeMapUrl ? (
-              <a
-                target="_blank"
-                rel="noreferrer"
-                className="text-base md:text-lg font-extrabold text-gray-900 truncate hover:underline cursor-pointer"
-                title="Open in Google Maps"
-              >
-                {it.name}
-              </a>
-            ) : (
-              <div className="text-base md:text-lg font-extrabold text-gray-900 truncate">
-                {it.name}
-              </div>
-            )}
+            {/* ✅ اسم المكان بقى Text عشان الكارد هو اللي يفتح التفاصيل */}
+            <div className="text-base md:text-lg font-extrabold text-gray-900 truncate">
+              {it.name}
+            </div>
 
             <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-white border border-gray-200 text-gray-700">
               {badgeText}
             </span>
+
+            {/* ✅ Rating pill في نفس السطر (places فقط) */}
+            {tab === "places" ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-extrabold border border-gray-200 bg-gray-50 text-gray-900">
+                <Star size={14} className="text-amber-500" />
+                {ratingText}
+                <span className="text-xs font-semibold text-gray-600">
+                  ({reviewsCount})
+                </span>
+              </span>
+            ) : null}
           </div>
 
           <div className="mt-2 text-sm text-gray-700 space-y-1">
@@ -1611,12 +1902,14 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
               <span className="truncate">{locText}</span>
             </div>
 
+            {/* ✅ العنوان يفتح الماب (stopPropagation عشان مايفتحش details) */}
             {tab === "places" && it.address && placeMapUrl ? (
               <a
                 href={placeMapUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="text-gray-600 truncate hover:underline cursor-pointer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-gray-600 truncate hover:underline"
                 title="Open in Google Maps"
               >
                 {it.address}
@@ -1629,11 +1922,13 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
+            {/* ✅ Open Map */}
             {tab === "places" && placeMapUrl ? (
               <a
                 href={placeMapUrl}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
                 className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
                 title="Open in Google Maps"
               >
@@ -1643,11 +1938,13 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
               </a>
             ) : null}
 
+            {/* ✅ Website */}
             {tab === "places" && it.website ? (
               <a
                 href={safeUrl(it.website)}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
                 className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
               >
                 <Globe size={16} />
@@ -1656,9 +1953,11 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
               </a>
             ) : null}
 
+            {/* ✅ Phone */}
             {tab === "places" && it.phone ? (
               <a
                 href={`tel:${String(it.phone).replace(/\s+/g, "")}`}
+                onClick={(e) => e.stopPropagation()}
                 className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
               >
                 <Phone size={16} />
@@ -1666,11 +1965,13 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
               </a>
             ) : null}
 
+            {/* ✅ Groups link */}
             {tab === "groups" && it.link ? (
               <a
                 href={safeUrl(it.link)}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
                 className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
               >
                 <Globe size={16} />
@@ -1689,7 +1990,11 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
 
         {/* Actions */}
         {isLoggedIn ? (
-          <div className="shrink-0" ref={menuRef}>
+          <div
+            className="shrink-0 relative"
+            ref={menuRef}
+            onClick={(e) => e.stopPropagation()} // ✅ مهم عشان الكارد clickable
+          >
             <button
               onClick={() => setOpen((v) => !v)}
               className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50"
@@ -1699,7 +2004,7 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete }) {
             </button>
 
             {open ? (
-              <div className="absolute mt-2 left-0 w-44 rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden z-50">
+              <div className="absolute mt-2 right-0 w-44 rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden z-50">
                 <button
                   onClick={() => {
                     setOpen(false);
