@@ -1,9 +1,7 @@
 // CommunityView.jsx (FULL FILE - copy/paste)
-// ✅ Changes in this version (اللي طلبته بالظبط):
-// 1) ✅ حذف كل أزرار الـ Copy (Address/Phone/Link/Website) — ملوش لازمة
-// 2) ✅ إضافة Rating + Reviews Count على كارد المكان (Places)
-// 3) ✅ الكارد كله clickable للـ Places ويفتح صفحة المكان: /community/place/:id (placeholder route هنحطه في App.jsx)
-// 4) ✅ سيبنا Open Map + Address link + Tel + Website (كلهم يشتغلوا) + عملنا stopPropagation عشان مايفتحش صفحة التفاصيل بالغلط
+// ✅ Fix in this version:
+// 1) ✅ Dropdown align bug fixed (right => right-0 / left => left-0)
+// (Everything else is identical to your file)
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
@@ -485,6 +483,7 @@ function Dropdown({ align = "right", trigger, children, open, setOpen }) {
         <div
           className={classNames(
             "absolute z-50 mt-2 min-w-[240px] rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden",
+            // ✅ FIXED:
             align === "right" ? "right-0" : "left-0"
           )}
         >

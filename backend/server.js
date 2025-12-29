@@ -137,11 +137,13 @@ function safeJsonParse(s) {
     return null;
   }
 }
+
 // =====================
-// Community: Places & Groups (CRUD) ✅ FIX 500 (adds missing columns)
+// Community: Places & Groups (CRUD)
+// ✅ FIX: moderation + search + NO "where" before declaration
 // =====================
 
-// Helper: run sqlite safely
+// Helper: run sqlite safely (promise)
 function run(db, sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
@@ -168,7 +170,6 @@ function get(db, sql, params = []) {
 }
 
 async function ensureCommunityTables() {
-  // ✅ create if missing
   await run(
     db,
     `CREATE TABLE IF NOT EXISTS community_places (
@@ -181,6 +182,10 @@ async function ensureCommunityTables() {
       phone TEXT,
       website TEXT,
       notes TEXT,
+      status TEXT,
+      created_by INTEGER,
+      reviewed_by INTEGER,
+      reviewed_at TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     )`
@@ -197,12 +202,16 @@ async function ensureCommunityTables() {
       city TEXT,
       topic TEXT,
       notes TEXT,
+      status TEXT,
+      created_by INTEGER,
+      reviewed_by INTEGER,
+      reviewed_at TEXT,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     )`
   );
 
-  // ✅ IMPORTANT: if tables already existed, add missing cols safely
+  // if tables existed earlier, add missing cols safely
   safeAlterTable(`ALTER TABLE community_places ADD COLUMN category TEXT`);
   safeAlterTable(`ALTER TABLE community_places ADD COLUMN state TEXT`);
   safeAlterTable(`ALTER TABLE community_places ADD COLUMN city TEXT`);
@@ -212,6 +221,10 @@ async function ensureCommunityTables() {
   safeAlterTable(`ALTER TABLE community_places ADD COLUMN notes TEXT`);
   safeAlterTable(`ALTER TABLE community_places ADD COLUMN created_at TEXT`);
   safeAlterTable(`ALTER TABLE community_places ADD COLUMN updated_at TEXT`);
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN status TEXT`);
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN created_by INTEGER`);
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN reviewed_by INTEGER`);
+  safeAlterTable(`ALTER TABLE community_places ADD COLUMN reviewed_at TEXT`);
 
   safeAlterTable(`ALTER TABLE community_groups ADD COLUMN platform TEXT`);
   safeAlterTable(`ALTER TABLE community_groups ADD COLUMN link TEXT`);
@@ -221,21 +234,29 @@ async function ensureCommunityTables() {
   safeAlterTable(`ALTER TABLE community_groups ADD COLUMN notes TEXT`);
   safeAlterTable(`ALTER TABLE community_groups ADD COLUMN created_at TEXT`);
   safeAlterTable(`ALTER TABLE community_groups ADD COLUMN updated_at TEXT`);
+  safeAlterTable(`ALTER TABLE community_groups ADD COLUMN status TEXT`);
+  safeAlterTable(`ALTER TABLE community_groups ADD COLUMN created_by INTEGER`);
+  safeAlterTable(`ALTER TABLE community_groups ADD COLUMN reviewed_by INTEGER`);
+  safeAlterTable(`ALTER TABLE community_groups ADD COLUMN reviewed_at TEXT`);
 }
 
-ensureCommunityTables().catch(console.error);
-
 // ---------------------
-// GET list: Places
+// Places (CRUD)
 // ---------------------
-app.get("/api/community/places", async (req, res) => {
+app.get("/api/community/places", authOptional, async (req, res) => {
   try {
     const { q = "", state = "", city = "", category = "" } = req.query;
 
     const where = [];
     const params = [];
 
-    if (q.trim()) {
+    // moderation: public sees only approved
+    const isAdmin = isAdminReq(req);
+    if (!isAdmin) {
+      where.push(`COALESCE(status,'approved') = 'approved'`);
+    }
+
+    if (String(q).trim()) {
       where.push("(name LIKE ? OR notes LIKE ? OR address LIKE ?)");
       params.push(`%${q.trim()}%`, `%${q.trim()}%`, `%${q.trim()}%`);
     }
@@ -243,9 +264,9 @@ app.get("/api/community/places", async (req, res) => {
       where.push("state = ?");
       params.push(state);
     }
-    if (city.trim()) {
+    if (String(city).trim()) {
       where.push("LOWER(city) = LOWER(?)");
-      params.push(city.trim());
+      params.push(String(city).trim());
     }
     if (category) {
       where.push("category = ?");
@@ -265,8 +286,7 @@ app.get("/api/community/places", async (req, res) => {
   }
 });
 
-// ✅ GET by id: Place
-app.get("/api/community/places/:id", async (req, res) => {
+app.get("/api/community/places/:id", authOptional, async (req, res) => {
   try {
     const row = await get(db, `SELECT * FROM community_places WHERE id = ?`, [
       req.params.id,
@@ -279,8 +299,7 @@ app.get("/api/community/places/:id", async (req, res) => {
   }
 });
 
-// ✅ POST: Place
-app.post("/api/community/places", async (req, res) => {
+app.post("/api/community/places", authRequired, async (req, res) => {
   try {
     const {
       name,
@@ -296,10 +315,13 @@ app.post("/api/community/places", async (req, res) => {
     if (!name || !String(name).trim())
       return res.status(400).json({ error: "Name is required" });
 
+    // default moderation: pending (until admin approves)
+    const status = "pending";
+
     const r = await run(
       db,
-      `INSERT INTO community_places (name, category, state, city, address, phone, website, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO community_places (name, category, state, city, address, phone, website, notes, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         String(name).trim(),
         category,
@@ -309,6 +331,8 @@ app.post("/api/community/places", async (req, res) => {
         String(phone || "").trim(),
         String(website || "").trim(),
         String(notes || "").trim(),
+        status,
+        req.user.id,
       ]
     );
 
@@ -324,7 +348,6 @@ app.post("/api/community/places", async (req, res) => {
   }
 });
 
-// ✅ PUT/PATCH: Place (Update)
 async function updatePlace(req, res) {
   try {
     const id = req.params.id;
@@ -379,11 +402,23 @@ async function updatePlace(req, res) {
     res.status(500).json({ error: String(e?.message || "Failed to update") });
   }
 }
-app.put("/api/community/places/:id", updatePlace);
-app.patch("/api/community/places/:id", updatePlace);
 
-// ✅ DELETE: Place
-app.delete("/api/community/places/:id", async (req, res) => {
+// ✅ FIX: explicit /api/profile/me BEFORE /api/profile/:userId
+app.get("/api/profile/me", authRequired, (req, res) => {
+  req.params.userId = String(req.user.id);
+  return getProfileCore(req, res);
+});
+
+// ✅ optional alias
+app.get("/api/profiles/me", authRequired, (req, res) => {
+  req.params.userId = String(req.user.id);
+  return getProfileCore(req, res);
+});
+
+app.put("/api/community/places/:id", authRequired, updatePlace);
+app.patch("/api/community/places/:id", authRequired, updatePlace);
+
+app.delete("/api/community/places/:id", authRequired, async (req, res) => {
   try {
     const id = req.params.id;
     const existing = await get(
@@ -404,7 +439,7 @@ app.delete("/api/community/places/:id", async (req, res) => {
 // ---------------------
 // Groups (CRUD)
 // ---------------------
-app.get("/api/community/groups", async (req, res) => {
+app.get("/api/community/groups", authOptional, async (req, res) => {
   try {
     const {
       q = "",
@@ -417,7 +452,13 @@ app.get("/api/community/groups", async (req, res) => {
     const where = [];
     const params = [];
 
-    if (q.trim()) {
+    // moderation: public sees only approved
+    const isAdmin = isAdminReq(req);
+    if (!isAdmin) {
+      where.push(`COALESCE(status,'approved') = 'approved'`);
+    }
+
+    if (String(q).trim()) {
       where.push("(name LIKE ? OR notes LIKE ?)");
       params.push(`%${q.trim()}%`, `%${q.trim()}%`);
     }
@@ -425,9 +466,9 @@ app.get("/api/community/groups", async (req, res) => {
       where.push("state = ?");
       params.push(state);
     }
-    if (city.trim()) {
+    if (String(city).trim()) {
       where.push("LOWER(city)=LOWER(?)");
-      params.push(city.trim());
+      params.push(String(city).trim());
     }
     if (platform) {
       where.push("platform = ?");
@@ -451,7 +492,7 @@ app.get("/api/community/groups", async (req, res) => {
   }
 });
 
-app.get("/api/community/groups/:id", async (req, res) => {
+app.get("/api/community/groups/:id", authOptional, async (req, res) => {
   try {
     const row = await get(db, `SELECT * FROM community_groups WHERE id = ?`, [
       req.params.id,
@@ -464,7 +505,7 @@ app.get("/api/community/groups/:id", async (req, res) => {
   }
 });
 
-app.post("/api/community/groups", async (req, res) => {
+app.post("/api/community/groups", authRequired, async (req, res) => {
   try {
     const {
       name,
@@ -481,10 +522,13 @@ app.post("/api/community/groups", async (req, res) => {
     if (!link || !String(link).trim())
       return res.status(400).json({ error: "Link is required" });
 
+    // default moderation: pending
+    const status = "pending";
+
     const r = await run(
       db,
-      `INSERT INTO community_groups (name, platform, link, state, city, topic, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO community_groups (name, platform, link, state, city, topic, notes, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         String(name).trim(),
         platform,
@@ -493,6 +537,8 @@ app.post("/api/community/groups", async (req, res) => {
         String(city || "").trim(),
         topic,
         String(notes || "").trim(),
+        status,
+        req.user.id,
       ]
     );
 
@@ -562,10 +608,10 @@ async function updateGroup(req, res) {
     res.status(500).json({ error: String(e?.message || "Failed to update") });
   }
 }
-app.put("/api/community/groups/:id", updateGroup);
-app.patch("/api/community/groups/:id", updateGroup);
+app.put("/api/community/groups/:id", authRequired, updateGroup);
+app.patch("/api/community/groups/:id", authRequired, updateGroup);
 
-app.delete("/api/community/groups/:id", async (req, res) => {
+app.delete("/api/community/groups/:id", authRequired, async (req, res) => {
   try {
     const id = req.params.id;
     const existing = await get(
@@ -583,6 +629,147 @@ app.delete("/api/community/groups/:id", async (req, res) => {
   }
 });
 
+// =====================
+// Community Places Reviews (SQLite) — FIXED ORDER + WRAPPERS
+// =====================
+
+// 1) ensure reviews table exists AFTER community_places is created
+async function ensurePlaceReviewsTable() {
+  await run(
+    db,
+    `CREATE TABLE IF NOT EXISTS place_reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      place_id INTEGER NOT NULL,
+      user_id INTEGER,
+      name TEXT NOT NULL,
+      stars INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY(place_id) REFERENCES community_places(id) ON DELETE CASCADE
+    )`
+  );
+
+  await run(
+    db,
+    `CREATE INDEX IF NOT EXISTS idx_place_reviews_place
+     ON place_reviews(place_id)`
+  );
+
+  // ✅ 1) Clean duplicates BEFORE unique index
+  // Keep the latest review (max id) for each (place_id, user_id) and delete the rest
+  await run(
+    db,
+    `
+    DELETE FROM place_reviews
+    WHERE id NOT IN (
+      SELECT MAX(id)
+      FROM place_reviews
+      WHERE user_id IS NOT NULL
+      GROUP BY place_id, user_id
+    )
+    AND user_id IS NOT NULL
+    `
+  );
+
+  // ✅ 2) Now it's safe to add UNIQUE constraint
+  await run(
+    db,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_place_reviews_unique
+     ON place_reviews(place_id, user_id)`
+  );
+}
+
+// ✅ IMPORTANT: call it after ensureCommunityTables finishes
+(async () => {
+  try {
+    await ensureCommunityTables();
+    await ensurePlaceReviewsTable();
+    console.log("✅ Community tables ready");
+  } catch (e) {
+    console.error("❌ Community init failed:", e);
+  }
+})();
+
+// 2) GET reviews for a community place
+app.get("/api/community/places/:id/reviews", authOptional, (req, res) => {
+  const placeId = toInt(req.params.id);
+  if (!placeId) return res.status(400).json({ error: "Bad place id" });
+
+  dbAll(
+    `
+    SELECT
+      pr.id,
+      pr.place_id,
+      pr.user_id,
+      COALESCE(u.username, pr.name) AS user_name,
+      pr.stars,
+      pr.text,
+      pr.created_at
+    FROM place_reviews pr
+    LEFT JOIN users u ON u.id = pr.user_id
+    WHERE pr.place_id = ?
+    ORDER BY pr.id DESC
+    `,
+    [placeId],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: "DB error" });
+      return res.json(rows || []);
+    }
+  );
+});
+
+// 3) POST review for a community place
+app.post("/api/community/places/:id/reviews", authRequired, (req, res) => {
+  const placeId = toInt(req.params.id);
+  if (!placeId) return res.status(400).json({ error: "Bad place id" });
+
+  const text = safeTrim(req.body?.text);
+  const stars = Number(req.body?.stars);
+
+  if (!text) return res.status(400).json({ error: "text required" });
+  if (!(stars >= 1 && stars <= 5))
+    return res.status(400).json({ error: "stars must be 1..5" });
+
+  // ✅ تأكد المكان موجود
+  dbGet(
+    `SELECT id FROM community_places WHERE id = ?`,
+    [placeId],
+    (e0, row) => {
+      if (e0) return res.status(500).json({ error: "DB error" });
+      if (!row) return res.status(404).json({ error: "Place not found" });
+
+      // ✅ اسم اليوزر يتجاب من DB (مش من الbody)
+      dbGet(
+        `SELECT username FROM users WHERE id = ?`,
+        [req.user.id],
+        (eU, uRow) => {
+          if (eU) return res.status(500).json({ error: "DB error" });
+
+          const userName = safeTrim(uRow?.username) || `User ${req.user.id}`;
+
+          // ✅ تقييم واحد لكل يوزر لكل مكان (Upsert)
+          dbRun(
+            `
+            INSERT INTO place_reviews (place_id, user_id, name, stars, text, created_at)
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(place_id, user_id) DO UPDATE SET
+              name = excluded.name,
+              stars = excluded.stars,
+              text = excluded.text,
+              created_at = datetime('now')
+            `,
+            [placeId, req.user.id, userName, Math.round(stars), text],
+            function (err) {
+              if (err) return res.status(500).json({ error: "DB error" });
+              return res.status(201).json({ ok: true });
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
 function normalizeCvResponse(row) {
   const parsed = safeJsonParse(row.cv_data);
   return {
@@ -597,6 +784,21 @@ function toInt(v) {
   const n = Number(v);
   return Number.isInteger(n) && n > 0 ? n : null;
 }
+
+// 4) DELETE my review for a community place
+app.delete("/api/community/places/:id/reviews/me", authRequired, (req, res) => {
+  const placeId = toInt(req.params.id);
+  if (!placeId) return res.status(400).json({ error: "Bad place id" });
+
+  dbRun(
+    `DELETE FROM place_reviews WHERE place_id = ? AND user_id = ?`,
+    [placeId, req.user.id],
+    function (err) {
+      if (err) return res.status(500).json({ error: "DB error" });
+      return res.json({ ok: true, deleted: this.changes || 0 });
+    }
+  );
+});
 
 /* =====================
    ✅ helpers for flexible ids
@@ -882,6 +1084,25 @@ function authOptional(req, res, next) {
   try {
     req.user = jwt.verify(token, JWT_SECRET);
   } catch {}
+  next();
+}
+
+// =====================
+// Admin helpers (Moderation)
+// =====================
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+function isAdminReq(req) {
+  const email = String(req.user?.email || "").toLowerCase();
+  return ADMIN_EMAILS.includes(email);
+}
+
+function adminRequired(req, res, next) {
+  if (!req.user) return res.sendStatus(401);
+  if (!isAdminReq(req)) return res.sendStatus(403);
   next();
 }
 
@@ -1396,6 +1617,18 @@ function getProfileCore(req, res) {
     );
   });
 }
+
+// ✅ FIX: explicit GET /api/profile/me BEFORE /api/profile/:userId
+app.get("/api/profile/me", authRequired, (req, res) => {
+  req.params.userId = String(req.user.id);
+  return getProfileCore(req, res);
+});
+
+// ✅ optional alias (لو عندك كود بيطلبها)
+app.get("/api/profiles/me", authRequired, (req, res) => {
+  req.params.userId = String(req.user.id);
+  return getProfileCore(req, res);
+});
 
 app.get("/api/profile/:userId", authOptional, getProfileCore);
 app.get("/api/profiles/:userId", authOptional, getProfileCore);

@@ -12,6 +12,7 @@ import {
 } from "react-router-dom";
 
 import CommunityView from "./components/community/CommunityView";
+import PlaceDetailsView from "./components/PlaceDetailsView";
 
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
@@ -47,10 +48,9 @@ function DetailPageWrapper({ lang }) {
     "profile",
     "start",
     "feed",
-    // ✅ مهم: شيلنا "u" عشان /u/:userId يبقى راوت مستقل
+    "community",
   ];
 
-  // ✅ لو الاسم ده تبع صفحة معروفة، نرجّع null عشان الراوت الأساسي يتعامل
   if (knownPages.includes(pageId)) return null;
 
   return <DetailPage page={pageId} lang={lang} />;
@@ -68,11 +68,15 @@ function AppContent() {
 
   const location = useLocation();
 
-  // ✅ currentPage ذكي عشان الـ Sidebar/MobileNav مايتلغبطوش مع /u/:id
+  // ✅ currentPage ذكي عشان الـ Sidebar/MobileNav مايتلغبطوش
   const currentPage = useMemo(() => {
     const p = location.pathname || "/";
     if (p === "/" || p === "/home") return "home";
     if (p.startsWith("/u/")) return "u";
+
+    // ✅ FIX: أي حاجة تحت /community (including details) تفضل Community
+    if (p === "/community" || p.startsWith("/community/")) return "community";
+
     return p.startsWith("/") ? p.substring(1) : p;
   }, [location.pathname]);
 
@@ -83,15 +87,43 @@ function AppContent() {
     >
       <ScrollToTop />
 
+      {/* ✅ Global Toaster (Professional) */}
       <Toaster
         position="top-center"
         reverseOrder={false}
+        containerStyle={{ zIndex: 999999 }}
         toastOptions={{
           style: {
             borderRadius: "16px",
-            background: "#333",
+            background: "#111827",
             color: "#fff",
             fontFamily: "inherit",
+          },
+        }}
+        toastOptions={{
+          duration: 2600,
+          style: {
+            background: "#ffffff",
+            color: "#0f172a",
+            border: "1px solid #e5e7eb",
+            borderRadius: "16px",
+            boxShadow:
+              "0 10px 25px rgba(0,0,0,0.08), 0 2px 10px rgba(0,0,0,0.06)",
+            fontFamily: "inherit",
+            padding: "12px 14px",
+            maxWidth: "420px",
+          },
+          success: {
+            duration: 2200,
+            style: {
+              border: "1px solid rgba(16,185,129,0.25)",
+            },
+          },
+          error: {
+            duration: 3200,
+            style: {
+              border: "1px solid rgba(239,68,68,0.25)",
+            },
           },
         }}
       />
@@ -115,9 +147,16 @@ function AppContent() {
             <Route path="/feed" element={<HomeFeedView />} />
 
             {/* ✅ Public Social Profile */}
-            {/* ✅ لازم posts تيجي قبل profile */}
-
             <Route path="/u/:userId" element={<ProfilePage lang={lang} />} />
+
+            {/* ✅ Community */}
+            <Route path="/community" element={<CommunityView />} />
+
+            {/* ✅ Place details */}
+            <Route
+              path="/community/place/:placeId"
+              element={<PlaceDetailsView lang={lang} />}
+            />
 
             {/* ✅ Protected */}
             <Route
@@ -129,7 +168,6 @@ function AppContent() {
               }
             />
 
-            <Route path="/community" element={<CommunityView />} />
             <Route
               path="/cv_edit"
               element={
@@ -139,7 +177,7 @@ function AppContent() {
               }
             />
 
-            {/* ✅ Protected CV profile page */}
+            {/* ✅ Protected profile page */}
             <Route
               path="/profile"
               element={
