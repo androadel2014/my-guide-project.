@@ -1,3 +1,4 @@
+// src/components/Sidebar.jsx
 import React, { useEffect, useState } from "react";
 import { DATA } from "./Data";
 import { Compass, ChevronLeft, LogOut, User } from "lucide-react";
@@ -7,6 +8,8 @@ import { Link, useNavigate } from "react-router-dom";
 export const Sidebar = ({ lang, page }) => {
   const [user, setUser] = useState(null);
   const navigate = useNavigate();
+
+  const dir = getDir(lang); // "rtl" | "ltr"
 
   const readUser = () => {
     try {
@@ -53,7 +56,15 @@ export const Sidebar = ({ lang, page }) => {
   };
 
   return (
-    <aside className="hidden lg:flex flex-col w-72 h-screen fixed top-0 right-0 bg-white/80 backdrop-blur-xl border-l border-white/20 shadow-sm z-50">
+    <aside
+      className={[
+        "hidden lg:flex flex-col w-72 h-screen fixed top-0 bg-white/80 backdrop-blur-xl shadow-sm z-50",
+        // ✅ مكان المنيو حسب اللغة
+        dir === "rtl"
+          ? "right-0 border-l border-white/20"
+          : "left-0 border-r border-white/20",
+      ].join(" ")}
+    >
       <div className="h-24 flex items-center px-8 border-b border-slate-100/50">
         <div className="flex items-center gap-3">
           <div className="bg-blue-600 text-white p-2.5 rounded-xl shadow-lg shadow-blue-200">
@@ -101,13 +112,17 @@ export const Sidebar = ({ lang, page }) => {
                 }
                 strokeWidth={isActive ? 2.5 : 2}
               />
+
               <span className="text-sm font-bold">{item.label[lang]}</span>
+
               {isActive && (
                 <ChevronLeft
                   size={16}
-                  className={`mr-auto opacity-50 ${
-                    getDir(lang) === "ltr" ? "rotate-180" : ""
-                  }`}
+                  className={[
+                    "opacity-50",
+                    // ✅ خلي السهم يروح ناحية نهاية السطر صح
+                    dir === "rtl" ? "mr-auto" : "ml-auto rotate-180",
+                  ].join(" ")}
                 />
               )}
             </Link>
@@ -125,7 +140,14 @@ export const Sidebar = ({ lang, page }) => {
               <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all">
                 <User size={18} />
               </div>
-              <div className="flex-1 overflow-hidden text-right">
+
+              <div
+                className={[
+                  "flex-1 overflow-hidden",
+                  // ✅ محاذاة حسب اللغة
+                  dir === "rtl" ? "text-right" : "text-left",
+                ].join(" ")}
+              >
                 <p className="text-[10px] text-slate-400 font-bold uppercase leading-none mb-1">
                   {lang === "ar" ? "حسابي" : "My Account"}
                 </p>

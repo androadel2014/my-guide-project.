@@ -1,11 +1,12 @@
 // CommunityView.jsx (FULL FILE - copy/paste)
 // ✅ Fix in this version:
-// 1) ✅ Dropdown align bug fixed (right => right-0 / left => left-0)
-// (Everything else is identical to your file)
+// 1) ❌ Removed window.confirm
+// 2) ✅ Uses toastConfirm (professional toast UI) instead
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
+import { toastConfirm } from "../../lib/notify"; // ✅ ADD
 import {
   Plus,
   Search,
@@ -483,7 +484,6 @@ function Dropdown({ align = "right", trigger, children, open, setOpen }) {
         <div
           className={classNames(
             "absolute z-50 mt-2 min-w-[240px] rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden",
-            // ✅ FIXED:
             align === "right" ? "right-0" : "left-0"
           )}
         >
@@ -915,7 +915,11 @@ export default function CommunityView() {
     try {
       if (!requireLoginOrToast()) return;
 
-      const ok = window.confirm("Delete this item?");
+      // ✅ replaced confirm dialog
+      const ok = await toastConfirm(
+        "Delete this item?",
+        "This action cannot be undone."
+      );
       if (!ok) return;
 
       const url =
@@ -1874,7 +1878,6 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
       <div className="mt-4 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            {/* ✅ اسم المكان بقى Text عشان الكارد هو اللي يفتح التفاصيل */}
             <div className="text-base md:text-lg font-extrabold text-gray-900 truncate">
               {it.name}
             </div>
@@ -1883,7 +1886,6 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
               {badgeText}
             </span>
 
-            {/* ✅ Rating pill في نفس السطر (places فقط) */}
             {tab === "places" ? (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-extrabold border border-gray-200 bg-gray-50 text-gray-900">
                 <Star size={14} className="text-amber-500" />
@@ -1901,7 +1903,6 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
               <span className="truncate">{locText}</span>
             </div>
 
-            {/* ✅ العنوان يفتح الماب (stopPropagation عشان مايفتحش details) */}
             {tab === "places" && it.address && placeMapUrl ? (
               <a
                 href={placeMapUrl}
@@ -1921,7 +1922,6 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
-            {/* ✅ Open Map */}
             {tab === "places" && placeMapUrl ? (
               <a
                 href={placeMapUrl}
@@ -1937,7 +1937,6 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
               </a>
             ) : null}
 
-            {/* ✅ Website */}
             {tab === "places" && it.website ? (
               <a
                 href={safeUrl(it.website)}
@@ -1952,7 +1951,6 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
               </a>
             ) : null}
 
-            {/* ✅ Phone */}
             {tab === "places" && it.phone ? (
               <a
                 href={`tel:${String(it.phone).replace(/\s+/g, "")}`}
@@ -1964,7 +1962,6 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
               </a>
             ) : null}
 
-            {/* ✅ Groups link */}
             {tab === "groups" && it.link ? (
               <a
                 href={safeUrl(it.link)}
@@ -1987,12 +1984,11 @@ function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
           ) : null}
         </div>
 
-        {/* Actions */}
         {isLoggedIn ? (
           <div
             className="shrink-0 relative"
             ref={menuRef}
-            onClick={(e) => e.stopPropagation()} // ✅ مهم عشان الكارد clickable
+            onClick={(e) => e.stopPropagation()}
           >
             <button
               onClick={() => setOpen((v) => !v)}

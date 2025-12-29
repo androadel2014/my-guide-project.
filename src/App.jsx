@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Toaster } from "react-hot-toast";
 import ProfilePage from "./components/ProfilePage";
+import { initLang, applyLang } from "./lib/lang";
+
 import {
   BrowserRouter as Router,
   Routes,
@@ -30,16 +32,13 @@ import { StartView } from "./components/StartView";
 
 function ScrollToTop() {
   const { pathname } = useLocation();
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [pathname]);
+  useEffect(() => window.scrollTo(0, 0), [pathname]);
   return null;
 }
 
 function DetailPageWrapper({ lang }) {
   const { pageId } = useParams();
 
-  // ✅ صفحات معروفة مش "تفاصيل"
   const knownPages = [
     "home",
     "cv_builder",
@@ -52,7 +51,6 @@ function DetailPageWrapper({ lang }) {
   ];
 
   if (knownPages.includes(pageId)) return null;
-
   return <DetailPage page={pageId} lang={lang} />;
 }
 
@@ -63,22 +61,30 @@ function ProtectedRoute({ children }) {
 }
 
 function AppContent() {
-  const [lang, setLang] = useState("ar");
+  const [lang, setLang] = useState(() => localStorage.getItem("lang") || "ar");
   const [menuOpen, setMenuOpen] = useState(false);
-
   const location = useLocation();
 
-  // ✅ currentPage ذكي عشان الـ Sidebar/MobileNav مايتلغبطوش
+  // ✅ init language once (also sets document.dir + i18n language)
+  useEffect(() => {
+    const l = initLang();
+    setLang(l);
+  }, []);
+
+  // ✅ currentPage ذكي
   const currentPage = useMemo(() => {
     const p = location.pathname || "/";
     if (p === "/" || p === "/home") return "home";
     if (p.startsWith("/u/")) return "u";
-
-    // ✅ FIX: أي حاجة تحت /community (including details) تفضل Community
     if (p === "/community" || p.startsWith("/community/")) return "community";
-
     return p.startsWith("/") ? p.substring(1) : p;
   }, [location.pathname]);
+
+  // ✅ language setter used by Header
+  const setAppLang = (l) => {
+    applyLang(l);
+    setLang(l);
+  };
 
   return (
     <div
@@ -87,19 +93,11 @@ function AppContent() {
     >
       <ScrollToTop />
 
-      {/* ✅ Global Toaster (Professional) */}
+      {/* ✅ Global Toaster */}
       <Toaster
         position="top-center"
         reverseOrder={false}
         containerStyle={{ zIndex: 999999 }}
-        toastOptions={{
-          style: {
-            borderRadius: "16px",
-            background: "#111827",
-            color: "#fff",
-            fontFamily: "inherit",
-          },
-        }}
         toastOptions={{
           duration: 2600,
           style: {
@@ -115,50 +113,42 @@ function AppContent() {
           },
           success: {
             duration: 2200,
-            style: {
-              border: "1px solid rgba(16,185,129,0.25)",
-            },
+            style: { border: "1px solid rgba(16,185,129,0.25)" },
           },
           error: {
             duration: 3200,
-            style: {
-              border: "1px solid rgba(239,68,68,0.25)",
-            },
+            style: { border: "1px solid rgba(239,68,68,0.25)" },
           },
         }}
       />
-
       <Sidebar lang={lang} page={currentPage} />
 
-      <div className="flex-1 lg:mr-72 flex flex-col min-h-screen">
-        <Header lang={lang} setLang={setLang} />
+      <div
+        className={[
+          "flex-1 flex flex-col min-h-screen",
+          lang === "ar" ? "lg:mr-72" : "lg:ml-72",
+        ].join(" ")}
+      >
+        <Header lang={lang} setLang={setAppLang} />
 
         <main className="flex-1">
           <Routes>
-            {/* ✅ Home */}
             <Route path="/" element={<HomeView lang={lang} />} />
             <Route path="/home" element={<Navigate to="/" replace />} />
 
-            {/* ✅ Public */}
             <Route path="/auth" element={<AuthView lang={lang} />} />
             <Route path="/start" element={<StartView lang={lang} />} />
 
-            {/* ✅ Feed */}
             <Route path="/feed" element={<HomeFeedView />} />
 
-            {/* ✅ Public Social Profile */}
             <Route path="/u/:userId" element={<ProfilePage lang={lang} />} />
 
-            {/* ✅ Community */}
             <Route path="/community" element={<CommunityView />} />
-
-            {/* ✅ Place details */}
             <Route
               path="/community/place/:placeId"
               element={<PlaceDetailsView lang={lang} />}
             />
 
-            {/* ✅ Protected */}
             <Route
               path="/cv_builder"
               element={
@@ -177,7 +167,6 @@ function AppContent() {
               }
             />
 
-            {/* ✅ Protected profile page */}
             <Route
               path="/profile"
               element={
@@ -187,13 +176,11 @@ function AppContent() {
               }
             />
 
-            {/* ✅ Detail pages (dynamic content) */}
             <Route
               path="/:pageId"
               element={<DetailPageWrapper lang={lang} />}
             />
 
-            {/* ✅ fallback (لازم يكون آخر حاجة) */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
@@ -216,12 +203,10 @@ function AppContent() {
   );
 }
 
-function App() {
+export default function App() {
   return (
     <Router>
       <AppContent />
     </Router>
   );
 }
-
-export default App;
