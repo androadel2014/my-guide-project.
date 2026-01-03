@@ -1,53 +1,46 @@
 // CommunityView.jsx (FULL FILE - copy/paste)
-// ✅ Fix in this version:
-// 1) ❌ Removed window.confirm
-// 2) ✅ Uses toastConfirm (professional toast UI) instead
+// ✅ Marketplace / Explore unified view
+// ✅ No window.confirm (uses toastConfirm)
+// ✅ Backward compatible with legacy community endpoints (places/groups)
+// ✅ Forward compatible with new listing types (services/jobs/housing/products)
+// ✅ Unified filters + unified "Add Listing" menu
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
-import { toastConfirm } from "../../lib/notify"; // ✅ ADD
+import { toastConfirm } from "../../lib/notify";
+import { createPortal } from "react-dom"; // ✅ add this import at top with other imports
+import {
+  classNames,
+  getToken,
+  authHeaders,
+  tryFetchJSON,
+} from "../../lib/apiHelpers";
+import { CardItem } from "../community/CardItem";
+
 import {
   Plus,
   Search,
-  MapPin,
   Globe,
-  Phone,
   X,
   Users,
   Building2,
-  Pencil,
-  Trash2,
-  ExternalLink,
   RefreshCw,
-  MoreVertical,
-  Navigation,
-  UtensilsCrossed,
-  Coffee,
-  Croissant,
-  ShoppingBag,
-  Sparkles,
-  Trees,
-  Ticket,
-  Landmark,
-  Church,
-  GraduationCap,
-  Stethoscope,
-  Scale,
-  Car,
-  Wrench,
-  Scissors,
-  ShoppingCart,
-  MessageCircle,
   LocateFixed,
-  ChevronRight,
-  Star,
+  Wrench,
+  Briefcase,
+  Home,
+  ShoppingCart,
 } from "lucide-react";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_BASE ||
   "http://localhost:5000";
+
+/* =========================
+   Constants
+========================= */
 
 const US_STATES = [
   "AL",
@@ -103,7 +96,7 @@ const US_STATES = [
   "DC",
 ];
 
-// ✅ ممكن تسيبهم زي ما هما (labels للـ UI)
+// legacy place categories
 const PLACE_CATEGORIES = [
   "Restaurant",
   "Cafe",
@@ -124,6 +117,7 @@ const PLACE_CATEGORIES = [
   "Other",
 ];
 
+// groups
 const GROUP_PLATFORMS = [
   "Facebook",
   "WhatsApp",
@@ -143,243 +137,180 @@ const GROUP_TOPICS = [
   "Other",
 ];
 
-function classNames(...arr) {
-  return arr.filter(Boolean).join(" ");
+function safeTrim(v) {
+  return String(v ?? "").trim();
 }
 
-function getToken() {
-  return localStorage.getItem("token") || "";
+function safeUrl(v) {
+  const s = safeTrim(v);
+  return s || "";
 }
 
-function authHeaders() {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-function safeUrl(url) {
-  const v = (url || "").trim();
-  if (!v) return "";
-  if (/^https?:\/\//i.test(v)) return v;
-  return `https://${v}`;
-}
-
-function mapsLink({ address, city, state }) {
-  const parts = [address, city, state].filter(Boolean).join(", ");
-  const q = encodeURIComponent(parts || "");
-  return q ? `https://www.google.com/maps/search/?api=1&query=${q}` : "";
-}
-
-function useOutsideClick(ref, onOutside) {
+function useOutsideClick(ref, handler) {
   useEffect(() => {
-    const handler = (e) => {
-      if (!ref.current) return;
-      if (!ref.current.contains(e.target)) onOutside?.();
+    function onDown(e) {
+      if (!ref?.current) return;
+      if (ref.current.contains(e.target)) return;
+      handler?.(e);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [ref, onOutside]);
+  }, [ref, handler]);
+}
+
+// Marketplace extra categories (simple starter sets)
+const SERVICE_CATEGORIES = [
+  "Cleaning",
+  "Moving",
+  "Handyman",
+  "Plumbing",
+  "Electrical",
+  "HVAC",
+  "TV Mounting",
+  "Car Repair",
+  "Beauty",
+  "Tutoring",
+  "Legal",
+  "Other",
+];
+
+const JOB_CATEGORIES = [
+  "Restaurant",
+  "Delivery",
+  "Warehouse",
+  "Construction",
+  "Office",
+  "Tech",
+  "Healthcare",
+  "Driver",
+  "Other",
+];
+
+const HOUSING_CATEGORIES = [
+  "Rent",
+  "Room",
+  "Sublease",
+  "For Sale",
+  "Looking For",
+  "Other",
+];
+
+const PRODUCT_CATEGORIES = [
+  "Electronics",
+  "Furniture",
+  "Appliances",
+  "Clothing",
+  "Cars/Parts",
+  "Baby",
+  "Kitchen",
+  "Other",
+];
+
+/* =========================
+   Helpers
+========================= */
+function parseDateLike(v) {
+  if (!v) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+
+  // unix seconds / ms
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    if (!Number.isFinite(n)) return null;
+    return new Date(n < 1e12 ? n * 1000 : n);
+  }
+
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function pickCreatedAt(x) {
+  // try common fields (new + legacy)
+  const candidates = [
+    x?.createdAt,
+    x?.created_at,
+    x?.created,
+    x?.createdDate,
+    x?.created_date,
+    x?.timestamp,
+    x?.time,
+    x?.date,
+  ];
+
+  for (const c of candidates) {
+    const d = parseDateLike(c);
+    if (d) return d.toISOString();
+  }
+
+  return null;
+}
+
+function isNewByDate(date, hours = 48) {
+  const d = parseDateLike(date);
+  if (!d) return false;
+  const diffMs = Date.now() - d.getTime();
+  return diffMs >= 0 && diffMs <= hours * 60 * 60 * 1000;
 }
 
 /* =========================
-   ✅ CATEGORY → UI (Banner)
+   Listing Types (Unified)
 ========================= */
 
-function normalizePlaceCategoryKey(raw) {
-  const v = String(raw || "")
-    .trim()
-    .toLowerCase();
-  if (!v) return "other";
-  if (v.includes("restaurant")) return "restaurant";
-  if (v === "cafe" || v.includes("cafe")) return "cafe";
-  if (v.includes("bakery")) return "bakery";
-  if (
-    v.includes("grocery") ||
-    v.includes("arab market") ||
-    v.includes("market")
-  )
-    return "grocery";
-  if (v.includes("things to do")) return "todo";
-  if (v.includes("park") || v.includes("outdoors")) return "park";
-  if (v.includes("attraction")) return "attraction";
-  if (v.includes("mosque")) return "mosque";
-  if (v.includes("church")) return "church";
-  if (v.includes("school") || v.includes("daycare")) return "school";
-  if (v.includes("clinic") || v.includes("doctor")) return "clinic";
-  if (v.includes("lawyer") || v.includes("immigration")) return "lawyer";
-  if (v.includes("car")) return "car";
-  if (v.includes("handyman") || v.includes("home services")) return "handyman";
-  if (v.includes("barber") || v.includes("beauty")) return "beauty";
-  if (v.includes("shopping") || v.includes("mall")) return "shopping";
-  return "other";
-}
-
-function normalizeGroupPlatformKey(raw) {
-  const v = String(raw || "")
-    .trim()
-    .toLowerCase();
-  if (!v) return "other";
-  if (v.includes("facebook")) return "facebook";
-  if (v.includes("whatsapp")) return "whatsapp";
-  if (v.includes("telegram")) return "telegram";
-  if (v.includes("discord")) return "discord";
-  if (v.includes("meetup")) return "meetup";
-  return "other";
-}
-
-const PLACE_BANNER = {
-  restaurant: {
-    label: "Restaurant",
-    Icon: UtensilsCrossed,
-    bg: "from-orange-50 to-orange-100 border-orange-200",
-    icon: "bg-orange-600",
+const LISTING_TYPES = [
+  {
+    key: "all",
+    label: "All",
+    Icon: Globe,
+    hint: "View everything",
+    hideFromAdd: true,
   },
-  cafe: {
-    label: "Cafe",
-    Icon: Coffee,
-    bg: "from-amber-50 to-amber-100 border-amber-200",
-    icon: "bg-amber-600",
+  {
+    key: "places",
+    label: "Places",
+    Icon: Building2,
+    hint: "Restaurants...",
+    legacy: true,
   },
-  bakery: {
-    label: "Bakery",
-    Icon: Croissant,
-    bg: "from-yellow-50 to-yellow-100 border-yellow-200",
-    icon: "bg-yellow-600",
+  {
+    key: "groups",
+    label: "Groups",
+    Icon: Users,
+    hint: "Social groups...",
+    legacy: true,
   },
-  grocery: {
-    label: "Grocery / Arab Market",
-    Icon: ShoppingBag,
-    bg: "from-sky-50 to-sky-100 border-sky-200",
-    icon: "bg-sky-600",
-  },
-  todo: {
-    label: "Things to do",
-    Icon: Sparkles,
-    bg: "from-fuchsia-50 to-fuchsia-100 border-fuchsia-200",
-    icon: "bg-fuchsia-600",
-  },
-  park: {
-    label: "Park / Outdoors",
-    Icon: Trees,
-    bg: "from-green-50 to-green-100 border-green-200",
-    icon: "bg-green-600",
-  },
-  attraction: {
-    label: "Attraction",
-    Icon: Ticket,
-    bg: "from-violet-50 to-violet-100 border-violet-200",
-    icon: "bg-violet-600",
-  },
-  mosque: {
-    label: "Mosque",
-    Icon: Landmark,
-    bg: "from-emerald-50 to-emerald-100 border-emerald-200",
-    icon: "bg-emerald-600",
-  },
-  church: {
-    label: "Church",
-    Icon: Church,
-    bg: "from-indigo-50 to-indigo-100 border-indigo-200",
-    icon: "bg-indigo-600",
-  },
-  school: {
-    label: "School / Daycare",
-    Icon: GraduationCap,
-    bg: "from-blue-50 to-blue-100 border-blue-200",
-    icon: "bg-blue-600",
-  },
-  clinic: {
-    label: "Clinic / Doctor",
-    Icon: Stethoscope,
-    bg: "from-red-50 to-red-100 border-red-200",
-    icon: "bg-red-600",
-  },
-  lawyer: {
-    label: "Lawyer / Immigration",
-    Icon: Scale,
-    bg: "from-slate-50 to-slate-100 border-slate-200",
-    icon: "bg-slate-700",
-  },
-  car: {
-    label: "Car Services",
-    Icon: Car,
-    bg: "from-gray-50 to-gray-100 border-gray-200",
-    icon: "bg-gray-800",
-  },
-  handyman: {
-    label: "Handyman / Home Services",
-    Icon: Wrench,
-    bg: "from-teal-50 to-teal-100 border-teal-200",
-    icon: "bg-teal-700",
-  },
-  beauty: {
-    label: "Barber / Beauty",
-    Icon: Scissors,
-    bg: "from-pink-50 to-pink-100 border-pink-200",
-    icon: "bg-pink-600",
-  },
-  shopping: {
-    label: "Shopping / Mall",
+  { key: "services", label: "Services", Icon: Wrench, hint: "Handyman..." },
+  { key: "jobs", label: "Jobs", Icon: Briefcase, hint: "Work opportunities" },
+  { key: "housing", label: "Housing", Icon: Home, hint: "Rooms, rent..." },
+  {
+    key: "products",
+    label: "Products",
     Icon: ShoppingCart,
-    bg: "from-zinc-50 to-zinc-100 border-zinc-200",
-    icon: "bg-zinc-800",
+    hint: "Buy & sell",
   },
-  other: {
-    label: "Place",
+];
+
+function CardBanner({ tab, placeCategory, groupPlatform, subtitleRight }) {
+  // tab is listing type key (places/groups/services/...)
+  let ui = {
+    label: "Listing",
     Icon: Building2,
     bg: "from-gray-50 to-gray-100 border-gray-200",
     icon: "bg-gray-700",
-  },
-};
+  };
 
-const GROUP_BANNER = {
-  facebook: {
-    label: "Facebook Group",
-    Icon: Users,
-    bg: "from-blue-50 to-blue-100 border-blue-200",
-    icon: "bg-blue-600",
-  },
-  whatsapp: {
-    label: "WhatsApp Group",
-    Icon: MessageCircle,
-    bg: "from-emerald-50 to-emerald-100 border-emerald-200",
-    icon: "bg-emerald-600",
-  },
-  telegram: {
-    label: "Telegram Group",
-    Icon: MessageCircle,
-    bg: "from-sky-50 to-sky-100 border-sky-200",
-    icon: "bg-sky-600",
-  },
-  discord: {
-    label: "Discord",
-    Icon: Users,
-    bg: "from-indigo-50 to-indigo-100 border-indigo-200",
-    icon: "bg-indigo-600",
-  },
-  meetup: {
-    label: "Meetup",
-    Icon: Users,
-    bg: "from-orange-50 to-orange-100 border-orange-200",
-    icon: "bg-orange-600",
-  },
-  other: {
-    label: "Group",
-    Icon: Users,
-    bg: "from-gray-50 to-gray-100 border-gray-200",
-    icon: "bg-gray-700",
-  },
-};
-
-function CardBanner({ type, placeCategory, groupPlatform, subtitleRight }) {
-  const isPlace = type === "place";
-  let ui = isPlace ? PLACE_BANNER.other : GROUP_BANNER.other;
-
-  if (isPlace) {
+  if (tab === "places") {
     const key = normalizePlaceCategoryKey(placeCategory);
     ui = PLACE_BANNER[key] || PLACE_BANNER.other;
-  } else {
+  } else if (tab === "groups") {
     const key = normalizeGroupPlatformKey(groupPlatform);
     ui = GROUP_BANNER[key] || GROUP_BANNER.other;
+  } else {
+    ui = TYPE_BANNER[tab] || ui;
   }
 
   const Icon = ui.Icon;
@@ -405,7 +336,11 @@ function CardBanner({ type, placeCategory, groupPlatform, subtitleRight }) {
             {ui.label}
           </div>
           <div className="text-xs text-gray-600 mt-0.5 truncate">
-            {isPlace ? "Curated for newcomers" : "Join & connect with people"}
+            {tab === "places"
+              ? "Curated for newcomers"
+              : tab === "groups"
+              ? "Join & connect with people"
+              : "Marketplace for newcomers"}
           </div>
         </div>
       </div>
@@ -435,8 +370,8 @@ function Modal({ open, onClose, title, subtitle, children }) {
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-[1000] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl border border-gray-200 overflow-hidden">
         <div className="flex items-start justify-between gap-3 px-6 py-5 border-b border-gray-100">
           <div>
@@ -445,6 +380,7 @@ function Modal({ open, onClose, title, subtitle, children }) {
               <div className="mt-1 text-sm text-gray-500">{subtitle}</div>
             ) : null}
           </div>
+
           <button
             onClick={onClose}
             className="p-2 rounded-xl hover:bg-gray-100 text-gray-700"
@@ -454,9 +390,15 @@ function Modal({ open, onClose, title, subtitle, children }) {
           </button>
         </div>
 
-        <div className="px-6 py-5 max-h-[75vh] overflow-y-auto">{children}</div>
+        <div
+          className="px-6 py-5 max-h-[75vh] overflow-y-auto overscroll-contain"
+          style={{ WebkitOverflowScrolling: "touch" }}
+        >
+          {children}
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -483,9 +425,14 @@ function Dropdown({ align = "right", trigger, children, open, setOpen }) {
       {open ? (
         <div
           className={classNames(
-            "absolute z-50 mt-2 min-w-[240px] rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden",
-            align === "right" ? "right-0" : "left-0"
+            // ✅ خليها تسكّرول جوّه المنيو
+            "absolute z-50 mt-2 min-w-[260px] rounded-2xl border border-gray-200 bg-white shadow-xl",
+            "max-h-[70vh] overflow-y-auto overscroll-contain",
+            // ✅ مهم: منيو ما تكبرش زيادة
+            "scrollbar-thin",
+            align === "right" ? "left-0" : "right-0"
           )}
+          onWheel={(e) => e.stopPropagation()}
         >
           {children}
         </div>
@@ -536,13 +483,15 @@ function SectionTitle({ title, desc }) {
 }
 
 /* =========================
-   Page
+   Page (Unified Marketplace)
 ========================= */
 
 export default function CommunityView() {
   const navigate = useNavigate();
 
-  const [tab, setTab] = useState("places"); // places | groups
+  // active listing type (tab)
+  const [tab, setTab] = useState("all"); // places | groups | services | jobs | housing | products
+
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
 
@@ -550,55 +499,445 @@ export default function CommunityView() {
   useEffect(() => {
     const onStorage = () => setIsLoggedIn(!!getToken());
     window.addEventListener("storage", onStorage);
-    const t = setInterval(() => setIsLoggedIn(!!getToken()), 800);
+    const t = setInterval(() => setIsLoggedIn(!!getToken()), 900);
     return () => {
       window.removeEventListener("storage", onStorage);
       clearInterval(t);
     };
   }, []);
 
-  // filters
+  // unified filters
   const [q, setQ] = useState("");
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
-  const [category, setCategory] = useState("");
-  const [platform, setPlatform] = useState("");
-  const [topic, setTopic] = useState("");
 
-  // add modal + dropdown
-  const [openAdd, setOpenAdd] = useState(false);
-  const [addType, setAddType] = useState("place"); // place | group
-  const [openAddMenu, setOpenAddMenu] = useState(false);
-  const [openAddSubmenu, setOpenAddSubmenu] = useState(""); // "" | "place" | "group"
+  // legacy / specialized filters
+  const [category, setCategory] = useState(""); // places/services/jobs/housing/products category
+  const [platform, setPlatform] = useState(""); // groups
+  const [topic, setTopic] = useState(""); // groups
 
-  // edit modal
-  const [openEdit, setOpenEdit] = useState(false);
-  const [editType, setEditType] = useState("place"); // place | group
-  const [editingId, setEditingId] = useState(null);
+  // ✅ Add Listing Center (Modal)
+  const [addPickerOpen, setAddPickerOpen] = useState(false);
+  const [addPickerType, setAddPickerType] = useState("places"); // places|groups|services|jobs|housing|products
 
-  // place form
-  const [pName, setPName] = useState("");
-  const [pCategory, setPCategory] = useState("Restaurant");
-  const [pState, setPState] = useState("");
-  const [pCity, setPCity] = useState("");
-  const [pAddress, setPAddress] = useState("");
-  const [pPhone, setPPhone] = useState("");
-  const [pWebsite, setPWebsite] = useState("");
-  const [pNotes, setPNotes] = useState("");
+  const endpoints = useMemo(() => {
+    // ✅ ALL = load from multiple sources and merge
+    if (tab === "all") {
+      return {
+        // ✅ legacy only
+        places: [`${API_BASE}/api/community/places`],
+        groups: [`${API_BASE}/api/community/groups`],
 
-  // group form
-  const [gName, setGName] = useState("");
-  const [gPlatform, setGPlatform] = useState("Facebook");
-  const [gLink, setGLink] = useState("");
-  const [gState, setGState] = useState("");
-  const [gCity, setGCity] = useState("");
-  const [gTopic, setGTopic] = useState("Immigration");
-  const [gNotes, setGNotes] = useState("");
+        // ✅ unified marketplace endpoint ONLY (no /api/marketplace/services, /jobs, etc)
+        services: [`${API_BASE}/api/marketplace/listings?type=services`],
+        jobs: [`${API_BASE}/api/marketplace/listings?type=jobs`],
+        housing: [`${API_BASE}/api/marketplace/listings?type=housing`],
+        products: [`${API_BASE}/api/marketplace/listings?type=products`],
+      };
+    }
 
-  const endpoint = useMemo(() => {
-    if (tab === "places") return "/api/community/places";
-    return "/api/community/groups";
+    // ✅ single tab
+    if (tab === "places") return [`${API_BASE}/api/community/places`];
+    if (tab === "groups") return [`${API_BASE}/api/community/groups`];
+
+    // ✅ unified marketplace endpoint ONLY
+    return [`${API_BASE}/api/marketplace/listings?type=${tab}`];
   }, [tab]);
+
+  /* =========================
+     ✅ Unified Form (ONE add/edit modal)
+  ========================= */
+
+  const EMPTY_VALUES = {
+    // shared
+    title: "",
+    category: "",
+    state: "",
+    city: "",
+    notes: "",
+    // places
+    address: "",
+    phone: "",
+    website: "",
+    // groups
+    platform: "Facebook",
+    topic: "Immigration",
+    link: "",
+    // marketplace
+    price: "",
+    contact: "",
+    description: "",
+  };
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState("add"); // "add" | "edit"
+  const [formType, setFormType] = useState("places"); // places|groups|services|jobs|housing|products
+  const [formId, setFormId] = useState(null);
+  const [values, setValues] = useState({ ...EMPTY_VALUES });
+
+  function setField(k, v) {
+    setValues((p) => ({ ...p, [k]: v }));
+  }
+
+  function getSchema(t) {
+    // fields to show per type
+    if (t === "places") {
+      return [
+        { k: "title", label: "Name *", type: "text", ph: "e.g. Kabul Kabob" },
+        {
+          k: "category",
+          label: "Category",
+          type: "select",
+          options: PLACE_CATEGORIES,
+        },
+        {
+          k: "state",
+          label: "State",
+          type: "select",
+          options: ["", ...US_STATES],
+        },
+        {
+          k: "city",
+          label: "City",
+          type: "text",
+          ph: "e.g. Fairfax",
+          list: "form-city-suggestions",
+        },
+        { k: "phone", label: "Phone", type: "text", ph: "+1 703..." },
+        {
+          k: "address",
+          label: "Address",
+          type: "text",
+          ph: "Full address",
+          span2: true,
+        },
+        {
+          k: "website",
+          label: "Website",
+          type: "text",
+          ph: "https://",
+          span2: true,
+        },
+        {
+          k: "notes",
+          label: "Notes",
+          type: "textarea",
+          ph: "What’s special about this place?",
+          span2: true,
+        },
+      ];
+    }
+
+    if (t === "groups") {
+      return [
+        {
+          k: "title",
+          label: "Group Name *",
+          type: "text",
+          ph: "e.g. Arabs in Virginia",
+          span2: true,
+        },
+        {
+          k: "platform",
+          label: "Platform",
+          type: "select",
+          options: GROUP_PLATFORMS,
+        },
+        { k: "topic", label: "Topic", type: "select", options: GROUP_TOPICS },
+        {
+          k: "state",
+          label: "State",
+          type: "select",
+          options: ["", ...US_STATES],
+        },
+        {
+          k: "city",
+          label: "City",
+          type: "text",
+          ph: "e.g. Alexandria",
+          list: "form-city-suggestions",
+        },
+        {
+          k: "link",
+          label: "Link *",
+          type: "text",
+          ph: "Facebook/WhatsApp invite link",
+          span2: true,
+        },
+        {
+          k: "notes",
+          label: "Notes",
+          type: "textarea",
+          ph: "Rules, who it’s for, etc.",
+          span2: true,
+        },
+      ];
+    }
+
+    // services/jobs/housing/products
+    return [
+      {
+        k: "title",
+        label: "Title *",
+        type: "text",
+        ph: "Title...",
+        span2: true,
+      },
+      {
+        k: "category",
+        label: "Category",
+        type: "select",
+        options: getCategoryOptionsForTab(t),
+      },
+      {
+        k: "price",
+        label: "Price / Budget",
+        type: "text",
+        ph: t === "jobs" ? "$18/hr" : "$500",
+      },
+      {
+        k: "state",
+        label: "State",
+        type: "select",
+        options: ["", ...US_STATES],
+      },
+      {
+        k: "city",
+        label: "City",
+        type: "text",
+        ph: "e.g. Arlington",
+        list: "form-city-suggestions",
+      },
+      {
+        k: "link",
+        label: "Link",
+        type: "text",
+        ph: "Optional: website / post / form",
+        span2: true,
+      },
+      {
+        k: "contact",
+        label: "Contact",
+        type: "text",
+        ph: "Optional: phone / email",
+        span2: true,
+      },
+      {
+        k: "description",
+        label: "Description",
+        type: "textarea",
+        ph: "Explain details for newcomers…",
+        span2: true,
+      },
+    ];
+  }
+
+  function openFormAdd(typeKey, preset) {
+    if (!requireLoginOrToast()) return;
+    setFormMode("add");
+    setFormType(typeKey);
+    setFormId(null);
+
+    const next = { ...EMPTY_VALUES };
+
+    // defaults/presets
+    if (typeKey === "places") next.category = preset || "Restaurant";
+    if (typeKey === "groups") next.platform = preset || "Facebook";
+    if (["services", "jobs", "housing", "products"].includes(typeKey))
+      next.category = preset || "";
+
+    setValues(next);
+    setFormOpen(true);
+  }
+  function openFormEdit(item, typeKey) {
+    if (!requireLoginOrToast()) return;
+
+    const t = typeKey || tab;
+    const idNum = normalizeId(item.id, t);
+    const prefix =
+      t === "places"
+        ? "place"
+        : t === "groups"
+        ? "group"
+        : t === "services"
+        ? "service"
+        : t === "products"
+        ? "product"
+        : t === "jobs"
+        ? "jobs"
+        : t === "housing"
+        ? "housing"
+        : "";
+
+    const idPrefixed = prefix ? `${prefix}_${idNum}` : idNum;
+
+    setFormMode("edit");
+    setFormType(t);
+    setFormId(idPrefixed);
+
+    const next = { ...EMPTY_VALUES };
+
+    if (t === "places") {
+      next.title = item.name || "";
+      next.category = item.category || "Restaurant";
+      next.state = item.state || "";
+      next.city = item.city || "";
+      next.address = item.address || "";
+      next.phone = item.phone || "";
+      next.website = item.website || "";
+      next.notes = item.notes || "";
+    } else if (t === "groups") {
+      next.title = item.name || "";
+      next.platform = item.platform || "Facebook";
+      next.topic = item.topic || "Immigration";
+      next.state = item.state || "";
+      next.city = item.city || "";
+      next.link = item.link || "";
+      next.notes = item.notes || "";
+    } else {
+      next.title = item.title || item.name || "";
+      next.category = item.category || "";
+      next.state = item.state || "";
+      next.city = item.city || "";
+
+      // ✅ price mapping (supports old + new DB fields)
+      const pv =
+        item?.price_value ??
+        item?.priceValue ??
+        item?.price ??
+        item?.budget ??
+        item?.amount ??
+        "";
+      next.price = pv === null || pv === undefined ? "" : String(pv);
+
+      next.link = item.link || item.url || item.website || "";
+      next.contact = item.contact || item.phone || "";
+      next.description = item.description || item.notes || "";
+    }
+
+    setValues(next);
+    setFormOpen(true);
+  }
+
+  function normalizeId(raw, typeKey) {
+    const v = String(raw || "").trim();
+    if (!v) return v;
+
+    // ✅ لو جاي بصيغة: product_7 / housing_10 / services_3 ... → خليه "7"
+    if (v.includes("_")) {
+      const last = v.split("_").pop();
+      if (last && /^\d+$/.test(last)) return last;
+      // fallback: لو آخر جزء مش رقم، رجّع آخر جزء برضو
+      return last || v;
+    }
+
+    // ✅ لو رقم أصلاً
+    if (/^\d+$/.test(v)) return v;
+
+    // ✅ لو فيه رقم جوّه أي سترنج: "id:10" → "10"
+    const m = v.match(/(\d+)/);
+    return m ? m[1] : v;
+  }
+
+  async function submitForm() {
+    try {
+      if (!requireLoginOrToast()) return;
+
+      // validate
+      if (!values.title.trim()) return toast.error("Title is required");
+      const type = formType;
+
+      if (type === "groups" && !String(values.link || "").trim())
+        return toast.error("Link is required");
+
+      const isEdit = formMode === "edit" && !!formId;
+
+      // =========================
+      // ✅ Payload per type (SMALL + COMPATIBLE)
+      // =========================
+
+      const title = safeTrim(values.title);
+      const cityV = safeTrim(values.city);
+      const stateV = safeTrim(values.state);
+
+      let url = "";
+      let method = isEdit ? "PATCH" : "POST";
+      let body = null;
+
+      if (type === "places") {
+        const placeId = isEdit ? normalizeId(formId, type) : null;
+
+        url = isEdit
+          ? `${API_BASE}/api/community/places/${placeId}`
+          : `${API_BASE}/api/community/places`;
+
+        body = {
+          name: title,
+          category: safeTrim(values.category) || "Restaurant",
+          state: stateV,
+          city: cityV,
+          address: safeTrim(values.address),
+          phone: safeTrim(values.phone),
+          website: safeUrl(values.website),
+          notes: safeTrim(values.notes),
+        };
+      } else if (type === "groups") {
+        const groupId = isEdit ? normalizeId(formId, type) : null;
+
+        url = isEdit
+          ? `${API_BASE}/api/community/groups/${groupId}`
+          : `${API_BASE}/api/community/groups`;
+
+        body = {
+          name: title,
+          platform: safeTrim(values.platform) || "Facebook",
+          topic: safeTrim(values.topic) || "Immigration",
+          state: stateV,
+          city: cityV,
+          link: safeUrl(values.link),
+          notes: safeTrim(values.notes),
+        };
+      } else {
+        // marketplace: services/jobs/housing/products
+        url = isEdit
+          ? `${API_BASE}/api/listings/${formId}` // ✅ prefixed id
+          : `${API_BASE}/api/listings`; // ✅ unified create
+
+        body = {
+          type,
+          title,
+          category: safeTrim(values.category),
+          state: stateV,
+          city: cityV,
+
+          // ✅ send both (new + backward compatible)
+          price_value: safeTrim(values.price),
+          price: safeTrim(values.price),
+
+          contact: safeTrim(values.contact),
+          website: safeUrl(values.link),
+          notes: safeTrim(values.description) || safeTrim(values.notes),
+        };
+      }
+
+      const out = await tryFetchJSON(url, {
+        method,
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(body),
+      });
+
+      if (!out.ok) return toast.error(isEdit ? "Update failed" : "Add failed");
+
+      toast.success(isEdit ? "Updated" : "Added");
+      setFormOpen(false);
+
+      if (tab !== type) setTab(type);
+      setTimeout(load, 150);
+    } catch (e) {
+      console.error(e);
+      toast.error("Something went wrong");
+    }
+  }
 
   function resetFilters() {
     setQ("");
@@ -609,29 +948,170 @@ export default function CommunityView() {
     setTopic("");
   }
 
+  function requireLoginOrToast() {
+    const ok = !!getToken();
+    if (!ok) toast.error("Login required");
+    return ok;
+  }
+
+  function getCategoryOptionsForTab(t) {
+    if (t === "places") return PLACE_CATEGORIES;
+    if (t === "services") return SERVICE_CATEGORIES;
+    if (t === "jobs") return JOB_CATEGORIES;
+    if (t === "housing") return HOUSING_CATEGORIES;
+    if (t === "products") return PRODUCT_CATEGORIES;
+    return [];
+  }
+
+  /* =========================
+     Endpoints strategy (fallbacks)
+     - places/groups use legacy endpoints first
+     - others try a few common patterns (you can wire backend later)
+  ========================= */
+
   async function load() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (q.trim()) params.set("q", q.trim());
+      if (state && state !== "any" && state !== "Any")
+        params.set("state", state);
+      if (city.trim()) params.set("city", city.trim());
 
-      if (tab === "places") {
-        if (state) params.set("state", state);
-        if (city.trim()) params.set("city", city.trim());
-        if (category) params.set("category", category);
+      if (tab === "groups") {
+        if (platform && platform !== "all" && platform !== "All")
+          params.set("platform", platform);
+        if (topic && topic !== "all" && topic !== "All")
+          params.set("topic", topic);
       } else {
-        if (state) params.set("state", state);
-        if (city.trim()) params.set("city", city.trim());
-        if (platform) params.set("platform", platform);
-        if (topic) params.set("topic", topic);
+        // ✅ في All هنفلتر بعد الدمج (مش نبعته للباك لكل التايبس)
+        if (tab !== "all") {
+          if (category && category !== "all" && category !== "All")
+            params.set("category", category);
+        }
       }
 
-      const res = await fetch(`${API_BASE}${endpoint}?${params.toString()}`);
-      const data = await res.json();
-      setItems(Array.isArray(data) ? data : []);
+      // ✅ ALL: fetch multiple types and merge
+      if (tab === "all") {
+        const bundles = endpoints; // object
+        const types = Object.keys(bundles);
+        const results = await Promise.all(
+          types.map(async (typeKey) => {
+            const bases = bundles[typeKey] || [];
+            const qs = params.toString();
+            const urls = bases.map((base) => {
+              if (!qs) return base;
+              const joiner = base.includes("?") ? "&" : "?";
+              return `${base}${joiner}${qs}`;
+            });
+
+            const out = await tryFetchJSON(urls, {
+              method: "GET",
+              headers: { ...authHeaders() },
+            });
+
+            const arr = out.ok ? extractArray(out.data) : [];
+
+            const legacyPrefix =
+              typeKey === "places"
+                ? "place"
+                : typeKey === "groups"
+                ? "group"
+                : typeKey;
+
+            return arr.map((x) => {
+              const createdAt = pickCreatedAt(x);
+
+              const rawId =
+                x?.id ??
+                x?.place_id ??
+                x?.group_id ??
+                x?.listing_id ??
+                x?.item_id;
+
+              const baseId = normalizeId(rawId, typeKey);
+
+              const mergedId =
+                typeKey === "places" || typeKey === "groups"
+                  ? `${legacyPrefix}_${baseId}`
+                  : String(x?.id || "").includes("_")
+                  ? x.id
+                  : `${typeKey}_${baseId}`;
+
+              return {
+                ...x,
+                id: mergedId,
+                type: typeKey,
+                createdAt: x.createdAt ?? createdAt,
+                created_at: x.created_at ?? createdAt,
+              };
+            });
+          })
+        );
+
+        const merged = results.flat();
+
+        // ✅ All: فلتر Category locally (عشان كل type كاتيجوريز مختلفة)
+        const filtered =
+          category && category !== "all" && category !== "All"
+            ? merged.filter((x) => {
+                const c = String(x?.category || "").trim();
+                return c && c.toLowerCase() === String(category).toLowerCase();
+              })
+            : merged;
+
+        setItems(filtered);
+        // DEBUG: detect id collisions across types
+        const map = new Map();
+        for (const x of filtered) {
+          const key = String(x.id);
+          const t = x.type || "unknown";
+          if (!map.has(key)) map.set(key, new Set());
+          map.get(key).add(t);
+        }
+        const collisions = [];
+        for (const [id, types] of map.entries()) {
+          if (types.size > 1)
+            collisions.push({ id, types: Array.from(types).join(", ") });
+        }
+        if (collisions.length) {
+          console.warn("ID collisions across types:", collisions);
+        } else {
+          console.log("No ID collisions across types ✅");
+        }
+
+        return;
+      }
+
+      // ✅ Single tab
+      const qs = params.toString();
+      const urls = endpoints.map((base) => {
+        if (!qs) return base;
+        const joiner = base.includes("?") ? "&" : "?";
+        return `${base}${joiner}${qs}`;
+      });
+
+      const out = await tryFetchJSON(urls, {
+        method: "GET",
+        headers: { ...authHeaders() },
+      });
+      if (!out.ok) throw out.error;
+
+      const arr = extractArray(out.data);
+      setItems(
+        arr.map((x) => {
+          const createdAt = pickCreatedAt(x);
+          return {
+            ...x,
+            createdAt: x.createdAt ?? createdAt,
+            created_at: x.created_at ?? createdAt,
+          };
+        })
+      );
     } catch (e) {
+      console.log(e);
       console.error(e);
-      toast.error("Failed to load community items");
+      toast.error("Failed to load listings");
       setItems([]);
     } finally {
       setLoading(false);
@@ -639,11 +1119,20 @@ export default function CommunityView() {
   }
 
   useEffect(() => {
+    setItems([]);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // ✅ datalist cities (autocomplete) based on current items + state filter
+  // ✅ لو الفلاتر اتغيرت وإنت على All → اعمل load تلقائي
+  useEffect(() => {
+    if (tab !== "all") return;
+    const t = setTimeout(() => load(), 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, q, state, city, category, platform, topic]);
+
+  // city suggestions (from items)
   const citySuggestions = useMemo(() => {
     const s = new Set();
     for (const it of items) {
@@ -664,10 +1153,10 @@ export default function CommunityView() {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [items, state]);
 
-  // ✅ datalist for Add/Edit forms based on chosen form state
+  // datalist for forms
   const formCitySuggestions = useMemo(() => {
     const s = new Set();
-    const selectedState = addType === "place" ? pState : gState;
+    const selectedState = values.state || "";
 
     for (const it of items) {
       if (!it) continue;
@@ -680,260 +1169,60 @@ export default function CommunityView() {
       if (!selectedState) s.add(c);
       else if (st === String(selectedState).toUpperCase()) s.add(c);
     }
+
     return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [items, pState, gState, addType]);
+  }, [items, values.state]);
 
-  function requireLoginOrToast() {
-    const ok = !!getToken();
-    if (!ok) toast.error("Login required");
-    return ok;
+  function extractCreatedItem(data) {
+    if (!data) return null;
+    return (
+      data.item || data.listing || data.place || data.group || data.data || null
+    );
+  }
+  function extractArray(data) {
+    if (Array.isArray(data)) return data;
+
+    // common wrappers
+    if (Array.isArray(data?.items)) return data.items;
+    if (Array.isArray(data?.rows)) return data.rows;
+    if (Array.isArray(data?.results)) return data.results;
+    if (Array.isArray(data?.data)) return data.data;
+
+    return [];
   }
 
-  function openAddModal(type) {
-    if (!requireLoginOrToast()) return;
-    setAddType(type);
-    setOpenAdd(true);
-  }
-
-  function openAddModalPresetPlace(cat) {
-    if (!requireLoginOrToast()) return;
-    setAddType("place");
-    setPCategory(cat);
-    setOpenAdd(true);
-  }
-
-  function openAddModalPresetGroup(plat) {
-    if (!requireLoginOrToast()) return;
-    setAddType("group");
-    setGPlatform(plat);
-    setOpenAdd(true);
-  }
-
-  function openEditModal(item) {
-    if (!requireLoginOrToast()) return;
-
-    const type = tab === "places" ? "place" : "group";
-    setEditType(type);
-    setEditingId(item.id);
-
-    if (type === "place") {
-      setPName(item.name || "");
-      setPCategory(item.category || "Restaurant");
-      setPState(item.state || "");
-      setPCity(item.city || "");
-      setPAddress(item.address || "");
-      setPPhone(item.phone || "");
-      setPWebsite(item.website || "");
-      setPNotes(item.notes || "");
-    } else {
-      setGName(item.name || "");
-      setGPlatform(item.platform || "Facebook");
-      setGLink(item.link || "");
-      setGState(item.state || "");
-      setGCity(item.city || "");
-      setGTopic(item.topic || "Immigration");
-      setGNotes(item.notes || "");
-    }
-
-    setOpenEdit(true);
-  }
-
-  function clearPlaceForm() {
-    setPName("");
-    setPCategory("Restaurant");
-    setPState("");
-    setPCity("");
-    setPAddress("");
-    setPPhone("");
-    setPWebsite("");
-    setPNotes("");
-  }
-
-  function clearGroupForm() {
-    setGName("");
-    setGPlatform("Facebook");
-    setGLink("");
-    setGState("");
-    setGCity("");
-    setGTopic("Immigration");
-    setGNotes("");
-  }
-
-  async function submitAdd() {
+  async function removeItem(id, typeKey) {
     try {
       if (!requireLoginOrToast()) return;
 
-      if (addType === "place") {
-        if (!pName.trim()) return toast.error("Name is required");
-        if (!pCategory) return toast.error("Category is required");
-
-        const res = await fetch(`${API_BASE}/api/community/places`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({
-            name: pName.trim(),
-            category: pCategory,
-            state: pState,
-            city: pCity.trim(),
-            address: pAddress.trim(),
-            phone: pPhone.trim(),
-            website: safeUrl(pWebsite),
-            notes: pNotes.trim(),
-          }),
-        });
-
-        if (res.status === 401) return toast.error("Login required");
-        if (!res.ok) return toast.error("Failed to add place");
-
-        toast.success("Place added");
-        setOpenAdd(false);
-        clearPlaceForm();
-
-        if (tab !== "places") setTab("places");
-        else load();
-      } else {
-        if (!gName.trim()) return toast.error("Group name is required");
-        if (!gPlatform) return toast.error("Platform is required");
-        if (!gLink.trim()) return toast.error("Link is required");
-
-        const res = await fetch(`${API_BASE}/api/community/groups`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({
-            name: gName.trim(),
-            platform: gPlatform,
-            link: safeUrl(gLink),
-            state: gState,
-            city: gCity.trim(),
-            topic: gTopic,
-            notes: gNotes.trim(),
-          }),
-        });
-
-        if (res.status === 401) return toast.error("Login required");
-        if (!res.ok) return toast.error("Failed to add group");
-
-        toast.success("Group added");
-        setOpenAdd(false);
-        clearGroupForm();
-
-        if (tab !== "groups") setTab("groups");
-        else load();
-      }
-    } catch (e) {
-      console.error(e);
-      toast.error("Something went wrong");
-    }
-  }
-
-  // ✅ UPDATE FIX: PUT + fallback PATCH
-  async function submitEdit() {
-    try {
-      if (!requireLoginOrToast()) return;
-      if (!editingId) return toast.error("Missing item id");
-
-      if (editType === "place") {
-        if (!pName.trim()) return toast.error("Name is required");
-
-        const payload = {
-          name: pName.trim(),
-          category: pCategory,
-          state: pState,
-          city: pCity.trim(),
-          address: pAddress.trim(),
-          phone: pPhone.trim(),
-          website: safeUrl(pWebsite),
-          notes: pNotes.trim(),
-        };
-
-        const url = `${API_BASE}/api/community/places/${editingId}`;
-        let res = await fetch(url, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          res = await fetch(url, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json", ...authHeaders() },
-            body: JSON.stringify(payload),
-          });
-        }
-
-        if (res.status === 401) return toast.error("Login required");
-        if (!res.ok) return toast.error("Update failed");
-
-        toast.success("Updated");
-        setOpenEdit(false);
-        setEditingId(null);
-        load();
-      } else {
-        if (!gName.trim()) return toast.error("Group name is required");
-        if (!gLink.trim()) return toast.error("Link is required");
-
-        const payload = {
-          name: gName.trim(),
-          platform: gPlatform,
-          link: safeUrl(gLink),
-          state: gState,
-          city: gCity.trim(),
-          topic: gTopic,
-          notes: gNotes.trim(),
-        };
-
-        const url = `${API_BASE}/api/community/groups/${editingId}`;
-        let res = await fetch(url, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          res = await fetch(url, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json", ...authHeaders() },
-            body: JSON.stringify(payload),
-          });
-        }
-
-        if (res.status === 401) return toast.error("Login required");
-        if (!res.ok) return toast.error("Update failed");
-
-        toast.success("Updated");
-        setOpenEdit(false);
-        setEditingId(null);
-        load();
-      }
-    } catch (e) {
-      console.error(e);
-      toast.error("Update failed");
-    }
-  }
-
-  async function removeItem(id) {
-    try {
-      if (!requireLoginOrToast()) return;
-
-      // ✅ replaced confirm dialog
       const ok = await toastConfirm(
-        "Delete this item?",
+        "Delete this listing?",
         "This action cannot be undone."
       );
       if (!ok) return;
 
-      const url =
-        tab === "places"
-          ? `${API_BASE}/api/community/places/${id}`
-          : `${API_BASE}/api/community/groups/${id}`;
+      const t = typeKey || tab;
+      let url = "";
 
-      const res = await fetch(url, {
+      if (t === "places") {
+        url = `${API_BASE}/api/community/places/${id}`;
+      } else if (t === "groups") {
+        url = `${API_BASE}/api/community/groups/${id}`;
+      } else {
+        // لو id جاي رقم (في All) حوّله لــ prefixed قبل الحذف
+        const prefixed = String(id).includes("_")
+          ? id
+          : `${t}_${normalizeId(id, t)}`;
+
+        url = `${API_BASE}/api/listings/${prefixed}`;
+      }
+
+      const out = await tryFetchJSON(url, {
         method: "DELETE",
         headers: { ...authHeaders() },
       });
 
-      if (res.status === 401) return toast.error("Login required");
-      if (!res.ok) return toast.error("Delete failed");
+      if (!out.ok) return toast.error("Delete failed");
 
       toast.success("Deleted");
       load();
@@ -943,7 +1232,7 @@ export default function CommunityView() {
     }
   }
 
-  // ✅ Near me (simple)
+  // near me (simple)
   async function nearMe() {
     try {
       if (!navigator.geolocation)
@@ -953,10 +1242,10 @@ export default function CommunityView() {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude, longitude } = pos.coords || {};
-          toast.success("Location detected. Choose State then Apply.", {
-            id: "geo",
-          });
-
+          toast.success(
+            "Location detected. (Tip: pick your State, then Apply)",
+            { id: "geo" }
+          );
           setQ((prev) => prev || "nearby");
           setCity(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
         },
@@ -972,17 +1261,20 @@ export default function CommunityView() {
     }
   }
 
+  const activeTypeMeta =
+    LISTING_TYPES.find((t) => t.key === tab) || LISTING_TYPES[0];
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-gray-100 -mx-4 px-4 py-4 flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-3xl font-extrabold text-gray-900">Community</h1>
+          <h1 className="text-3xl font-extrabold text-gray-900">Explore</h1>
           <p className="mt-1 text-gray-600">
-            Places & groups that help newcomers find their way faster.
+            Marketplace for newcomers: places, groups, services, jobs, housing,
+            products.
           </p>
 
-          {/* Quick hint bar */}
           <div className="mt-3 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
             <span className="text-xs font-semibold text-gray-600">Tip:</span>
             <span className="text-xs text-gray-600">
@@ -1009,168 +1301,197 @@ export default function CommunityView() {
             <LocateFixed size={16} />
             Near me
           </button>
-
           {isLoggedIn ? (
-            <Dropdown
-              open={openAddMenu}
-              setOpen={setOpenAddMenu}
-              trigger={
-                <button className="px-4 py-2 rounded-xl bg-black text-white hover:bg-black/90 inline-flex items-center gap-2">
-                  <Plus size={18} />
-                  Add
-                </button>
-              }
-            >
-              {/* Top level */}
-              <div className="p-3">
-                <SectionTitle
-                  title="Quick Add"
-                  desc="Choose type directly (faster)"
-                />
-              </div>
+            <>
+              <button
+                onClick={() => {
+                  setAddPickerType("places");
+                  setAddPickerOpen(true);
+                }}
+                className="px-4 py-2 rounded-xl bg-black text-white hover:bg-black/90 inline-flex items-center gap-2"
+              >
+                <Plus size={18} />
+                Add Listing
+              </button>
 
-              <MenuItem
-                icon={Building2}
-                title="Add Place…"
-                desc="Restaurant, mosque, church, clinics…"
-                rightEl={<ChevronRight size={16} />}
-                onClick={() =>
-                  setOpenAddSubmenu((v) => (v === "place" ? "" : "place"))
-                }
-              />
-              <MenuItem
-                icon={Users}
-                title="Add Group…"
-                desc="Facebook, WhatsApp, Telegram…"
-                rightEl={<ChevronRight size={16} />}
-                onClick={() =>
-                  setOpenAddSubmenu((v) => (v === "group" ? "" : "group"))
-                }
-              />
+              {/* ✅ Add Listing Center Modal */}
+              <Modal
+                open={addPickerOpen}
+                onClose={() => setAddPickerOpen(false)}
+                title="Add Listing"
+                subtitle="Choose a type, then pick a preset (optional)."
+              >
+                {/* Types */}
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {LISTING_TYPES.filter((t) => !t.hideFromAdd).map((t) => {
+                    const Active = addPickerType === t.key;
+                    const Icon = t.Icon;
+                    return (
+                      <button
+                        key={t.key}
+                        onClick={() => setAddPickerType(t.key)}
+                        className={classNames(
+                          "rounded-2xl border p-4 text-left hover:bg-gray-50 transition",
+                          Active
+                            ? "border-black ring-2 ring-black/10"
+                            : "border-gray-200"
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={classNames(
+                              "w-10 h-10 rounded-xl flex items-center justify-center border",
+                              Active
+                                ? "bg-black text-white border-black"
+                                : "bg-gray-50 text-gray-800 border-gray-200"
+                            )}
+                          >
+                            <Icon size={18} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-extrabold text-gray-900">
+                              {t.label}
+                            </div>
+                            <div className="text-xs text-gray-500 truncate">
+                              {t.hint}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
 
-              {/* Place submenu */}
-              {openAddSubmenu === "place" ? (
-                <div className="border-t border-gray-100">
-                  <div className="px-4 py-2 text-xs font-bold text-gray-600 bg-gray-50">
-                    Places presets
+                {/* Presets */}
+                <div className="mt-5 rounded-2xl border border-gray-200 bg-white">
+                  <div className="px-4 py-3 border-b border-gray-100">
+                    <div className="text-sm font-extrabold text-gray-900">
+                      Presets
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      Pick one, or choose “Custom”.
+                    </div>
                   </div>
 
-                  {[
-                    { label: "Restaurant", icon: UtensilsCrossed },
-                    { label: "Mosque", icon: Landmark },
-                    { label: "Church", icon: Church },
-                    { label: "Clinic / Doctor", icon: Stethoscope },
-                    { label: "School / Daycare", icon: GraduationCap },
-                    { label: "Grocery / Arab Market", icon: ShoppingBag },
-                    { label: "Things to do", icon: Ticket },
-                    { label: "Park / Outdoors", icon: Trees },
-                    { label: "Car Services", icon: Car },
-                    { label: "Handyman / Home Services", icon: Wrench },
-                  ].map((x) => (
-                    <button
-                      key={x.label}
-                      onClick={() => {
-                        setOpenAddMenu(false);
-                        setOpenAddSubmenu("");
-                        openAddModalPresetPlace(x.label);
-                      }}
-                      className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold"
-                    >
-                      <x.icon size={16} className="text-gray-700" />
-                      {x.label}
-                    </button>
-                  ))}
-
-                  <button
-                    onClick={() => {
-                      setOpenAddMenu(false);
-                      setOpenAddSubmenu("");
-                      openAddModal("place");
-                    }}
-                    className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold text-gray-800 border-t border-gray-100"
-                  >
-                    <Building2 size={16} />
-                    Custom Place (all categories)
-                  </button>
-                </div>
-              ) : null}
-
-              {/* Group submenu */}
-              {openAddSubmenu === "group" ? (
-                <div className="border-t border-gray-100">
-                  <div className="px-4 py-2 text-xs font-bold text-gray-600 bg-gray-50">
-                    Groups presets
+                  <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {addPickerType === "places" ? (
+                      <>
+                        {[
+                          "Restaurant",
+                          "Mosque",
+                          "Church",
+                          "Clinic / Doctor",
+                          "School / Daycare",
+                          "Grocery / Arab Market",
+                          "Things to do",
+                          "Park / Outdoors",
+                          "Car Services",
+                          "Handyman / Home Services",
+                        ].map((preset) => (
+                          <button
+                            key={preset}
+                            onClick={() => {
+                              setAddPickerOpen(false);
+                              openFormAdd("places", preset);
+                            }}
+                            className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-left font-semibold"
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </>
+                    ) : addPickerType === "groups" ? (
+                      <>
+                        {[
+                          "Facebook",
+                          "WhatsApp",
+                          "Telegram",
+                          "Discord",
+                          "Meetup",
+                        ].map((preset) => (
+                          <button
+                            key={preset}
+                            onClick={() => {
+                              setAddPickerOpen(false);
+                              openFormAdd("groups", preset);
+                            }}
+                            className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-left font-semibold"
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        {getCategoryOptionsForTab(addPickerType)
+                          .slice(0, 10)
+                          .map((preset) => (
+                            <button
+                              key={preset}
+                              onClick={() => {
+                                setAddPickerOpen(false);
+                                openFormAdd(addPickerType, preset);
+                              }}
+                              className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-left font-semibold"
+                            >
+                              {preset}
+                            </button>
+                          ))}
+                      </>
+                    )}
                   </div>
 
-                  {[
-                    { label: "Facebook", icon: Users },
-                    { label: "WhatsApp", icon: MessageCircle },
-                    { label: "Telegram", icon: MessageCircle },
-                    { label: "Discord", icon: Users },
-                    { label: "Meetup", icon: Users },
-                  ].map((x) => (
+                  <div className="px-3 pb-3">
                     <button
-                      key={x.label}
                       onClick={() => {
-                        setOpenAddMenu(false);
-                        setOpenAddSubmenu("");
-                        openAddModalPresetGroup(x.label);
+                        setAddPickerOpen(false);
+                        openFormAdd(addPickerType);
                       }}
-                      className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold"
+                      className="w-full px-4 py-3 rounded-xl bg-black text-white hover:bg-black/90 font-extrabold"
                     >
-                      <x.icon size={16} className="text-gray-700" />
-                      {x.label}
+                      Custom{" "}
+                      {addPickerType.slice(0, 1).toUpperCase() +
+                        addPickerType.slice(1)}
                     </button>
-                  ))}
-
-                  <button
-                    onClick={() => {
-                      setOpenAddMenu(false);
-                      setOpenAddSubmenu("");
-                      openAddModal("group");
-                    }}
-                    className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold text-gray-800 border-t border-gray-100"
-                  >
-                    <Users size={16} />
-                    Custom Group (all platforms)
-                  </button>
+                  </div>
                 </div>
-              ) : null}
-            </Dropdown>
+              </Modal>
+            </>
           ) : null}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="mt-5 flex gap-2">
-        <button
-          onClick={() => {
-            setTab("places");
-            resetFilters();
-          }}
-          className={classNames(
-            "px-4 py-2 rounded-full border text-sm font-semibold",
-            tab === "places"
-              ? "bg-black text-white border-black"
-              : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-          )}
-        >
-          Places
-        </button>
-        <button
-          onClick={() => {
-            setTab("groups");
-            resetFilters();
-          }}
-          className={classNames(
-            "px-4 py-2 rounded-full border text-sm font-semibold",
-            tab === "groups"
-              ? "bg-black text-white border-black"
-              : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-          )}
-        >
-          Groups
-        </button>
+      {/* Listing Type pills */}
+      <div className="mt-5 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <div className="text-sm font-extrabold text-gray-900">
+            Listing Type
+          </div>
+          <div className="text-xs text-gray-500 mt-0.5">
+            {activeTypeMeta.hint}
+          </div>
+        </div>
+
+        <div className="flex gap-2 flex-wrap">
+          {/* ✅ هنا لا نستخدم فلتر، نريد عرض كل التابات بما فيها All */}
+          {LISTING_TYPES.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => {
+                setTab(t.key);
+                resetFilters();
+              }}
+              className={classNames(
+                "px-4 py-2 rounded-full border text-sm font-semibold",
+                tab === t.key
+                  ? "bg-black text-white border-black"
+                  : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Filters */}
@@ -1189,7 +1510,9 @@ export default function CommunityView() {
                 placeholder={
                   tab === "places"
                     ? "e.g. kebab, mosque, church..."
-                    : "e.g. arab, jobs, immigration..."
+                    : tab === "groups"
+                    ? "e.g. arab, jobs, immigration..."
+                    : "e.g. handyman, room, iPhone..."
                 }
                 className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
               />
@@ -1228,64 +1551,88 @@ export default function CommunityView() {
             </datalist>
           </div>
 
-          {tab === "places" ? (
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">
-                Category
-              </label>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                <option value="">All</option>
-                {PLACE_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">
-                Platform
-              </label>
-              <select
-                value={platform}
-                onChange={(e) => setPlatform(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                <option value="">All</option>
-                {GROUP_PLATFORMS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
+          {/* Category/Platform */}
           {tab === "groups" ? (
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Topic</label>
-              <select
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                <option value="">All</option>
-                {GROUP_TOPICS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <>
+              <div className="md:col-span-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Platform
+                </label>
+                <select
+                  value={platform}
+                  onChange={(e) => setPlatform(e.target.value)}
+                  className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                >
+                  <option value="">All</option>
+                  {GROUP_PLATFORMS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-sm font-medium text-gray-700">
+                  Topic
+                </label>
+                <select
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                >
+                  <option value="">All</option>
+                  {GROUP_TOPICS.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
           ) : (
-            <div className="md:col-span-2">
-              <div className="h-[1px] md:h-auto" />
-            </div>
+            <>
+              <div className="md:col-span-4">
+                <label className="text-sm font-medium text-gray-700">
+                  Category
+                </label>
+
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                >
+                  <option value="">All</option>
+
+                  {/* ✅ All: اعرض كل الكاتيجوريز (Places + Services + Jobs + Housing + Products) */}
+                  {tab === "all"
+                    ? Array.from(
+                        new Set([
+                          ...PLACE_CATEGORIES,
+                          ...SERVICE_CATEGORIES,
+                          ...JOB_CATEGORIES,
+                          ...HOUSING_CATEGORIES,
+                          ...PRODUCT_CATEGORIES,
+                        ])
+                      ).map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))
+                    : getCategoryOptionsForTab(tab).map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                </select>
+
+                {tab === "all" ? (
+                  <div className="mt-1 text-xs text-gray-500">
+                    Tip: In All, Category is a broad filter across all types.
+                  </div>
+                ) : null}
+              </div>
+            </>
           )}
 
           <div className="md:col-span-2 flex gap-2">
@@ -1316,496 +1663,122 @@ export default function CommunityView() {
           <div className="py-10 text-center text-gray-500">Loading…</div>
         ) : items.length === 0 ? (
           <EmptyState
-            icon={tab === "places" ? Building2 : Users}
+            icon={activeTypeMeta.Icon}
             title="No items yet"
-            desc={
-              tab === "places"
-                ? "Add your first place to help newcomers."
-                : "Add your first group to connect people."
-            }
+            desc="Be the first to add a helpful listing."
           />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {items.map((it) => (
               <CardItem
-                key={it.id}
+                key={`${it.type || tab}-${it.id}`}
                 tab={tab}
                 it={it}
                 isLoggedIn={isLoggedIn}
-                onEdit={() => openEditModal(it)}
-                onDelete={() => removeItem(it.id)}
+                onEdit={() => {
+                  const t = tab === "all" ? it.type || "places" : tab;
+                  openFormEdit({ ...it, id: normalizeId(it.id, t) }, t);
+                }}
+                onDelete={() => {
+                  const t = tab === "all" ? it.type || "places" : tab;
+                  removeItem(normalizeId(it.id, t), t);
+                }}
                 onOpen={() => {
-                  if (tab === "places") navigate(`/community/place/${it.id}`);
+                  const t = tab === "all" ? it.type || "places" : tab;
+                  const id = normalizeId(it.id, t);
+
+                  // ✅ survive refresh
+                  sessionStorage.setItem(`mp:type:${id}`, t);
+                  return navigate(`/marketplace/item/${id}`, {
+                    state: { type: t },
+                  });
                 }}
               />
             ))}
           </div>
         )}
       </div>
-
-      {/* Add Modal */}
+      {/* ✅ Unified Add/Edit Modal */}
       <Modal
-        open={openAdd}
-        onClose={() => setOpenAdd(false)}
-        title={addType === "place" ? "Add Place" : "Add Group"}
-        subtitle="Share something useful for newcomers."
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={
+          formMode === "edit"
+            ? "Edit Listing"
+            : `Add ${
+                LISTING_TYPES.find((t) => t.key === formType)?.label ||
+                "Listing"
+              }`
+        }
+        subtitle="Fill the fields and save."
       >
-        {addType === "place" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="md:col-span-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {getSchema(formType).map((f) => (
+            <div key={f.k} className={f.span2 ? "md:col-span-2" : ""}>
               <label className="text-sm font-medium text-gray-700">
-                Name *
+                {f.label}
               </label>
-              <input
-                value={pName}
-                onChange={(e) => setPName(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                placeholder="e.g. Kabul Kabob"
-              />
-            </div>
 
-            <div>
-              <label className="text-sm font-medium text-gray-700">
-                Category
-              </label>
-              <select
-                value={pCategory}
-                onChange={(e) => setPCategory(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                {PLACE_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+              {f.type === "select" ? (
+                <select
+                  value={values[f.k] || ""}
+                  onChange={(e) => setField(f.k, e.target.value)}
+                  className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                >
+                  {(f.options || []).map((op) => (
+                    <option key={op || "empty"} value={op}>
+                      {op || "Select"}
+                    </option>
+                  ))}
+                </select>
+              ) : f.type === "textarea" ? (
+                <textarea
+                  value={values[f.k] || ""}
+                  onChange={(e) => setField(f.k, e.target.value)}
+                  className="mt-1 w-full min-h-[110px] py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                  placeholder={f.ph || ""}
+                />
+              ) : (
+                <input
+                  value={values[f.k] || ""}
+                  onChange={(e) => setField(f.k, e.target.value)}
+                  list={f.list || undefined}
+                  className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                  placeholder={f.ph || ""}
+                />
+              )}
             </div>
+          ))}
 
-            <div>
-              <label className="text-sm font-medium text-gray-700">State</label>
-              <select
-                value={pState}
-                onChange={(e) => setPState(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                <option value="">Select</option>
-                {US_STATES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">City</label>
-              <input
-                value={pCity}
-                onChange={(e) => setPCity(e.target.value)}
-                list="form-city-suggestions"
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                placeholder="e.g. Fairfax"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">Phone</label>
-              <input
-                value={pPhone}
-                onChange={(e) => setPPhone(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                placeholder="e.g. +1 703..."
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">
-                Address
-              </label>
-              <input
-                value={pAddress}
-                onChange={(e) => setPAddress(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                placeholder="Full address"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">
-                Website
-              </label>
-              <input
-                value={pWebsite}
-                onChange={(e) => setPWebsite(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                placeholder="https://"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Notes</label>
-              <textarea
-                value={pNotes}
-                onChange={(e) => setPNotes(e.target.value)}
-                className="mt-1 w-full min-h-[100px] py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                placeholder="What’s special about this place?"
-              />
-            </div>
-
-            <datalist id="form-city-suggestions">
-              {formCitySuggestions.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">
-                Group Name *
-              </label>
-              <input
-                value={gName}
-                onChange={(e) => setGName(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                placeholder="e.g. Arabs in Virginia"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">
-                Platform
-              </label>
-              <select
-                value={gPlatform}
-                onChange={(e) => setGPlatform(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                {GROUP_PLATFORMS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">Topic</label>
-              <select
-                value={gTopic}
-                onChange={(e) => setGTopic(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                {GROUP_TOPICS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">State</label>
-              <select
-                value={gState}
-                onChange={(e) => setGState(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                <option value="">Select</option>
-                {US_STATES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">City</label>
-              <input
-                value={gCity}
-                onChange={(e) => setGCity(e.target.value)}
-                list="form-city-suggestions"
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                placeholder="e.g. Alexandria"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">
-                Link *
-              </label>
-              <input
-                value={gLink}
-                onChange={(e) => setGLink(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                placeholder="Facebook/WhatsApp invite link"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Notes</label>
-              <textarea
-                value={gNotes}
-                onChange={(e) => setGNotes(e.target.value)}
-                className="mt-1 w-full min-h-[100px] py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                placeholder="Rules, who it’s for, etc."
-              />
-            </div>
-
-            <datalist id="form-city-suggestions">
-              {formCitySuggestions.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </div>
-        )}
+          <datalist id="form-city-suggestions">
+            {formCitySuggestions.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        </div>
 
         <div className="mt-6 flex justify-end gap-2">
           <button
-            onClick={() => setOpenAdd(false)}
+            onClick={() => setFormOpen(false)}
             className="px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold"
           >
             Cancel
           </button>
           <button
-            onClick={submitAdd}
+            onClick={submitForm}
             className="px-4 py-2.5 rounded-xl bg-black text-white hover:bg-black/90 font-semibold"
           >
-            Save
+            {formMode === "edit" ? "Update" : "Save"}
           </button>
         </div>
       </Modal>
 
-      {/* Edit Modal */}
-      <Modal
-        open={openEdit}
-        onClose={() => setOpenEdit(false)}
-        title="Edit Item"
-        subtitle="Update the info and save."
-      >
-        {editType === "place" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">
-                Name *
-              </label>
-              <input
-                value={pName}
-                onChange={(e) => setPName(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">
-                Category
-              </label>
-              <select
-                value={pCategory}
-                onChange={(e) => setPCategory(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                {PLACE_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">State</label>
-              <select
-                value={pState}
-                onChange={(e) => setPState(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                <option value="">Select</option>
-                {US_STATES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">City</label>
-              <input
-                value={pCity}
-                onChange={(e) => setPCity(e.target.value)}
-                list="form-city-suggestions"
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">Phone</label>
-              <input
-                value={pPhone}
-                onChange={(e) => setPPhone(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">
-                Address
-              </label>
-              <input
-                value={pAddress}
-                onChange={(e) => setPAddress(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">
-                Website
-              </label>
-              <input
-                value={pWebsite}
-                onChange={(e) => setPWebsite(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Notes</label>
-              <textarea
-                value={pNotes}
-                onChange={(e) => setPNotes(e.target.value)}
-                className="mt-1 w-full min-h-[110px] py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              />
-            </div>
-
-            <datalist id="form-city-suggestions">
-              {formCitySuggestions.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">
-                Group Name *
-              </label>
-              <input
-                value={gName}
-                onChange={(e) => setGName(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">
-                Platform
-              </label>
-              <select
-                value={gPlatform}
-                onChange={(e) => setGPlatform(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                {GROUP_PLATFORMS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">Topic</label>
-              <select
-                value={gTopic}
-                onChange={(e) => setGTopic(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                {GROUP_TOPICS.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">State</label>
-              <select
-                value={gState}
-                onChange={(e) => setGState(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              >
-                <option value="">Select</option>
-                {US_STATES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-gray-700">City</label>
-              <input
-                value={gCity}
-                onChange={(e) => setGCity(e.target.value)}
-                list="form-city-suggestions"
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">
-                Link *
-              </label>
-              <input
-                value={gLink}
-                onChange={(e) => setGLink(e.target.value)}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              />
-            </div>
-
-            <div className="md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Notes</label>
-              <textarea
-                value={gNotes}
-                onChange={(e) => setGNotes(e.target.value)}
-                className="mt-1 w-full min-h-[110px] py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-              />
-            </div>
-
-            <datalist id="form-city-suggestions">
-              {formCitySuggestions.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </div>
-        )}
-
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            onClick={() => setOpenEdit(false)}
-            className="px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={submitEdit}
-            className="px-4 py-2.5 rounded-xl bg-black text-white hover:bg-black/90 font-semibold"
-          >
-            Update
-          </button>
-        </div>
-      </Modal>
-
-      {/* ✅ NOTE for next step */}
+      {/* Note */}
       <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         <div className="font-extrabold">Next (after this):</div>
         <div className="mt-1">
-          تفاصيل صفحة المكان + الريفيوهات (نظبطها بعد ما “الدي” يبان بروفيشنال).
+          Unified Details page for any listing + Reviews (add/edit/delete) +
+          lock contact for guests.
         </div>
       </div>
     </div>
@@ -1815,216 +1788,3 @@ export default function CommunityView() {
 /* =========================
    Card
 ========================= */
-
-function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
-  const [open, setOpen] = useState(false);
-  const menuRef = useRef(null);
-  useOutsideClick(menuRef, () => setOpen(false));
-
-  const placeMapUrl =
-    tab === "places"
-      ? mapsLink({ address: it.address, city: it.city, state: it.state })
-      : "";
-
-  const locText =
-    [it.city, it.state].filter(Boolean).join(", ") || "Location not set";
-  const badgeText =
-    tab === "places" ? it.category || "Other" : it.platform || "Other";
-
-  const rightSubtitle =
-    tab === "places"
-      ? [it.city, it.state].filter(Boolean).join(", ") || ""
-      : it.topic || "";
-
-  const cardClickable = tab === "places" && typeof onOpen === "function";
-
-  // ✅ Rating + Reviews Count (fallbacks)
-  const ratingRaw =
-    it.avg_rating ?? it.rating_avg ?? it.rating ?? it.avgRating ?? 0;
-
-  const reviewsRaw =
-    it.reviews_count ?? it.review_count ?? it.reviews ?? it.reviewCount ?? 0;
-
-  const rating = Number(ratingRaw) || 0;
-  const reviewsCount = Number(reviewsRaw) || 0;
-
-  const ratingText = reviewsCount > 0 ? rating.toFixed(1) : "New";
-
-  return (
-    <div
-      role={cardClickable ? "button" : undefined}
-      tabIndex={cardClickable ? 0 : undefined}
-      onClick={() => {
-        if (!cardClickable) return;
-        onOpen();
-      }}
-      onKeyDown={(e) => {
-        if (!cardClickable) return;
-        if (e.key === "Enter" || e.key === " ") onOpen();
-      }}
-      className={classNames(
-        "rounded-2xl relative border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition hover:ring-2 hover:ring-black/5",
-        cardClickable ? "cursor-pointer" : ""
-      )}
-    >
-      {/* Banner */}
-      <CardBanner
-        type={tab === "places" ? "place" : "group"}
-        placeCategory={it.category}
-        groupPlatform={it.platform}
-        subtitleRight={rightSubtitle}
-      />
-
-      <div className="mt-4 flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="text-base md:text-lg font-extrabold text-gray-900 truncate">
-              {it.name}
-            </div>
-
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-white border border-gray-200 text-gray-700">
-              {badgeText}
-            </span>
-
-            {tab === "places" ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-extrabold border border-gray-200 bg-gray-50 text-gray-900">
-                <Star size={14} className="text-amber-500" />
-                {ratingText}
-                <span className="text-xs font-semibold text-gray-600">
-                  ({reviewsCount})
-                </span>
-              </span>
-            ) : null}
-          </div>
-
-          <div className="mt-2 text-sm text-gray-700 space-y-1">
-            <div className="flex items-center gap-2">
-              <MapPin size={16} className="text-gray-500" />
-              <span className="truncate">{locText}</span>
-            </div>
-
-            {tab === "places" && it.address && placeMapUrl ? (
-              <a
-                href={placeMapUrl}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="text-gray-600 truncate hover:underline"
-                title="Open in Google Maps"
-              >
-                {it.address}
-              </a>
-            ) : null}
-
-            {tab === "groups" ? (
-              <div className="text-gray-600">{it.topic || "General"}</div>
-            ) : null}
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            {tab === "places" && placeMapUrl ? (
-              <a
-                href={placeMapUrl}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
-                title="Open in Google Maps"
-              >
-                <Navigation size={16} />
-                Open Map
-                <ExternalLink size={14} className="text-gray-500" />
-              </a>
-            ) : null}
-
-            {tab === "places" && it.website ? (
-              <a
-                href={safeUrl(it.website)}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
-              >
-                <Globe size={16} />
-                Website
-                <ExternalLink size={14} className="text-gray-500" />
-              </a>
-            ) : null}
-
-            {tab === "places" && it.phone ? (
-              <a
-                href={`tel:${String(it.phone).replace(/\s+/g, "")}`}
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
-              >
-                <Phone size={16} />
-                {it.phone}
-              </a>
-            ) : null}
-
-            {tab === "groups" && it.link ? (
-              <a
-                href={safeUrl(it.link)}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
-              >
-                <Globe size={16} />
-                Open Link
-                <ExternalLink size={14} className="text-gray-500" />
-              </a>
-            ) : null}
-          </div>
-
-          {it.notes ? (
-            <div className="mt-3 text-sm text-gray-600 whitespace-pre-wrap">
-              {it.notes}
-            </div>
-          ) : null}
-        </div>
-
-        {isLoggedIn ? (
-          <div
-            className="shrink-0 relative"
-            ref={menuRef}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setOpen((v) => !v)}
-              className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50"
-              title="Actions"
-            >
-              <MoreVertical size={18} />
-            </button>
-
-            {open ? (
-              <div className="absolute mt-2 right-0 w-44 rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden z-50">
-                <button
-                  onClick={() => {
-                    setOpen(false);
-                    onEdit();
-                  }}
-                  className="w-full px-3 py-2.5 text-left hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold"
-                >
-                  <Pencil size={16} />
-                  Edit
-                </button>
-                <button
-                  onClick={() => {
-                    setOpen(false);
-                    onDelete();
-                  }}
-                  className="w-full px-3 py-2.5 text-left hover:bg-red-50 flex items-center gap-2 text-sm font-semibold text-red-600"
-                >
-                  <Trash2 size={16} />
-                  Delete
-                </button>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}

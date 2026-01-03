@@ -14,7 +14,7 @@ import {
 } from "react-router-dom";
 
 import CommunityView from "./components/community/CommunityView";
-import PlaceDetailsView from "./components/PlaceDetailsView";
+import ItemDetailsView from "./components/ItemDetailsView";
 
 import { Sidebar } from "./components/Sidebar";
 import { Header } from "./components/Header";
@@ -144,9 +144,51 @@ function AppContent() {
             <Route path="/u/:userId" element={<ProfilePage lang={lang} />} />
 
             <Route path="/community" element={<CommunityView />} />
-            <Route
+            {/* <Route
               path="/community/place/:placeId"
-              element={<PlaceDetailsView lang={lang} />}
+              element={<ItemDetailsView lang={lang} />}
+            /> */}
+
+            {/* ✅ نفس صفحة العرض لكل الأنواع */}
+            {/* <Route
+              path="/community/group/:groupId"
+              element={<ItemDetailsView lang={lang} />}
+            /> */}
+
+            {/* <Route
+              path="/community/service/:serviceId"
+              element={<ItemDetailsView lang={lang} />}
+            /> */}
+
+            {/* <Route
+              path="/community/job/:jobId"
+              element={<ItemDetailsView lang={lang} />}
+            /> */}
+
+            {/* <Route
+              path="/community/housing/:housingId"
+              element={<ItemDetailsView lang={lang} />}
+            /> */}
+
+            {/* <Route
+              path="/community/product/:productId"
+              element={<ItemDetailsView lang={lang} />}
+            /> */}
+
+            {/* ✅ لو عندك لينكات بالشكل ده */}
+            {/* <Route
+              path="/listing/:type/:placeId"
+              element={<ItemDetailsView lang={lang} />}
+            /> */}
+            {/* ده */}
+            {/* <Route
+              path="/marketplace/:type/:placeId"
+              element={<ItemDetailsView lang={lang} />}
+            /> */}
+
+            <Route
+              path="/marketplace/item/:id"
+              element={<ItemDetailsView lang={lang} />}
             />
 
             <Route

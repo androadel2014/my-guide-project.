@@ -1,6 +1,6 @@
-// src/components/PlaceDetailsView.jsx
+// src/components/ItemDetailsView.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { toastConfirm, notify } from "../lib/notify";
 import {
   ArrowLeft,
@@ -137,6 +137,15 @@ function normName(v) {
   return String(v || "")
     .trim()
     .toLowerCase();
+}
+
+function safeDateToLocaleString(v) {
+  if (!v) return "";
+  // sqlite: "YYYY-MM-DD HH:MM:SS" -> "YYYY-MM-DDTHH:MM:SS"
+  const s = String(v).trim().replace(" ", "T");
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return String(v);
+  return d.toLocaleString();
 }
 
 /** ===== Stars (read-only) ===== */
@@ -286,9 +295,33 @@ function normalizeMe(any) {
   return { id: id ?? null, username: username || "You" };
 }
 
-export default function PlaceDetailsView({ lang }) {
-  const { placeId } = useParams();
+export default function ItemDetailsView({ lang }) {
+  const params = useParams();
   const navigate = useNavigate();
+  const location = useLocation(); // ✅ لازم قبل ما تستخدمه
+  const placeId =
+    params.id ||
+    params.placeId ||
+    params.groupId ||
+    params.serviceId ||
+    params.jobId ||
+    params.housingId ||
+    params.productId;
+
+  // ✅ type comes from click (navigation state) OR sessionStorage (survives refresh)
+  const navType = location.state?.type ? String(location.state.type) : "";
+  const storedType =
+    sessionStorage.getItem(`mp:type:${String(placeId || "").trim()}`) || "";
+
+  useEffect(() => {
+    const pid = String(placeId || "").trim();
+    const t = String(navType || "").trim();
+    if (!pid) return;
+
+    if (t) {
+      sessionStorage.setItem(`mp:type:${pid}`, t);
+    }
+  }, [placeId, navType]);
 
   const [loading, setLoading] = useState(true);
   const [place, setPlace] = useState(null);
@@ -329,6 +362,26 @@ export default function PlaceDetailsView({ lang }) {
     return `https://www.google.com/maps/search/?api=1&query=${q}`;
   }, [place]);
 
+  const displayPrice = useMemo(() => {
+    const p =
+      place?.price ??
+      place?.budget ??
+      place?.avg_price ??
+      place?.avgPrice ??
+      "";
+    return String(p || "").trim();
+  }, [place]);
+
+  const displayContact = useMemo(() => {
+    const c = place?.contact ?? place?.phone ?? "";
+    return String(c || "").trim();
+  }, [place]);
+
+  const displayLink = useMemo(() => {
+    const w = place?.website ?? place?.link ?? place?.url ?? "";
+    return String(w || "").trim();
+  }, [place]);
+
   const displayUserName = (u) =>
     u?.username ||
     u?.name ||
@@ -342,15 +395,225 @@ export default function PlaceDetailsView({ lang }) {
     navigate("/auth");
   };
 
+  // ✅ kinds allowed by server (adjust if needed)
+  const ALLOWED_KINDS = new Set([
+    "places",
+    "groups",
+    "services",
+    "jobs",
+    "housing",
+    "products",
+  ]);
+
+  // ✅ infer kind from route OR from id prefix like "housing_2"
+  const rawKind = String(navType || storedType || "")
+    .trim()
+    .toLowerCase();
+
+  const idStr = String(placeId || "").trim();
+  const idPrefix = idStr.includes("_") ? idStr.split("_")[0].toLowerCase() : "";
+
+  // ✅ final kind
+  const kind = ALLOWED_KINDS.has(rawKind)
+    ? rawKind
+    : ALLOWED_KINDS.has(idPrefix)
+    ? idPrefix
+    : "places";
+
+  // ✅ also try numeric id if server expects it (housing_2 -> 2)
+  const shortId = idStr.includes("_")
+    ? idStr.split("_").slice(1).join("_")
+    : idStr;
+
+  const isGroupType = kind === "groups";
+  const isPlaceType = kind === "places";
+
+  console.log("kind:", kind);
+  console.log("placeId:", placeId);
+  console.log("shortId:", shortId);
+
+  // ✅ normalize item to "place-like" shape so UI stays same design
+  function normalizeToPlaceShape(raw, t) {
+    if (!raw) return null;
+
+    // ✅ unwrap common wrappers:
+    // { ok:true, item:{...} } OR { data:{ item:{...} } } OR { item:{...} }
+    const obj = raw?.item || raw?.data?.item || raw?.data || raw;
+
+    if (!obj) return null;
+
+    // marketplace listing (services/jobs/housing/products)
+    if (!["places", "groups"].includes(t)) {
+      return {
+        ...obj,
+
+        // ✅ prefer title (most listings)
+        name:
+          obj.title ||
+          obj.name ||
+          obj.business_name ||
+          obj.company ||
+          "Listing",
+
+        category: obj.category || t,
+        address: obj.address || obj.location || "",
+        city: obj.city || "",
+        state: obj.state || "",
+        zip: obj.zip || "",
+
+        phone: obj.phone || obj.contact || "",
+        website: obj.website || obj.link || obj.url || "",
+
+        description: obj.description || obj.notes || "",
+        notes: obj.notes || obj.description || "",
+        price: obj.price || obj.price_value || obj.amount || obj.budget || "",
+      };
+    }
+
+    // places/groups legacy
+    return {
+      ...obj,
+      name: obj.name || obj.title || "Item",
+      city: obj.city || "",
+      state: obj.state || "",
+      zip: obj.zip || "",
+      website: obj.website || obj.link || obj.url || "",
+      notes: obj.notes || obj.description || "",
+      description: obj.description || obj.notes || "",
+    };
+  }
+
+  // ✅ try multiple endpoints until one works
+  async function fetchFirstOk(urls, opts) {
+    let lastErr = null;
+    for (const u of urls) {
+      try {
+        const res = await fetch(u, opts);
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) return { ok: true, url: u, data };
+        lastErr = data?.error || `HTTP ${res.status}`;
+      } catch (e) {
+        lastErr = e?.message || "Network error";
+      }
+    }
+    return { ok: false, error: lastErr || "Failed" };
+  }
+
+  // ✅ Details URL candidates (fallback strategy)
+  const detailsCandidates = useMemo(() => {
+    // places
+    if (kind === "places") {
+      return [
+        `${API_BASE}/api/community/places/${placeId}`,
+        `${API_BASE}/api/community/places/${shortId}`,
+        `${API_BASE}/api/marketplace/places/${placeId}`,
+        `${API_BASE}/api/marketplace/places/${shortId}`,
+        `${API_BASE}/api/listings/${placeId}`,
+        `${API_BASE}/api/listings/${shortId}`,
+        `${API_BASE}/api/marketplace/listings/${placeId}`,
+        `${API_BASE}/api/marketplace/listings/${shortId}`,
+      ];
+    }
+
+    // groups
+    if (kind === "groups") {
+      return [
+        `${API_BASE}/api/community/groups/${placeId}`,
+        `${API_BASE}/api/community/groups/${shortId}`,
+        `${API_BASE}/api/marketplace/groups/${placeId}`,
+        `${API_BASE}/api/marketplace/groups/${shortId}`,
+        `${API_BASE}/api/listings/${placeId}`,
+        `${API_BASE}/api/listings/${shortId}`,
+        `${API_BASE}/api/marketplace/listings/${placeId}`,
+        `${API_BASE}/api/marketplace/listings/${shortId}`,
+      ];
+    }
+
+    // services/jobs/housing/products
+    return [
+      `${API_BASE}/api/listings/${placeId}`,
+      `${API_BASE}/api/listings/${shortId}`,
+
+      `${API_BASE}/api/marketplace/listings/${placeId}`,
+      `${API_BASE}/api/marketplace/listings/${shortId}`,
+
+      `${API_BASE}/api/listings?type=${encodeURIComponent(kind)}&id=${placeId}`,
+      `${API_BASE}/api/listings?type=${encodeURIComponent(kind)}&id=${shortId}`,
+    ];
+  }, [kind, placeId, shortId]);
+  // ✅ Reviews for ALL kinds (places/groups/services/jobs/housing/products) with fallback
+  const reviewsCandidates = useMemo(() => {
+    const k = encodeURIComponent(kind);
+    return [
+      // community legacy
+      `${API_BASE}/api/community/${k}/${placeId}/reviews`,
+      `${API_BASE}/api/community/${k}/${shortId}/reviews`,
+
+      // marketplace
+      `${API_BASE}/api/marketplace/${k}/${placeId}/reviews`,
+      `${API_BASE}/api/marketplace/${k}/${shortId}/reviews`,
+
+      // unified listings
+      `${API_BASE}/api/listings/${placeId}/reviews`,
+      `${API_BASE}/api/listings/${shortId}/reviews`,
+      `${API_BASE}/api/marketplace/listings/${placeId}/reviews`,
+      `${API_BASE}/api/marketplace/listings/${shortId}/reviews`,
+    ];
+  }, [kind, placeId, shortId]);
+
+  const reviewMeCandidates = useMemo(() => {
+    const k = encodeURIComponent(kind);
+    return [
+      // community legacy
+      `${API_BASE}/api/community/${k}/${placeId}/reviews/me`,
+      `${API_BASE}/api/community/${k}/${shortId}/reviews/me`,
+
+      // marketplace
+      `${API_BASE}/api/marketplace/${k}/${placeId}/reviews/me`,
+      `${API_BASE}/api/marketplace/${k}/${shortId}/reviews/me`,
+
+      // unified listings
+      `${API_BASE}/api/listings/${placeId}/reviews/me`,
+      `${API_BASE}/api/listings/${shortId}/reviews/me`,
+      `${API_BASE}/api/marketplace/listings/${placeId}/reviews/me`,
+      `${API_BASE}/api/marketplace/listings/${shortId}/reviews/me`,
+    ];
+  }, [kind, placeId, shortId]);
+
+  // ✅ we store the actual working endpoints we discovered
+  const [reviewsBaseUrl, setReviewsBaseUrl] = useState("");
+  const [reviewMeBaseUrl, setReviewMeBaseUrl] = useState("");
+  // ✅ resolved working endpoints (from fetchReviews)
+  const reviewsUrl = reviewsBaseUrl || "";
+  const reviewMeUrl = reviewMeBaseUrl || "";
+
   const fetchPlace = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/api/community/places/${placeId}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || "Failed to load place");
-      setPlace(data);
+
+      const out = await fetchFirstOk(detailsCandidates, {
+        headers: { ...authHeaders() },
+      });
+
+      console.group("📦 FETCH PLACE DEBUG");
+      console.log("kind:", kind);
+      console.log("placeId:", placeId);
+      console.log("shortId:", shortId);
+      console.log("endpoint used:", out.url);
+      console.log("RAW DATA FROM API >>>", out.data);
+      console.groupEnd();
+
+      if (!out.ok) throw new Error(out.error || "Failed to load details");
+
+      const normalized = normalizeToPlaceShape(out.data, kind);
+
+      console.group("🧩 NORMALIZED DATA");
+      console.log("NORMALIZED >>>", normalized);
+      console.groupEnd();
+
+      setPlace(normalized);
     } catch (e) {
-      notify.error(e?.message || "Failed to load place");
+      notify.error(e?.message || "Failed to load details");
       setPlace(null);
     } finally {
       setLoading(false);
@@ -360,18 +623,31 @@ export default function PlaceDetailsView({ lang }) {
   const fetchReviews = async () => {
     try {
       setReviewsLoading(true);
-      const res = await fetch(
-        `${API_BASE}/api/community/places/${placeId}/reviews`,
-        {
-          headers: { ...authHeaders() },
-        }
-      );
-      const data = await res.json().catch(() => []);
-      if (!res.ok) throw new Error(data?.error || "Failed to load reviews");
-      setReviews(Array.isArray(data) ? data : []);
+
+      const out = await fetchFirstOk(reviewsCandidates, {
+        headers: { ...authHeaders() },
+      });
+
+      if (!out.ok) {
+        setReviews([]);
+        setReviewsBaseUrl("");
+        setReviewMeBaseUrl("");
+        return;
+      }
+
+      const list = Array.isArray(out.data) ? out.data : out.data?.reviews || [];
+      setReviews(Array.isArray(list) ? list : []);
+
+      setReviewsBaseUrl(out.url || "");
+
+      // guess the /me endpoint based on the working reviews url
+      const guessMe = (out.url || "").replace(/\/reviews\/?$/, "/reviews/me");
+      setReviewMeBaseUrl(guessMe || "");
     } catch (e) {
       notify.error(e?.message || "Failed to load reviews");
       setReviews([]);
+      setReviewsBaseUrl("");
+      setReviewMeBaseUrl("");
     } finally {
       setReviewsLoading(false);
     }
@@ -411,7 +687,7 @@ export default function PlaceDetailsView({ lang }) {
     fetchReviews();
     fetchMe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [placeId]);
+  }, [placeId, navType]);
 
   // ✅ Detect myReview by id OR name
   useEffect(() => {
@@ -469,23 +745,184 @@ export default function PlaceDetailsView({ lang }) {
     if (!text) return notify.error("اكتب رأيك");
     if (!(stars >= 1 && stars <= 5)) return notify.error("Stars must be 1..5");
 
-    try {
-      const res = await fetch(
-        `${API_BASE}/api/community/places/${placeId}/reviews`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({ stars, text }),
-        }
-      );
+    // ✅ build prefixed id if needed: groups -> group_1, places -> place_10, services -> service_3 ...
+    const pid = String(placeId || "").trim();
+    const sid = String(shortId || "").trim();
+    const hasPrefix = pid.includes("_");
 
+    // map plural -> singular (groups -> group, places -> place, services -> service)
+    const singular =
+      kind === "groups"
+        ? "group"
+        : kind === "places"
+        ? "place"
+        : kind === "services"
+        ? "service"
+        : kind; // jobs/housing/products usually already plural in ids
+
+    const prefId = hasPrefix ? pid : `${singular}_${sid || pid}`;
+
+    // ✅ prefer unified listings endpoints first
+    const kEnc = encodeURIComponent(kind);
+
+    // ✅ for places/groups: prefer legacy numeric endpoints first (they often reject place_18 on POST)
+    const postUrls =
+      kind === "places" || kind === "groups"
+        ? [
+            // ✅ legacy (best for POST on old schema)
+            `${API_BASE}/api/community/${kEnc}/${sid}/reviews`,
+            `${API_BASE}/api/community/${kEnc}/${pid}/reviews`,
+
+            // ✅ unified numeric (some servers accept only numeric)
+            `${API_BASE}/api/listings/${sid}/reviews`,
+            `${API_BASE}/api/marketplace/listings/${sid}/reviews`,
+
+            // ✅ unified prefixed (last)
+            `${API_BASE}/api/listings/${prefId}/reviews`,
+            `${API_BASE}/api/marketplace/listings/${prefId}/reviews`,
+          ]
+        : [
+            // ✅ for marketplace types prefer unified first
+            `${API_BASE}/api/listings/${prefId}/reviews`,
+            `${API_BASE}/api/listings/${pid}/reviews`,
+            `${API_BASE}/api/listings/${sid}/reviews`,
+            `${API_BASE}/api/marketplace/listings/${prefId}/reviews`,
+            `${API_BASE}/api/marketplace/listings/${pid}/reviews`,
+            `${API_BASE}/api/marketplace/listings/${sid}/reviews`,
+          ];
+    // ✅ some backends require PUT for update
+    const methods = myReview ? ["PUT", "POST"] : ["POST", "PUT"];
+
+    // ✅ if server needs review id for PUT
+    const reviewId =
+      myReview?.id ||
+      myReview?.review_id ||
+      myReview?._id ||
+      myReview?.rid ||
+      null;
+
+    const payload = {
+      // ✅ rating fields (different servers name it differently)
+      stars,
+      rating: stars,
+      score: stars,
+
+      // ✅ text fields
+      text,
+      comment: text,
+      body: text,
+      message: text,
+
+      // ✅ ids + type (helps many backends validate)
+      id: sid || pid,
+      itemId: sid || pid,
+      placeId: sid || pid,
+      listingId: sid || pid,
+      targetId: sid || pid,
+
+      prefixedId: prefId,
+      listing_id: sid || pid,
+      kind,
+      type: kind,
+      listing_type: kind,
+    };
+    const tryOne = async (url, m) => {
+      const res = await fetch(url, {
+        method: m,
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(payload),
+      });
       const data = await res.json().catch(() => ({}));
-      if (res.status === 401) return requireLogin();
-      if (!res.ok) throw new Error(data?.error || "Failed to save review");
+      return { res, data };
+    };
 
-      notify.success(myReview ? "Review updated" : "Review added");
-      await fetchReviews();
-      setShowReviewForm(false);
+    const tryOneWithId = async (url) => {
+      // /reviews/:reviewId style
+      const u = reviewId ? `${url}/${reviewId}` : url;
+      const res = await fetch(u, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { res, data };
+    };
+
+    let lastErr = null;
+
+    try {
+      // 1) try normal POST/PUT
+      // 1) try normal endpoints (POST/PUT)
+      for (const u of postUrls) {
+        for (const m of methods) {
+          try {
+            const { res, data } = await tryOne(u, m);
+            if (res.status === 401) return requireLogin();
+
+            if (res.ok) {
+              notify.success(myReview ? "Review updated" : "Review added");
+              await fetchReviews();
+              setShowReviewForm(false);
+              return;
+            }
+
+            console.log("[review] failed:", {
+              url: u,
+              method: m,
+              status: res.status,
+              data,
+            });
+
+            lastErr =
+              data?.error ||
+              data?.message ||
+              data?.details ||
+              (typeof data === "string" ? data : JSON.stringify(data)) ||
+              `HTTP ${res.status}`;
+          } catch (e) {
+            lastErr = e?.message || "Network error";
+          }
+        }
+      }
+
+      // 2) if backend requires /reviews/:reviewId for update, try it
+      if (reviewId) {
+        for (const u of postUrls) {
+          try {
+            const res = await fetch(`${u}/${reviewId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json", ...authHeaders() },
+              body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 401) return requireLogin();
+
+            if (res.ok) {
+              notify.success("Review updated");
+              await fetchReviews();
+              setShowReviewForm(false);
+              return;
+            }
+
+            console.log("[review:/id] failed:", {
+              url: `${u}/${reviewId}`,
+              status: res.status,
+              data,
+            });
+
+            lastErr =
+              data?.error ||
+              data?.message ||
+              data?.details ||
+              (typeof data === "string" ? data : JSON.stringify(data)) ||
+              `HTTP ${res.status}`;
+          } catch (e) {
+            lastErr = e?.message || "Network error";
+          }
+        }
+      }
+
+      throw new Error(lastErr || "Failed to save review");
     } catch (e) {
       notify.error(e?.message || "Failed to save review");
     }
@@ -511,9 +948,60 @@ export default function PlaceDetailsView({ lang }) {
   };
 
   const deleteMyReview = async () => {
-    // ✅ تأكيد إن الكليك وصل للدالة
-
     if (!isLoggedIn()) return requireLogin();
+
+    // ✅ build delete candidates (try many, because backends differ)
+    const pid = String(placeId || "").trim();
+    const sid = String(shortId || "").trim();
+    const hasPrefix = pid.includes("_");
+
+    const singular =
+      kind === "groups"
+        ? "group"
+        : kind === "places"
+        ? "place"
+        : kind === "services"
+        ? "service"
+        : kind;
+
+    const prefId = hasPrefix ? pid : `${singular}_${sid || pid}`;
+
+    const reviewId =
+      myReview?.id ||
+      myReview?.review_id ||
+      myReview?._id ||
+      myReview?.rid ||
+      null;
+
+    const kEnc = encodeURIComponent(kind);
+
+    const deleteUrls = [
+      // ✅ explicit /me endpoints
+      ...reviewMeCandidates,
+
+      // ✅ derived from working reviews url (if found)
+      ...(reviewsUrl
+        ? [reviewsUrl.replace(/\/reviews\/?$/, "/reviews/me")]
+        : []),
+
+      // ✅ some servers delete by /reviews/:id
+      ...(reviewId
+        ? [
+            `${API_BASE}/api/listings/${prefId}/reviews/${reviewId}`,
+            `${API_BASE}/api/listings/${pid}/reviews/${reviewId}`,
+            `${API_BASE}/api/listings/${sid}/reviews/${reviewId}`,
+            `${API_BASE}/api/marketplace/listings/${prefId}/reviews/${reviewId}`,
+            `${API_BASE}/api/marketplace/listings/${pid}/reviews/${reviewId}`,
+            `${API_BASE}/api/marketplace/listings/${sid}/reviews/${reviewId}`,
+            `${API_BASE}/api/community/${kEnc}/${sid}/reviews/${reviewId}`,
+            `${API_BASE}/api/community/${kEnc}/${pid}/reviews/${reviewId}`,
+            `${API_BASE}/api/marketplace/${kEnc}/${sid}/reviews/${reviewId}`,
+            `${API_BASE}/api/marketplace/${kEnc}/${pid}/reviews/${reviewId}`,
+          ]
+        : []),
+    ].filter(Boolean);
+
+    // ✅ تأكيد إن الكليك وصل للدالة
 
     const ok = await toastConfirm({
       title: "تأكيد الحذف",
@@ -525,33 +1013,51 @@ export default function PlaceDetailsView({ lang }) {
     console.log("[deleteMyReview] confirm result:", ok);
 
     if (!ok) return;
-
     const loadingId = notify.loading("Deleting…");
 
     try {
-      const res = await fetch(
-        `${API_BASE}/api/community/places/${placeId}/reviews/me`,
-        {
-          method: "DELETE",
-          headers: { ...authHeaders() },
+      let lastErr = null;
+
+      for (const u of deleteUrls) {
+        try {
+          const res = await fetch(u, {
+            method: "DELETE",
+            headers: { ...authHeaders() },
+          });
+          const data = await res.json().catch(() => ({}));
+
+          if (res.status === 401) return requireLogin();
+
+          if (res.ok) {
+            notify.dismiss(loadingId);
+            notify.success("Review deleted");
+
+            setMyReview(null);
+            setShowReviewForm(true);
+            setRStars(5);
+            setRText("");
+
+            await fetchReviews();
+            return;
+          }
+
+          console.log("[delete review] failed:", {
+            url: u,
+            status: res.status,
+            data,
+          });
+
+          lastErr =
+            data?.error ||
+            data?.message ||
+            (typeof data === "string" ? data : JSON.stringify(data)) ||
+            `HTTP ${res.status}`;
+        } catch (e) {
+          lastErr = e?.message || "Network error";
         }
-      );
+      }
 
-      const data = await res.json().catch(() => ({}));
-
-      if (res.status === 401) return requireLogin();
-      if (!res.ok) throw new Error(data?.error || "Failed to delete review");
-
-      notify.dismiss(loadingId);
-      notify.success("Review deleted");
-
-      // ✅ افتح الفورم تاني عشان تقدر تضيف
-      setMyReview(null);
-      setShowReviewForm(true);
-      setRStars(5);
-      setRText("");
-
-      await fetchReviews();
+      throw new Error(lastErr || "Failed to delete review");
     } catch (e) {
       notify.dismiss(loadingId);
       notify.error(e?.message || "Failed to delete review");
@@ -652,6 +1158,38 @@ export default function PlaceDetailsView({ lang }) {
                   .filter(Boolean)
                   .join(", ")}
               </span>
+              {!isPlaceType && displayPrice ? (
+                <span className="inline-flex items-center gap-2 rounded-xl bg-gray-50 border px-3 py-2">
+                  <span className="text-xs font-semibold text-gray-600">
+                    Price
+                  </span>
+                  <span className="text-sm font-semibold text-gray-900">
+                    {displayPrice}
+                  </span>
+                </span>
+              ) : null}
+
+              {!isPlaceType && displayLink ? (
+                <a
+                  className="inline-flex items-center gap-2 rounded-xl bg-gray-50 border px-3 py-2 hover:bg-gray-100"
+                  href={displayLink}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <ExternalLink className="h-4 w-4 text-gray-500" />
+                  Open link
+                </a>
+              ) : null}
+
+              {!isPlaceType && displayContact ? (
+                <a
+                  className="inline-flex items-center gap-2 rounded-xl bg-gray-50 border px-3 py-2 hover:bg-gray-100"
+                  href={`tel:${String(displayContact).replace(/\s+/g, "")}`}
+                >
+                  <Phone className="h-4 w-4 text-gray-500" />
+                  {displayContact}
+                </a>
+              ) : null}
 
               {place.phone ? (
                 <a
@@ -765,7 +1303,7 @@ export default function PlaceDetailsView({ lang }) {
               <div className="mt-4 space-y-3">
                 {reviews.map((r) => {
                   const isMine = isReviewMine(r);
-
+                  console.log("REVIEW >>>", r);
                   const safeKey =
                     r.id ||
                     `${r.user_id || r.userId || r.user?.id || "u"}-${
@@ -815,9 +1353,7 @@ export default function PlaceDetailsView({ lang }) {
 
                         <div className="flex items-center gap-2">
                           <div className="text-xs text-gray-500 whitespace-nowrap">
-                            {r.created_at
-                              ? new Date(r.created_at).toLocaleString()
-                              : ""}
+                            {safeDateToLocaleString(r.created_at)}
                           </div>
 
                           {isMine && isLoggedIn() ? (
