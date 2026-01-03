@@ -41,6 +41,7 @@ const API_BASE =
 /* =========================
    Constants
 ========================= */
+const PAGE_SIZE = 12; // ✅ غيّرها براحتك
 
 const US_STATES = [
   "AL",

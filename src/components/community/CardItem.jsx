@@ -504,7 +504,7 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
 
             {priceValue ? (
               <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-50 border border-gray-200 text-gray-700">
-                {priceValue}
+                ${priceValue}
               </span>
             ) : null}
 

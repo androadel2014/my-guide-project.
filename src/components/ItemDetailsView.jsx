@@ -428,9 +428,9 @@ export default function ItemDetailsView({ lang }) {
   const isGroupType = kind === "groups";
   const isPlaceType = kind === "places";
 
-  console.log("kind:", kind);
-  console.log("placeId:", placeId);
-  console.log("shortId:", shortId);
+  // console.log("kind:ده", kind);
+  // console.log("placeId:ده", placeId);
+  // console.log("shortId:ده", shortId);
 
   // ✅ normalize item to "place-like" shape so UI stays same design
   function normalizeToPlaceShape(raw, t) {
@@ -595,20 +595,20 @@ export default function ItemDetailsView({ lang }) {
         headers: { ...authHeaders() },
       });
 
-      console.group("📦 FETCH PLACE DEBUG");
-      console.log("kind:", kind);
-      console.log("placeId:", placeId);
-      console.log("shortId:", shortId);
-      console.log("endpoint used:", out.url);
-      console.log("RAW DATA FROM API >>>", out.data);
+      // console.group("📦 FETCH PLACE DEBUGده");
+      // console.log("kind:ده", kind);
+      // console.log("placeId:ده", placeId);
+      // console.log("shortId:ده", shortId);
+      // console.log("endpoint used:ده", out.url);
+      // console.log("RAW DATA FROM API >>> ده", out.data);
       console.groupEnd();
 
       if (!out.ok) throw new Error(out.error || "Failed to load details");
 
       const normalized = normalizeToPlaceShape(out.data, kind);
 
-      console.group("🧩 NORMALIZED DATA");
-      console.log("NORMALIZED >>>", normalized);
+      // console.group("🧩 NORMALIZED DATA ده");
+      // console.log("NORMALIZED >>> ده", normalized);
       console.groupEnd();
 
       setPlace(normalized);
@@ -791,7 +791,8 @@ export default function ItemDetailsView({ lang }) {
             `${API_BASE}/api/marketplace/listings/${sid}/reviews`,
           ];
     // ✅ some backends require PUT for update
-    const methods = myReview ? ["PUT", "POST"] : ["POST", "PUT"];
+    // const methods = myReview ? ["PUT", "POST"] : ["POST", "PUT"];
+    const methods = ["POST"];
 
     // ✅ if server needs review id for PUT
     const reviewId =
@@ -840,7 +841,7 @@ export default function ItemDetailsView({ lang }) {
       // /reviews/:reviewId style
       const u = reviewId ? `${url}/${reviewId}` : url;
       const res = await fetch(u, {
-        method: "PUT",
+        method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify(payload),
       });
@@ -890,7 +891,7 @@ export default function ItemDetailsView({ lang }) {
         for (const u of postUrls) {
           try {
             const res = await fetch(`${u}/${reviewId}`, {
-              method: "PUT",
+              method: "POST",
               headers: { "Content-Type": "application/json", ...authHeaders() },
               body: JSON.stringify(payload),
             });
@@ -1024,6 +1025,7 @@ export default function ItemDetailsView({ lang }) {
             method: "DELETE",
             headers: { ...authHeaders() },
           });
+
           const data = await res.json().catch(() => ({}));
 
           if (res.status === 401) return requireLogin();
@@ -1303,7 +1305,9 @@ export default function ItemDetailsView({ lang }) {
               <div className="mt-4 space-y-3">
                 {reviews.map((r) => {
                   const isMine = isReviewMine(r);
-                  console.log("REVIEW >>>", r);
+
+                  // console.log("USER ID >>> ده", r.user_id || r.userId);
+
                   const safeKey =
                     r.id ||
                     `${r.user_id || r.userId || r.user?.id || "u"}-${

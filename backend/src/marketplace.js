@@ -1062,7 +1062,7 @@ module.exports = function registerMarketplace(opts) {
         `
         SELECT
           r.*,
-          COALESCE(u.name, u.full_name, u.username, u.email, 'User') AS user_name
+          COALESCE(u.username, u.email, 'User') AS user_name
         FROM marketplace_reviews r
         LEFT JOIN users u ON u.id = r.user_id
         WHERE r.listing_type = ? AND r.listing_id = ?
@@ -1227,7 +1227,7 @@ module.exports = function registerMarketplace(opts) {
         `
         SELECT
           r.*,
-          COALESCE(u.name, u.full_name, u.username, u.email, 'User') AS user_name
+          COALESCE(u.username, u.email, 'User') AS user_name
         FROM marketplace_reviews r
         LEFT JOIN users u ON u.id = r.user_id
         WHERE r.listing_type=? AND r.listing_id=?
@@ -1275,7 +1275,7 @@ module.exports = function registerMarketplace(opts) {
         `
         SELECT
           r.*,
-          COALESCE(u.name, u.full_name, u.username, u.email, 'User') AS user_name
+          COALESCE(u.username, u.email, 'User') AS user_name
         FROM marketplace_reviews r
         LEFT JOIN users u ON u.id = r.user_id
         WHERE r.listing_type=? AND r.listing_id=?
