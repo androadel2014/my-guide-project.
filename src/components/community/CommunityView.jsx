@@ -1114,7 +1114,7 @@ export default function CommunityView() {
         })
       );
     } catch (e) {
-    //   console.log(e);
+      //   console.log(e);
       console.error(e);
       toast.error("Failed to load listings");
       setItems([]);

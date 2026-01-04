@@ -520,40 +520,33 @@ module.exports = function registerCommunityRoutes({
       const params = [];
 
       const isAdmin = isAdminReq(req);
-      if (!isAdmin) where.push(`COALESCE(g.status,'approved') = 'approved'`);
+      if (!isAdmin) where.push(`COALESCE(status,'approved') = 'approved'`);
 
       if (String(q).trim()) {
-        where.push("(g.name LIKE ? OR g.notes LIKE ?)");
+        where.push("(name LIKE ? OR notes LIKE ?)");
         params.push(`%${q.trim()}%`, `%${q.trim()}%`);
       }
       if (state) {
-        where.push("g.state = ?");
+        where.push("state = ?");
         params.push(state);
       }
       if (String(city).trim()) {
-        where.push("LOWER(g.city)=LOWER(?)");
+        where.push("LOWER(city)=LOWER(?)");
         params.push(String(city).trim());
       }
       if (platform) {
-        where.push("g.platform = ?");
+        where.push("platform = ?");
         params.push(platform);
       }
       if (topic) {
-        where.push("g.topic = ?");
+        where.push("topic = ?");
         params.push(topic);
       }
 
-      const sql = `
-      SELECT
-        g.*,
-        COALESCE(AVG(r.stars), 0) AS avg_rating,
-        COUNT(r.id) AS reviews_count
-      FROM community_groups g
-      LEFT JOIN group_reviews r ON r.group_id = g.id
-      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-      GROUP BY g.id
-      ORDER BY g.id DESC
-    `;
+      const sql =
+        `SELECT * FROM community_groups ` +
+        (where.length ? `WHERE ${where.join(" AND ")} ` : "") +
+        `ORDER BY id DESC`;
 
       const rows = await all(sql, params);
       res.json(rows);
@@ -571,21 +564,10 @@ module.exports = function registerCommunityRoutes({
       const isAdmin = isAdminReq(req);
 
       const row = await get(
-        `
-      SELECT
-        g.*,
-        COALESCE(AVG(r.stars), 0) AS avg_rating,
-        COUNT(r.id) AS reviews_count
-      FROM community_groups g
-      LEFT JOIN group_reviews r ON r.group_id = g.id
-      WHERE g.id = ?
-      ${!isAdmin ? `AND COALESCE(g.status,'approved') = 'approved'` : ""}
-      GROUP BY g.id
-      LIMIT 1
-      `,
+        `SELECT * FROM community_groups WHERE id = ?
+         ${!isAdmin ? `AND COALESCE(status,'approved') = 'approved'` : ""}`,
         [id]
       );
-
       if (!row) return res.status(404).json({ error: "Not found" });
       res.json(row);
     } catch (e) {
