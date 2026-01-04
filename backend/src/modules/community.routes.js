@@ -207,10 +207,16 @@ module.exports = function registerCommunityRoutes({
       const isAdmin = isAdminReq(req);
       if (!isAdmin) where.push(`COALESCE(status,'approved') = 'approved'`);
 
-      if (String(q).trim()) {
-        where.push("(name LIKE ? OR notes LIKE ? OR address LIKE ?)");
-        params.push(`%${q.trim()}%`, `%${q.trim()}%`, `%${q.trim()}%`);
+      const qq = String(q || "").trim();
+      if (qq) {
+        // ✅ safer with non-latin + avoid any weird chars crashing sqlite
+        const like = `%${qq.replace(/[%_]/g, "\\$&")}%`;
+        where.push(
+          "(p.name LIKE ? ESCAPE '\\' OR p.notes LIKE ? ESCAPE '\\' OR p.address LIKE ? ESCAPE '\\')"
+        );
+        params.push(like, like, like);
       }
+
       if (state) {
         where.push("state = ?");
         params.push(state);
