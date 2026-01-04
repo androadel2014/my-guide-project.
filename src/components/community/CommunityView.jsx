@@ -495,6 +495,8 @@ export default function CommunityView() {
 
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
+  // ✅ Pagination
+  const [page, setPage] = useState(1);
 
   const [isLoggedIn, setIsLoggedIn] = useState(!!getToken());
   useEffect(() => {
@@ -971,6 +973,8 @@ export default function CommunityView() {
   ========================= */
 
   async function load() {
+    setPage(1);
+
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -1076,9 +1080,9 @@ export default function CommunityView() {
             collisions.push({ id, types: Array.from(types).join(", ") });
         }
         if (collisions.length) {
-          console.warn("ID collisions across types:", collisions);
+          //   console.warn("ID collisions across types:", collisions);
         } else {
-          console.log("No ID collisions across types ✅");
+          //   console.log("No ID collisions across types ✅");
         }
 
         return;
@@ -1110,7 +1114,7 @@ export default function CommunityView() {
         })
       );
     } catch (e) {
-      console.log(e);
+    //   console.log(e);
       console.error(e);
       toast.error("Failed to load listings");
       setItems([]);
@@ -1261,6 +1265,19 @@ export default function CommunityView() {
       toast.error("Failed to get location", { id: "geo" });
     }
   }
+  // ✅ Pagination derived
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const pageSafe = Math.min(Math.max(1, page), totalPages);
+
+  const pagedItems = useMemo(() => {
+    const start = (pageSafe - 1) * PAGE_SIZE;
+    return items.slice(start, start + PAGE_SIZE);
+  }, [items, pageSafe]);
+
+  useEffect(() => {
+    if (page !== pageSafe) setPage(pageSafe);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageSafe]);
 
   const activeTypeMeta =
     LISTING_TYPES.find((t) => t.key === tab) || LISTING_TYPES[0];
@@ -1481,6 +1498,7 @@ export default function CommunityView() {
               onClick={() => {
                 setTab(t.key);
                 resetFilters();
+                setPage(1);
               }}
               className={classNames(
                 "px-4 py-2 rounded-full border text-sm font-semibold",
@@ -1670,7 +1688,7 @@ export default function CommunityView() {
           />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {items.map((it) => (
+            {pagedItems.map((it) => (
               <CardItem
                 key={`${it.type || tab}-${it.id}`}
                 tab={tab}
@@ -1689,7 +1707,7 @@ export default function CommunityView() {
                   const id = normalizeId(it.id, t);
 
                   // ✅ survive refresh
-                  sessionStorage.setItem(`mp:type:${id}`, t);
+                  sessionStorage.setItem(`mp:type:${t}:${id}`, t);
                   return navigate(`/marketplace/item/${id}`, {
                     state: { type: t },
                   });
@@ -1699,6 +1717,134 @@ export default function CommunityView() {
           </div>
         )}
       </div>
+      {/* Pagination */}
+      {items.length > 0 ? (
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-gray-600">
+            Page <span className="font-semibold">{pageSafe}</span> of{" "}
+            <span className="font-semibold">{totalPages}</span> —{" "}
+            <span className="font-semibold">{items.length}</span> items
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(1)}
+              disabled={pageSafe === 1}
+              className={classNames(
+                "px-3 py-2 rounded-xl border text-sm font-semibold",
+                pageSafe === 1
+                  ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
+                  : "border-gray-200 text-gray-800 hover:bg-gray-50"
+              )}
+            >
+              First
+            </button>
+
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={pageSafe === 1}
+              className={classNames(
+                "px-3 py-2 rounded-xl border text-sm font-semibold",
+                pageSafe === 1
+                  ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
+                  : "border-gray-200 text-gray-800 hover:bg-gray-50"
+              )}
+            >
+              Prev
+            </button>
+            {/* Page numbers */}
+            {(() => {
+              const MAX = 5; // ✅ عدد أزرار الصفحات اللي هتظهر
+              const half = Math.floor(MAX / 2);
+
+              let start = Math.max(1, pageSafe - half);
+              let end = Math.min(totalPages, start + MAX - 1);
+              start = Math.max(1, end - MAX + 1);
+
+              const pages = [];
+              for (let i = start; i <= end; i++) pages.push(i);
+
+              return (
+                <div className="flex items-center gap-1">
+                  {start > 1 ? (
+                    <>
+                      <button
+                        onClick={() => setPage(1)}
+                        className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold text-gray-800"
+                      >
+                        1
+                      </button>
+                      {start > 2 ? (
+                        <span className="px-2 text-gray-500 select-none">
+                          …
+                        </span>
+                      ) : null}
+                    </>
+                  ) : null}
+
+                  {pages.map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p)}
+                      className={classNames(
+                        "px-3 py-2 rounded-xl border text-sm font-semibold",
+                        p === pageSafe
+                          ? "bg-black text-white border-black"
+                          : "border-gray-200 text-gray-800 hover:bg-gray-50"
+                      )}
+                    >
+                      {p}
+                    </button>
+                  ))}
+
+                  {end < totalPages ? (
+                    <>
+                      {end < totalPages - 1 ? (
+                        <span className="px-2 text-gray-500 select-none">
+                          …
+                        </span>
+                      ) : null}
+                      <button
+                        onClick={() => setPage(totalPages)}
+                        className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold text-gray-800"
+                      >
+                        {totalPages}
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              );
+            })()}
+
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={pageSafe === totalPages}
+              className={classNames(
+                "px-3 py-2 rounded-xl border text-sm font-semibold",
+                pageSafe === totalPages
+                  ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
+                  : "border-gray-200 text-gray-800 hover:bg-gray-50"
+              )}
+            >
+              Next
+            </button>
+
+            <button
+              onClick={() => setPage(totalPages)}
+              disabled={pageSafe === totalPages}
+              className={classNames(
+                "px-3 py-2 rounded-xl border text-sm font-semibold",
+                pageSafe === totalPages
+                  ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
+                  : "border-gray-200 text-gray-800 hover:bg-gray-50"
+              )}
+            >
+              Last
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {/* ✅ Unified Add/Edit Modal */}
       <Modal
         open={formOpen}
@@ -1775,13 +1921,13 @@ export default function CommunityView() {
       </Modal>
 
       {/* Note */}
-      <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      {/* <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         <div className="font-extrabold">Next (after this):</div>
         <div className="mt-1">
           Unified Details page for any listing + Reviews (add/edit/delete) +
           lock contact for guests.
         </div>
-      </div>
+      </div> */}
     </div>
   );
 }

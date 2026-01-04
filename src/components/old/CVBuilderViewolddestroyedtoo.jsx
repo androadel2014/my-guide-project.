@@ -126,7 +126,7 @@ export const CVBuilderView = ({ lang }) => {
           }
         })
         .catch((err) => {
-          console.log("إشعار: مستخدم جديد أو لا توجد بيانات سابقة.");
+          // console.log("إشعار: مستخدم جديد أو لا توجد بيانات سابقة.");
           // ضمان وجود بيانات افتراضية حتى في حالة الخطأ
           setData((prev) => ({
             ...prev,
@@ -188,7 +188,7 @@ export const CVBuilderView = ({ lang }) => {
     })
       .then((res) => res.json())
       .then((result) => {
-        console.log("✅ تم الحفظ بنجاح:", result);
+        // console.log("✅ تم الحفظ بنجاح:", result);
         toast.success(
           lang === "ar"
             ? "تمت إضافة السيرة الذاتية للقائمة بنجاح"

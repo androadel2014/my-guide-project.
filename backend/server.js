@@ -299,7 +299,7 @@ registerFeed({
   deleteFeedPostOwnedBy,
 });
 
-console.log("✅ registerMarketplace loaded:", typeof registerMarketplace);
+// console.log("✅ registerMarketplace loaded:", typeof registerMarketplace);
 
 // ✅ Marketplace (listings unified layer)
 // ✅ Ensure marketplace_listings has needed columns (prevents SQLITE_ERROR)

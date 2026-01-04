@@ -1011,7 +1011,7 @@ export default function ItemDetailsView({ lang }) {
       cancelText: "إلغاء",
     });
 
-    console.log("[deleteMyReview] confirm result:", ok);
+    // console.log("[deleteMyReview] confirm result:", ok);
 
     if (!ok) return;
     const loadingId = notify.loading("Deleting…");
@@ -1166,7 +1166,7 @@ export default function ItemDetailsView({ lang }) {
                     Price
                   </span>
                   <span className="text-sm font-semibold text-gray-900">
-                    {displayPrice}
+                    ${displayPrice}
                   </span>
                 </span>
               ) : null}
