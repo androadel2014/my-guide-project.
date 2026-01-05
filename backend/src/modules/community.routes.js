@@ -39,6 +39,25 @@ module.exports = function registerCommunityRoutes({
       });
     });
   }
+  // =====================
+  // ✅ Ownership guard (ONLY owner OR admin)
+  // =====================
+  async function assertOwnerOrAdmin(table, id, req, res) {
+    const row = await get(`SELECT created_by FROM ${table} WHERE id = ?`, [id]);
+    if (!row) {
+      res.status(404).json({ error: "Not found" });
+      return false;
+    }
+
+    const ownerId = Number(row.created_by || 0);
+    const meId = Number(req.user?.id || 0);
+
+    if (ownerId && meId && ownerId === meId) return true;
+    if (typeof isAdminReq === "function" && isAdminReq(req)) return true;
+
+    res.status(403).json({ error: "Forbidden" });
+    return false;
+  }
 
   // =====================
   // Tables
@@ -336,6 +355,9 @@ module.exports = function registerCommunityRoutes({
         [id]
       );
       if (!existing) return res.status(404).json({ error: "Not found" });
+      // ✅ only owner/admin can edit
+      const ok = await assertOwnerOrAdmin("community_places", id, req, res);
+      if (!ok) return;
 
       const b = req.body || {};
       const next = {
@@ -392,6 +414,9 @@ module.exports = function registerCommunityRoutes({
         [id]
       );
       if (!existing) return res.status(404).json({ error: "Not found" });
+      // ✅ only owner/admin can delete
+      const ok = await assertOwnerOrAdmin("community_places", id, req, res);
+      if (!ok) return;
 
       await run(`DELETE FROM community_places WHERE id = ?`, [id]);
       res.json({ ok: true });
@@ -637,6 +662,9 @@ module.exports = function registerCommunityRoutes({
         [id]
       );
       if (!existing) return res.status(404).json({ error: "Not found" });
+      // ✅ only owner/admin can edit
+      const ok = await assertOwnerOrAdmin("community_groups", id, req, res);
+      if (!ok) return;
 
       const b = req.body || {};
       const next = {
@@ -693,6 +721,9 @@ module.exports = function registerCommunityRoutes({
         [id]
       );
       if (!existing) return res.status(404).json({ error: "Not found" });
+      // ✅ only owner/admin can delete
+      const ok = await assertOwnerOrAdmin("community_groups", id, req, res);
+      if (!ok) return;
 
       await run(`DELETE FROM community_groups WHERE id = ?`, [id]);
       res.json({ ok: true });

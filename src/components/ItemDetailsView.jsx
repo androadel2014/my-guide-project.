@@ -1,7 +1,25 @@
 // src/components/ItemDetailsView.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
+import {
+  Modal,
+  ListingFormBody,
+  getSchema,
+  buildEditValues,
+  applyEditField,
+} from "./community/MarketplaceShared";
+
 import { toastConfirm, notify } from "../lib/notify";
+import {
+  US_STATES,
+  PLACE_CATEGORIES,
+  GROUP_PLATFORMS,
+  GROUP_TOPICS,
+  SERVICE_CATEGORIES,
+  JOB_CATEGORIES,
+  HOUSING_CATEGORIES,
+  PRODUCT_CATEGORIES,
+} from "./community/MarketplaceShared";
 import {
   ArrowLeft,
   MapPin,
@@ -12,7 +30,9 @@ import {
   Sparkles,
   Lock,
   Pencil,
+  Trash2,
   X,
+  Save,
 } from "lucide-react";
 
 const API_BASE =
@@ -21,6 +41,68 @@ const API_BASE =
   "http://localhost:5000";
 
 const cn = (...a) => a.filter(Boolean).join(" ");
+function SelectField({ label, value, onChange, options = [], placeholder }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = React.useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const current = String(value || "").trim();
+
+  return (
+    <div ref={wrapRef} className="relative">
+      {label ? (
+        <div className="mb-1 text-xs font-semibold text-gray-700">{label}</div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setOpen((s) => !s)}
+        className="w-full rounded-xl border px-3 py-2 text-sm bg-white text-left hover:bg-gray-50"
+      >
+        {current || placeholder || "Select"}
+      </button>
+
+      {open ? (
+        <div className="absolute left-0 right-0 mt-2 z-[99999] rounded-xl border bg-white shadow-lg overflow-hidden">
+          <div className="max-h-64 overflow-auto">
+            {options.map((opt) => {
+              const v = typeof opt === "string" ? opt : opt?.value;
+              const labelTxt = typeof opt === "string" ? opt : opt?.label || v;
+
+              const active = String(v) === String(current);
+
+              return (
+                <button
+                  key={String(v)}
+                  type="button"
+                  onClick={() => {
+                    onChange(String(v));
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "w-full text-left px-3 py-2 text-sm hover:bg-gray-50",
+                    active ? "bg-gray-100 font-semibold" : ""
+                  )}
+                >
+                  {labelTxt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function getToken() {
   return localStorage.getItem("token") || "";
@@ -295,6 +377,53 @@ function normalizeMe(any) {
   return { id: id ?? null, username: username || "You" };
 }
 
+// ✅ normalize item to "place-like" shape so UI stays same design
+function normalizeToPlaceShape(raw, t) {
+  if (!raw) return null;
+
+  // ✅ unwrap common wrappers:
+  // { ok:true, item:{...} } OR { data:{ item:{...} } } OR { item:{...} }
+  const obj = raw?.item || raw?.data?.item || raw?.data || raw;
+
+  if (!obj) return null;
+
+  // marketplace listing (services/jobs/housing/products)
+  if (!["places", "groups"].includes(t)) {
+    return {
+      ...obj,
+
+      // ✅ prefer title (most listings)
+      name:
+        obj.title || obj.name || obj.business_name || obj.company || "Listing",
+
+      category: obj.category || t,
+      address: obj.address || obj.location || "",
+      city: obj.city || "",
+      state: obj.state || "",
+      zip: obj.zip || "",
+
+      phone: obj.phone || obj.contact || "",
+      website: obj.website || obj.link || obj.url || "",
+
+      description: obj.description || obj.notes || "",
+      notes: obj.notes || obj.description || "",
+      price: obj.price || obj.price_value || obj.amount || obj.budget || "",
+    };
+  }
+
+  // places/groups legacy
+  return {
+    ...obj,
+    name: obj.name || obj.title || "Item",
+    city: obj.city || "",
+    state: obj.state || "",
+    zip: obj.zip || "",
+    website: obj.website || obj.link || obj.url || "",
+    notes: obj.notes || obj.description || "",
+    description: obj.description || obj.notes || "",
+  };
+}
+
 export default function ItemDetailsView({ lang }) {
   const params = useParams();
   const navigate = useNavigate();
@@ -325,6 +454,24 @@ export default function ItemDetailsView({ lang }) {
 
   const [loading, setLoading] = useState(true);
   const [place, setPlace] = useState(null);
+  // ✅ remember which details endpoint actually worked (for PUT/DELETE)
+  const [detailsBaseUrl, setDetailsBaseUrl] = useState("");
+
+  // ✅ Edit Item modal
+  const [showEditItem, setShowEditItem] = useState(false);
+  const [editItemLoading, setEditItemLoading] = useState(false);
+  // ✅ lock page scroll when modal opens
+
+  const [eTitle, setETitle] = useState("");
+  const [eCategory, setECategory] = useState("");
+  const [eAddress, setEAddress] = useState("");
+  const [eCity, setECity] = useState("");
+  const [eState, setEState] = useState("");
+  const [eZip, setEZip] = useState("");
+  const [ePhone, setEPhone] = useState("");
+  const [eWebsite, setEWebsite] = useState("");
+  const [eDesc, setEDesc] = useState("");
+  const [ePrice, setEPrice] = useState("");
 
   const [reviewsLoading, setReviewsLoading] = useState(true);
   const [reviews, setReviews] = useState([]);
@@ -427,77 +574,29 @@ export default function ItemDetailsView({ lang }) {
 
   const isGroupType = kind === "groups";
   const isPlaceType = kind === "places";
+  // =========================
+  // ✅ Item permissions (Edit/Delete ITEM)
+  // =========================
+  const canEditItem = useMemo(() => {
+    const myId = effectiveMe?.id ? String(effectiveMe.id) : "";
+    const createdBy =
+      place?.created_by ??
+      place?.createdBy ??
+      place?.user_id ??
+      place?.userId ??
+      place?.owner_id ??
+      place?.ownerId ??
+      null;
+
+    if (!myId || !createdBy) return false;
+    return String(createdBy) === myId;
+  }, [effectiveMe, place]);
 
   // console.log("kind:ده", kind);
   // console.log("placeId:ده", placeId);
   // console.log("shortId:ده", shortId);
 
-  // ✅ normalize item to "place-like" shape so UI stays same design
-  function normalizeToPlaceShape(raw, t) {
-    if (!raw) return null;
-
-    // ✅ unwrap common wrappers:
-    // { ok:true, item:{...} } OR { data:{ item:{...} } } OR { item:{...} }
-    const obj = raw?.item || raw?.data?.item || raw?.data || raw;
-
-    if (!obj) return null;
-
-    // marketplace listing (services/jobs/housing/products)
-    if (!["places", "groups"].includes(t)) {
-      return {
-        ...obj,
-
-        // ✅ prefer title (most listings)
-        name:
-          obj.title ||
-          obj.name ||
-          obj.business_name ||
-          obj.company ||
-          "Listing",
-
-        category: obj.category || t,
-        address: obj.address || obj.location || "",
-        city: obj.city || "",
-        state: obj.state || "",
-        zip: obj.zip || "",
-
-        phone: obj.phone || obj.contact || "",
-        website: obj.website || obj.link || obj.url || "",
-
-        description: obj.description || obj.notes || "",
-        notes: obj.notes || obj.description || "",
-        price: obj.price || obj.price_value || obj.amount || obj.budget || "",
-      };
-    }
-
-    // places/groups legacy
-    return {
-      ...obj,
-      name: obj.name || obj.title || "Item",
-      city: obj.city || "",
-      state: obj.state || "",
-      zip: obj.zip || "",
-      website: obj.website || obj.link || obj.url || "",
-      notes: obj.notes || obj.description || "",
-      description: obj.description || obj.notes || "",
-    };
-  }
-
   // ✅ try multiple endpoints until one works
-  async function fetchFirstOk(urls, opts) {
-    let lastErr = null;
-    for (const u of urls) {
-      try {
-        const res = await fetch(u, opts);
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) return { ok: true, url: u, data };
-        lastErr = data?.error || `HTTP ${res.status}`;
-      } catch (e) {
-        lastErr = e?.message || "Network error";
-      }
-    }
-    return { ok: false, error: lastErr || "Failed" };
-  }
 
   // ✅ Details URL candidates (fallback strategy)
   const detailsCandidates = useMemo(() => {
@@ -604,6 +703,7 @@ export default function ItemDetailsView({ lang }) {
       console.groupEnd();
 
       if (!out.ok) throw new Error(out.error || "Failed to load details");
+      setDetailsBaseUrl(out.url || "");
 
       const normalized = normalizeToPlaceShape(out.data, kind);
 
@@ -618,6 +718,29 @@ export default function ItemDetailsView({ lang }) {
     } finally {
       setLoading(false);
     }
+  };
+  const sortReviewsDesc = (arr) => {
+    const list = Array.isArray(arr) ? [...arr] : [];
+    const toTime = (v) => {
+      if (!v) return 0;
+      const s = String(v).trim().replace(" ", "T");
+      const t = new Date(s).getTime();
+      return Number.isNaN(t) ? 0 : t;
+    };
+
+    // ✅ newest first
+    list.sort((a, b) => {
+      const tb = toTime(b?.created_at || b?.createdAt);
+      const ta = toTime(a?.created_at || a?.createdAt);
+      if (tb !== ta) return tb - ta;
+
+      // fallback stable order
+      const ib = Number(b?.id || b?.review_id || 0);
+      const ia = Number(a?.id || a?.review_id || 0);
+      return ib - ia;
+    });
+
+    return list;
   };
 
   const fetchReviews = async () => {
@@ -636,7 +759,8 @@ export default function ItemDetailsView({ lang }) {
       }
 
       const list = Array.isArray(out.data) ? out.data : out.data?.reviews || [];
-      setReviews(Array.isArray(list) ? list : []);
+      const sorted = sortReviewsDesc(list);
+      setReviews(sorted);
 
       setReviewsBaseUrl(out.url || "");
 
@@ -1088,15 +1212,161 @@ export default function ItemDetailsView({ lang }) {
     return false;
   };
 
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-5xl p-4 md:p-6">
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          Loading…
-        </div>
-      </div>
-    );
-  }
+  // =========================
+  // ✅ ITEM WRITE HELPERS (PUT/DELETE) — must be OUTSIDE loading block
+  // =========================
+  const writeFirstOk = async (urls, opts) => {
+    let lastErr = null;
+    for (const u of urls) {
+      try {
+        const res = await fetch(u, opts);
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401)
+          return { ok: false, unauthorized: true, url: u, data };
+        if (res.ok) return { ok: true, url: u, data };
+        lastErr = data?.error || data?.message || `HTTP ${res.status}`;
+      } catch (e) {
+        lastErr = e?.message || "Network error";
+      }
+    }
+    return { ok: false, error: lastErr || "Failed" };
+  };
+
+  const buildItemWriteCandidates = () => {
+    const pid = String(placeId || "").trim();
+    const sid = String(shortId || "").trim();
+
+    // ✅ best: use the exact endpoint that worked for GET
+    const base = detailsBaseUrl ? [detailsBaseUrl] : [];
+
+    const kEnc = encodeURIComponent(kind);
+
+    const more =
+      kind === "places" || kind === "groups"
+        ? [
+            `${API_BASE}/api/community/${kEnc}/${sid}`,
+            `${API_BASE}/api/community/${kEnc}/${pid}`,
+            `${API_BASE}/api/listings/${sid}`,
+            `${API_BASE}/api/listings/${pid}`,
+            `${API_BASE}/api/marketplace/listings/${sid}`,
+            `${API_BASE}/api/marketplace/listings/${pid}`,
+          ]
+        : [
+            `${API_BASE}/api/listings/${pid}`,
+            `${API_BASE}/api/listings/${sid}`,
+            `${API_BASE}/api/marketplace/listings/${pid}`,
+            `${API_BASE}/api/marketplace/listings/${sid}`,
+          ];
+
+    return [...base, ...more].filter(Boolean);
+  };
+
+  const openEditItem = () => {
+    if (!place) return;
+    setETitle(place.name || "");
+    setECategory(place.category || "");
+    setEAddress(place.address || "");
+    setECity(place.city || "");
+    setEState(place.state || "");
+    setEZip(place.zip || "");
+    setEPhone(place.phone || place.contact || "");
+    setEWebsite(place.website || place.link || place.url || "");
+    setEDesc(place.description || place.notes || "");
+    setEPrice(String(place.price || place.price_value || place.amount || ""));
+    setShowEditItem(true);
+  };
+
+  const updateItem = async () => {
+    if (!isLoggedIn()) return requireLogin();
+    if (!place) return;
+
+    const payload = {
+      name: eTitle,
+      title: eTitle,
+      category: eCategory,
+      address: eAddress,
+      city: eCity,
+      state: eState,
+      zip: eZip,
+      phone: ePhone,
+      contact: ePhone,
+      website: eWebsite,
+      link: eWebsite,
+      url: eWebsite,
+      description: eDesc,
+      notes: eDesc,
+      price: ePrice,
+      price_value: ePrice,
+      amount: ePrice,
+    };
+
+    const urls = buildItemWriteCandidates();
+    setEditItemLoading(true);
+    const loadingId = notify.loading("Saving…");
+
+    try {
+      const out = await writeFirstOk(urls, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify(payload),
+      });
+
+      if (!out.ok && out.unauthorized) return requireLogin();
+
+      if (!out.ok) {
+        const out2 = await writeFirstOk(urls, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify(payload),
+        });
+        if (!out2.ok && out2.unauthorized) return requireLogin();
+        if (!out2.ok) throw new Error(out2.error || "Failed to update item");
+      }
+
+      notify.dismiss(loadingId);
+      notify.success("Item updated");
+      setShowEditItem(false);
+      await fetchPlace();
+    } catch (e) {
+      notify.dismiss(loadingId);
+      notify.error(e?.message || "Failed to update item");
+    } finally {
+      setEditItemLoading(false);
+    }
+  };
+
+  const deleteItem = async () => {
+    if (!isLoggedIn()) return requireLogin();
+    if (!place) return;
+
+    const ok = await toastConfirm({
+      title: "تأكيد الحذف",
+      message: "متأكد عايز تمسح الـ Item ده؟",
+      confirmText: "مسح",
+      cancelText: "إلغاء",
+    });
+    if (!ok) return;
+
+    const urls = buildItemWriteCandidates();
+    const loadingId = notify.loading("Deleting…");
+
+    try {
+      const out = await writeFirstOk(urls, {
+        method: "DELETE",
+        headers: { ...authHeaders() },
+      });
+
+      if (!out.ok && out.unauthorized) return requireLogin();
+      if (!out.ok) throw new Error(out.error || "Failed to delete item");
+
+      notify.dismiss(loadingId);
+      notify.success("Item deleted");
+      navigate("/community");
+    } catch (e) {
+      notify.dismiss(loadingId);
+      notify.error(e?.message || "Failed to delete item");
+    }
+  };
 
   if (!place) {
     return (
@@ -1139,6 +1409,27 @@ export default function ItemDetailsView({ lang }) {
 
       {/* Place card */}
       <div className="rounded-2xl border bg-white p-5 md:p-6 shadow-sm">
+        {canEditItem ? (
+          <div className="ml-auto flex items-center gap-2 mb-5 ">
+            <button
+              onClick={openEditItem}
+              className="inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              title="Edit item"
+            >
+              <Pencil className="h-4 w-4" />
+              Edit
+            </button>
+
+            <button
+              onClick={deleteItem}
+              className="inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+              title="Delete item"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </button>
+          </div>
+        ) : null}
         <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
           {/* Left info */}
           <div className="min-w-0 flex-1">
@@ -1582,6 +1873,80 @@ export default function ItemDetailsView({ lang }) {
           )}
         </div>
       </div>
+      <Modal
+        open={showEditItem}
+        onClose={() => setShowEditItem(false)}
+        title="Edit item"
+        subtitle="Update info then save"
+      >
+        <ListingFormBody
+          formType={kind}
+          values={buildEditValues(kind, {
+            title: eTitle,
+            category: eCategory,
+            address: eAddress,
+            city: eCity,
+            state: eState,
+            zip: eZip,
+            phone: ePhone,
+            website: eWebsite,
+            desc: eDesc,
+            price: ePrice,
+          })}
+          setField={(k, v) =>
+            applyEditField(
+              {
+                setTitle: setETitle,
+                setCategory: setECategory,
+                setAddress: setEAddress,
+                setCity: setECity,
+                setState: setEState,
+                setZip: setEZip,
+                setPhone: setEPhone,
+                setWebsite: setEWebsite,
+                setDesc: setEDesc,
+                setPrice: setEPrice,
+              },
+              k,
+              v
+            )
+          }
+          getSchema={getSchema}
+          formCitySuggestions={[]}
+          onCancel={() => setShowEditItem(false)}
+          onSubmit={updateItem}
+          submitLabel={editItemLoading ? "Saving..." : "Save"}
+        />
+      </Modal>
     </div>
   );
 }
+async function fetchFirstOk(urls, opts) {
+  let lastErr = null;
+  for (const u of urls) {
+    try {
+      const res = await fetch(u, opts);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) return { ok: true, url: u, data };
+      lastErr = data?.error || `HTTP ${res.status}`;
+    } catch (e) {
+      lastErr = e?.message || "Network error";
+    }
+  }
+  return { ok: false, error: lastErr || "Failed" };
+}
+
+export {
+  StarsReadOnly,
+  StarsPicker,
+  RatingBreakdown,
+  safeDateToLocaleString,
+  normalizeToPlaceShape,
+  fetchFirstOk,
+  normalizeMe,
+  getMeFromTokenFallback,
+  getMeFromStorageFallback,
+  getToken,
+  authHeaders,
+  isLoggedIn,
+};

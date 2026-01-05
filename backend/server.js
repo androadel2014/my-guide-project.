@@ -334,7 +334,7 @@ registerAuthRoutes({
   dbRun,
   dbGet,
   safeTrim,
-  signJwt,
+  signToken: signJwt, // ✅ important: auth.routes.js expects "signToken"
   ensureProfileRow,
 });
 

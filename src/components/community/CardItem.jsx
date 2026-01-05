@@ -437,6 +437,33 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
   const createdAtVal = pickCreatedAt(it);
   const createdAgo = timeAgo(createdAtVal);
   const isNew = isNewByDate(createdAtVal, 48);
+  // ✅ Ownership (show actions ONLY for owner)
+  const me = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null");
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const meId = Number(
+    me?.id ?? me?.userId ?? me?.user_id ?? me?.uid ?? me?.sub ?? 0
+  );
+
+  const ownerId = Number(
+    it?.created_by ??
+      it?.createdBy ??
+      it?.created_by_id ??
+      it?.user_id ??
+      it?.userId ??
+      it?.owner_id ??
+      it?.ownerId ??
+      it?.createdById ??
+      it?.createdByUserId ??
+      0
+  );
+
+  const isOwner = !!meId && !!ownerId && meId === ownerId;
 
   const rightSubtitle =
     t !== "places" && t !== "groups" && (it.price || it.budget)
@@ -619,13 +646,13 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
           ) : null}
         </div>
 
-        {isLoggedIn ? (
+        {isLoggedIn && isOwner ? (
           <div className="shrink-0 relative">
             <button
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                setOpen((v) => !v); // أو سطر فتح/قفل المنيو اللي عندك
+                setOpen((v) => !v);
               }}
               className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50"
               title="Actions"
@@ -647,6 +674,7 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
                   <Pencil size={16} />
                   Edit
                 </button>
+
                 <button
                   onClick={(e) => {
                     e.preventDefault();

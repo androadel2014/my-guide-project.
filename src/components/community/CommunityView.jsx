@@ -9,7 +9,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 import { toastConfirm } from "../../lib/notify";
-import { createPortal } from "react-dom"; // ✅ add this import at top with other imports
+// import { createPortal } from "react-dom"; // ✅ add this import at top with other imports
+// import { normalizeToPlaceShape, fetchFirstOk } from "../ItemDetailsView";
 import {
   classNames,
   getToken,
@@ -17,6 +18,22 @@ import {
   tryFetchJSON,
 } from "../../lib/apiHelpers";
 import { CardItem } from "../community/CardItem";
+import {
+  Modal,
+  ListingFormBody,
+  US_STATES,
+  PLACE_CATEGORIES,
+  GROUP_PLATFORMS,
+  GROUP_TOPICS,
+  SERVICE_CATEGORIES,
+  JOB_CATEGORIES,
+  HOUSING_CATEGORIES,
+  PRODUCT_CATEGORIES,
+  EMPTY_VALUES,
+  normalizeId,
+  getCategoryOptionsForTab,
+  getSchema,
+} from "../community/MarketplaceShared";
 
 import {
   Plus,
@@ -42,101 +59,6 @@ const API_BASE =
    Constants
 ========================= */
 const PAGE_SIZE = 12; // ✅ غيّرها براحتك
-
-const US_STATES = [
-  "AL",
-  "AK",
-  "AZ",
-  "AR",
-  "CA",
-  "CO",
-  "CT",
-  "DE",
-  "FL",
-  "GA",
-  "HI",
-  "ID",
-  "IL",
-  "IN",
-  "IA",
-  "KS",
-  "KY",
-  "LA",
-  "ME",
-  "MD",
-  "MA",
-  "MI",
-  "MN",
-  "MS",
-  "MO",
-  "MT",
-  "NE",
-  "NV",
-  "NH",
-  "NJ",
-  "NM",
-  "NY",
-  "NC",
-  "ND",
-  "OH",
-  "OK",
-  "OR",
-  "PA",
-  "RI",
-  "SC",
-  "SD",
-  "TN",
-  "TX",
-  "UT",
-  "VT",
-  "VA",
-  "WA",
-  "WV",
-  "WI",
-  "WY",
-  "DC",
-];
-
-// legacy place categories
-const PLACE_CATEGORIES = [
-  "Restaurant",
-  "Cafe",
-  "Bakery",
-  "Grocery / Arab Market",
-  "Things to do",
-  "Park / Outdoors",
-  "Attraction",
-  "Mosque",
-  "Church",
-  "School / Daycare",
-  "Clinic / Doctor",
-  "Lawyer / Immigration",
-  "Car Services",
-  "Handyman / Home Services",
-  "Barber / Beauty",
-  "Shopping / Mall",
-  "Other",
-];
-
-// groups
-const GROUP_PLATFORMS = [
-  "Facebook",
-  "WhatsApp",
-  "Telegram",
-  "Discord",
-  "Meetup",
-  "Other",
-];
-const GROUP_TOPICS = [
-  "Immigration",
-  "Jobs",
-  "Housing",
-  "Education",
-  "Health",
-  "Friends",
-  "Business",
-  "Other",
-];
 
 function safeTrim(v) {
   return String(v ?? "").trim();
@@ -164,52 +86,6 @@ function useOutsideClick(ref, handler) {
 }
 
 // Marketplace extra categories (simple starter sets)
-const SERVICE_CATEGORIES = [
-  "Cleaning",
-  "Moving",
-  "Handyman",
-  "Plumbing",
-  "Electrical",
-  "HVAC",
-  "TV Mounting",
-  "Car Repair",
-  "Beauty",
-  "Tutoring",
-  "Legal",
-  "Other",
-];
-
-const JOB_CATEGORIES = [
-  "Restaurant",
-  "Delivery",
-  "Warehouse",
-  "Construction",
-  "Office",
-  "Tech",
-  "Healthcare",
-  "Driver",
-  "Other",
-];
-
-const HOUSING_CATEGORIES = [
-  "Rent",
-  "Room",
-  "Sublease",
-  "For Sale",
-  "Looking For",
-  "Other",
-];
-
-const PRODUCT_CATEGORIES = [
-  "Electronics",
-  "Furniture",
-  "Appliances",
-  "Clothing",
-  "Cars/Parts",
-  "Baby",
-  "Kitchen",
-  "Other",
-];
 
 /* =========================
    Helpers
@@ -359,50 +235,6 @@ function CardBanner({ tab, placeCategory, groupPlatform, subtitleRight }) {
    UI Components
 ========================= */
 
-function Modal({ open, onClose, title, subtitle, children }) {
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
-  if (!open) return null;
-
-  return createPortal(
-    <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl border border-gray-200 overflow-hidden">
-        <div className="flex items-start justify-between gap-3 px-6 py-5 border-b border-gray-100">
-          <div>
-            <div className="text-xl font-extrabold text-gray-900">{title}</div>
-            {subtitle ? (
-              <div className="mt-1 text-sm text-gray-500">{subtitle}</div>
-            ) : null}
-          </div>
-
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl hover:bg-gray-100 text-gray-700"
-            aria-label="Close"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        <div
-          className="px-6 py-5 max-h-[75vh] overflow-y-auto overscroll-contain"
-          style={{ WebkitOverflowScrolling: "touch" }}
-        >
-          {children}
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
 function EmptyState({ icon, title, desc }) {
   const Icon = icon;
   return (
@@ -524,6 +356,12 @@ export default function CommunityView() {
   const [addPickerType, setAddPickerType] = useState("places"); // places|groups|services|jobs|housing|products
 
   const endpoints = useMemo(() => {
+    // ✅ helper: marketplace list urls (try both styles)
+    const mpList = (type) => [
+      `${API_BASE}/api/listings?type=${type}`,
+      `${API_BASE}/api/marketplace/listings?type=${type}`,
+    ];
+
     // ✅ ALL = load from multiple sources and merge
     if (tab === "all") {
       return {
@@ -531,11 +369,11 @@ export default function CommunityView() {
         places: [`${API_BASE}/api/community/places`],
         groups: [`${API_BASE}/api/community/groups`],
 
-        // ✅ unified marketplace endpoint ONLY (no /api/marketplace/services, /jobs, etc)
-        services: [`${API_BASE}/api/marketplace/listings?type=services`],
-        jobs: [`${API_BASE}/api/marketplace/listings?type=jobs`],
-        housing: [`${API_BASE}/api/marketplace/listings?type=housing`],
-        products: [`${API_BASE}/api/marketplace/listings?type=products`],
+        // ✅ marketplace: try BOTH (some backends expose /api/listings, some /api/marketplace/listings)
+        services: mpList("services"),
+        jobs: mpList("jobs"),
+        housing: mpList("housing"),
+        products: mpList("products"),
       };
     }
 
@@ -543,34 +381,13 @@ export default function CommunityView() {
     if (tab === "places") return [`${API_BASE}/api/community/places`];
     if (tab === "groups") return [`${API_BASE}/api/community/groups`];
 
-    // ✅ unified marketplace endpoint ONLY
-    return [`${API_BASE}/api/marketplace/listings?type=${tab}`];
+    // ✅ marketplace single tab (try BOTH)
+    return mpList(tab);
   }, [tab]);
 
   /* =========================
      ✅ Unified Form (ONE add/edit modal)
   ========================= */
-
-  const EMPTY_VALUES = {
-    // shared
-    title: "",
-    category: "",
-    state: "",
-    city: "",
-    notes: "",
-    // places
-    address: "",
-    phone: "",
-    website: "",
-    // groups
-    platform: "Facebook",
-    topic: "Immigration",
-    link: "",
-    // marketplace
-    price: "",
-    contact: "",
-    description: "",
-  };
 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState("add"); // "add" | "edit"
@@ -580,159 +397,6 @@ export default function CommunityView() {
 
   function setField(k, v) {
     setValues((p) => ({ ...p, [k]: v }));
-  }
-
-  function getSchema(t) {
-    // fields to show per type
-    if (t === "places") {
-      return [
-        { k: "title", label: "Name *", type: "text", ph: "e.g. Kabul Kabob" },
-        {
-          k: "category",
-          label: "Category",
-          type: "select",
-          options: PLACE_CATEGORIES,
-        },
-        {
-          k: "state",
-          label: "State",
-          type: "select",
-          options: ["", ...US_STATES],
-        },
-        {
-          k: "city",
-          label: "City",
-          type: "text",
-          ph: "e.g. Fairfax",
-          list: "form-city-suggestions",
-        },
-        { k: "phone", label: "Phone", type: "text", ph: "+1 703..." },
-        {
-          k: "address",
-          label: "Address",
-          type: "text",
-          ph: "Full address",
-          span2: true,
-        },
-        {
-          k: "website",
-          label: "Website",
-          type: "text",
-          ph: "https://",
-          span2: true,
-        },
-        {
-          k: "notes",
-          label: "Notes",
-          type: "textarea",
-          ph: "What’s special about this place?",
-          span2: true,
-        },
-      ];
-    }
-
-    if (t === "groups") {
-      return [
-        {
-          k: "title",
-          label: "Group Name *",
-          type: "text",
-          ph: "e.g. Arabs in Virginia",
-          span2: true,
-        },
-        {
-          k: "platform",
-          label: "Platform",
-          type: "select",
-          options: GROUP_PLATFORMS,
-        },
-        { k: "topic", label: "Topic", type: "select", options: GROUP_TOPICS },
-        {
-          k: "state",
-          label: "State",
-          type: "select",
-          options: ["", ...US_STATES],
-        },
-        {
-          k: "city",
-          label: "City",
-          type: "text",
-          ph: "e.g. Alexandria",
-          list: "form-city-suggestions",
-        },
-        {
-          k: "link",
-          label: "Link *",
-          type: "text",
-          ph: "Facebook/WhatsApp invite link",
-          span2: true,
-        },
-        {
-          k: "notes",
-          label: "Notes",
-          type: "textarea",
-          ph: "Rules, who it’s for, etc.",
-          span2: true,
-        },
-      ];
-    }
-
-    // services/jobs/housing/products
-    return [
-      {
-        k: "title",
-        label: "Title *",
-        type: "text",
-        ph: "Title...",
-        span2: true,
-      },
-      {
-        k: "category",
-        label: "Category",
-        type: "select",
-        options: getCategoryOptionsForTab(t),
-      },
-      {
-        k: "price",
-        label: "Price / Budget",
-        type: "text",
-        ph: t === "jobs" ? "$18/hr" : "$500",
-      },
-      {
-        k: "state",
-        label: "State",
-        type: "select",
-        options: ["", ...US_STATES],
-      },
-      {
-        k: "city",
-        label: "City",
-        type: "text",
-        ph: "e.g. Arlington",
-        list: "form-city-suggestions",
-      },
-      {
-        k: "link",
-        label: "Link",
-        type: "text",
-        ph: "Optional: website / post / form",
-        span2: true,
-      },
-      {
-        k: "contact",
-        label: "Contact",
-        type: "text",
-        ph: "Optional: phone / email",
-        span2: true,
-      },
-      {
-        k: "description",
-        label: "Description",
-        type: "textarea",
-        ph: "Explain details for newcomers…",
-        span2: true,
-      },
-    ];
   }
 
   function openFormAdd(typeKey, preset) {
@@ -820,26 +484,6 @@ export default function CommunityView() {
 
     setValues(next);
     setFormOpen(true);
-  }
-
-  function normalizeId(raw, typeKey) {
-    const v = String(raw || "").trim();
-    if (!v) return v;
-
-    // ✅ لو جاي بصيغة: product_7 / housing_10 / services_3 ... → خليه "7"
-    if (v.includes("_")) {
-      const last = v.split("_").pop();
-      if (last && /^\d+$/.test(last)) return last;
-      // fallback: لو آخر جزء مش رقم، رجّع آخر جزء برضو
-      return last || v;
-    }
-
-    // ✅ لو رقم أصلاً
-    if (/^\d+$/.test(v)) return v;
-
-    // ✅ لو فيه رقم جوّه أي سترنج: "id:10" → "10"
-    const m = v.match(/(\d+)/);
-    return m ? m[1] : v;
   }
 
   async function submitForm() {
@@ -955,15 +599,6 @@ export default function CommunityView() {
     const ok = !!getToken();
     if (!ok) toast.error("Login required");
     return ok;
-  }
-
-  function getCategoryOptionsForTab(t) {
-    if (t === "places") return PLACE_CATEGORIES;
-    if (t === "services") return SERVICE_CATEGORIES;
-    if (t === "jobs") return JOB_CATEGORIES;
-    if (t === "housing") return HOUSING_CATEGORIES;
-    if (t === "products") return PRODUCT_CATEGORIES;
-    return [];
   }
 
   /* =========================
@@ -1645,11 +1280,11 @@ export default function CommunityView() {
                       ))}
                 </select>
 
-                {tab === "all" ? (
+                {/* {tab === "all" ? (
                   <div className="mt-1 text-xs text-gray-500">
                     Tip: In All, Category is a broad filter across all types.
                   </div>
-                ) : null}
+                ) : null} */}
               </div>
             </>
           )}
@@ -1859,75 +1494,17 @@ export default function CommunityView() {
         }
         subtitle="Fill the fields and save."
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {getSchema(formType).map((f) => (
-            <div key={f.k} className={f.span2 ? "md:col-span-2" : ""}>
-              <label className="text-sm font-medium text-gray-700">
-                {f.label}
-              </label>
-
-              {f.type === "select" ? (
-                <select
-                  value={values[f.k] || ""}
-                  onChange={(e) => setField(f.k, e.target.value)}
-                  className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                >
-                  {(f.options || []).map((op) => (
-                    <option key={op || "empty"} value={op}>
-                      {op || "Select"}
-                    </option>
-                  ))}
-                </select>
-              ) : f.type === "textarea" ? (
-                <textarea
-                  value={values[f.k] || ""}
-                  onChange={(e) => setField(f.k, e.target.value)}
-                  className="mt-1 w-full min-h-[110px] py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                  placeholder={f.ph || ""}
-                />
-              ) : (
-                <input
-                  value={values[f.k] || ""}
-                  onChange={(e) => setField(f.k, e.target.value)}
-                  list={f.list || undefined}
-                  className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                  placeholder={f.ph || ""}
-                />
-              )}
-            </div>
-          ))}
-
-          <datalist id="form-city-suggestions">
-            {formCitySuggestions.map((c) => (
-              <option key={c} value={c} />
-            ))}
-          </datalist>
-        </div>
-
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            onClick={() => setFormOpen(false)}
-            className="px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 font-semibold"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={submitForm}
-            className="px-4 py-2.5 rounded-xl bg-black text-white hover:bg-black/90 font-semibold"
-          >
-            {formMode === "edit" ? "Update" : "Save"}
-          </button>
-        </div>
+        <ListingFormBody
+          formType={formType}
+          values={values}
+          setField={setField}
+          getSchema={getSchema}
+          formCitySuggestions={formCitySuggestions}
+          onCancel={() => setFormOpen(false)}
+          onSubmit={submitForm}
+          submitLabel={formMode === "edit" ? "Update" : "Save"}
+        />
       </Modal>
-
-      {/* Note */}
-      {/* <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        <div className="font-extrabold">Next (after this):</div>
-        <div className="mt-1">
-          Unified Details page for any listing + Reviews (add/edit/delete) +
-          lock contact for guests.
-        </div>
-      </div> */}
     </div>
   );
 }

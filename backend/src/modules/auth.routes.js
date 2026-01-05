@@ -22,9 +22,11 @@ module.exports = function registerAuthRoutes({
       function (err) {
         if (err) {
           const msg = String(err.message || "").toLowerCase();
-          if (msg.includes("unique")) {
-            return res.status(400).json({ message: "Email exists" });
+
+          if (msg.includes("unique") || msg.includes("constraint")) {
+            return res.status(400).json({ message: "Email already exists" });
           }
+
           return res.status(500).json({ message: "Register failed" });
         }
 
