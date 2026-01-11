@@ -21,7 +21,10 @@ import {
 } from "./cvHelpers";
 
 export const CVBuilderView = ({ lang }) => {
-  const API_BASE = "http://localhost:5000";
+  const API_BASE =
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_BASE ||
+    "http://localhost:5000";
   const token = useMemo(() => localStorage.getItem("token") || "", []);
   const authHeaders = useMemo(() => {
     const h = { "Content-Type": "application/json" };
@@ -269,9 +272,7 @@ export const CVBuilderView = ({ lang }) => {
     const action = params.get("action");
     const format = params.get("format");
 
-    const endpoint = cvId
-      ? `${API_BASE}/api/cv/${cvId}`
-      : `${API_BASE}/api/cv`;
+    const endpoint = cvId ? `${API_BASE}/api/cv/${cvId}` : `${API_BASE}/api/cv`;
 
     fetch(endpoint, { headers: authHeaders })
       .then((res) => {

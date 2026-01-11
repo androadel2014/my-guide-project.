@@ -9,11 +9,13 @@ const path = require("path");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
+const registerAirports = require("./src/modules/airports");
 
 // =====================
 // Modules
 // =====================
 const registerCore = require("./src/modules/core");
+const registerCarry = require("./src/modules/carry");
 
 const registerSocialProfileRoutes = require("./src/modules/social-profile.routes");
 const registerAuthRoutes = require("./src/modules/auth.routes");
@@ -23,7 +25,7 @@ const registerCommunityRoutes = require("./src/modules/community.routes");
 
 // ✅ actual files in your tree are in /src (not /src/modules)
 const registerFeed = require("./src/feed");
-const registerMarketplace = require("../backend/src/marketplace");
+const registerMarketplace = require("./src/marketplace");
 
 // ✅ needed because you pass it to social-profile
 const { parseAnyPostId } = require("./src/feed");
@@ -45,7 +47,14 @@ const SQL_LOG = true;
 ===================== */
 function isAllowedOrigin(origin) {
   if (!origin) return true;
+
+  const allow = ["https://answerforu.com", "https://www.answerforu.com"];
+
+  // لو عندك دومين فرونت تاني مؤقت/ستيجينج ضيفه هنا
+  // allow.push("https://staging.answerforu.com");
+
   return (
+    allow.includes(origin) ||
     /^http:\/\/localhost:\d+$/.test(origin) ||
     /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)
   );
@@ -60,7 +69,7 @@ app.use((req, res, next) => {
 
     res.setHeader(
       "Access-Control-Allow-Headers",
-      "Content-Type, Authorization"
+      "Content-Type, Authorization, Accept"
     );
     res.setHeader(
       "Access-Control-Allow-Methods",
@@ -83,6 +92,7 @@ app.use(express.urlencoded({ extended: true }));
 ===================== */
 const dbPath = path.resolve(__dirname, "database.sqlite");
 const db = new sqlite3.Database(dbPath);
+registerAirports({ app, db });
 
 db.serialize(() => {
   db.run("PRAGMA foreign_keys = ON");
@@ -170,6 +180,15 @@ const auth = { authRequired, authOptional, isAdminReq, adminRequired };
 
 // ✅ support both names (old/new)
 const signJwt = core.signJwt || signToken;
+// ✅ Carry / Shipments routes
+registerCarry({
+  app,
+  db,
+  auth: { authRequired, authOptional, isAdminReq },
+  safeTrim,
+  safeJsonParse,
+  toInt,
+});
 
 /* =====================
    Profile bootstrap

@@ -27,7 +27,10 @@ import {
   Briefcase,
   Bot,
 } from "lucide-react";
-
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_BASE ||
+  "http://localhost:5000";
 export const CVBuilderView = ({ lang }) => {
   const [activeTab, setActiveTab] = useState("input");
 
@@ -167,9 +170,14 @@ export const CVBuilderView = ({ lang }) => {
     const action = params.get("action");
     const format = params.get("format");
 
+    const API_BASE =
+      import.meta.env.VITE_API_BASE_URL ||
+      import.meta.env.VITE_API_BASE ||
+      "http://localhost:5000";
+
     const endpoint = cvId
-      ? `http://localhost:5000/api/get-cv/${cvId}`
-      : `http://localhost:5000/api/get-cv-latest/${currentUser.id}`;
+      ? `${API_BASE}/api/get-cv/${cvId}`
+      : `${API_BASE}/api/get-cv-latest/${currentUser.id}`;
 
     fetch(endpoint)
       .then((res) => {
@@ -315,7 +323,7 @@ export const CVBuilderView = ({ lang }) => {
     }));
 
     // send to server
-    fetch("http://localhost:5000/api/cv", {
+    fetch(`${API_BASE}/api/cv`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

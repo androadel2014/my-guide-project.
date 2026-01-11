@@ -592,10 +592,6 @@ export default function ItemDetailsView({ lang }) {
     return String(createdBy) === myId;
   }, [effectiveMe, place]);
 
-  // console.log("kind:ده", kind);
-  // console.log("placeId:ده", placeId);
-  // console.log("shortId:ده", shortId);
-
   // ✅ try multiple endpoints until one works
 
   // ✅ Details URL candidates (fallback strategy)
@@ -694,12 +690,6 @@ export default function ItemDetailsView({ lang }) {
         headers: { ...authHeaders() },
       });
 
-      // console.group("📦 FETCH PLACE DEBUGده");
-      // console.log("kind:ده", kind);
-      // console.log("placeId:ده", placeId);
-      // console.log("shortId:ده", shortId);
-      // console.log("endpoint used:ده", out.url);
-      // console.log("RAW DATA FROM API >>> ده", out.data);
       console.groupEnd();
 
       if (!out.ok) throw new Error(out.error || "Failed to load details");
@@ -707,8 +697,6 @@ export default function ItemDetailsView({ lang }) {
 
       const normalized = normalizeToPlaceShape(out.data, kind);
 
-      // console.group("🧩 NORMALIZED DATA ده");
-      // console.log("NORMALIZED >>> ده", normalized);
       console.groupEnd();
 
       setPlace(normalized);
@@ -1134,8 +1122,6 @@ export default function ItemDetailsView({ lang }) {
       confirmText: "مسح",
       cancelText: "إلغاء",
     });
-
-    // console.log("[deleteMyReview] confirm result:", ok);
 
     if (!ok) return;
     const loadingId = notify.loading("Deleting…");
@@ -1597,7 +1583,6 @@ export default function ItemDetailsView({ lang }) {
                 {reviews.map((r) => {
                   const isMine = isReviewMine(r);
 
-                  // console.log("USER ID >>> ده", r.user_id || r.userId);
 
                   const safeKey =
                     r.id ||

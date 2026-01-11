@@ -3,6 +3,10 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Toaster } from "react-hot-toast";
 import ProfilePage from "./components/ProfilePage";
 import { initLang, applyLang } from "./lib/lang";
+// import CarryView from "./components/carry/CarryView";
+import CarryView from "./components/carry/CarryExploreView";
+// import CarryListingDetailsView from "./components/carry/CarryListingDetailsView";
+import CarryTripDetailsPage from "./components/carry/CarryTripDetailsPage";
 
 import {
   BrowserRouter as Router,
@@ -140,6 +144,12 @@ function AppContent() {
             <Route path="/start" element={<StartView lang={lang} />} />
 
             <Route path="/feed" element={<HomeFeedView />} />
+            <Route path="/carry" element={<CarryView />} lang="{lang}" />
+            <Route path="/carry/trips/:id" element={<CarryTripDetailsPage />} />
+            {/* <Route
+              path="/carry/listings/:id"
+              element={<CarryListingDetailsView />}
+            /> */}
 
             <Route path="/u/:userId" element={<ProfilePage lang={lang} />} />
 

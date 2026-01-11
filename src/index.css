@@ -162,7 +162,7 @@ body {
 /* } */
 /* 2. التصميم الخاص بالكمبيوتر والتحميل (Desktop & Print) */
 
-@media min-width: 1024px {
+@media (min-width: 1024px) {
   #cv-document {
     width: 210mm; /* مقاس A4 الحقيقي يظهر فقط في الشاشات الكبيرة */
     min-height: 297mm;

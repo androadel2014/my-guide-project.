@@ -1,7 +1,7 @@
 // Data.jsx (FULL FILE - copy/paste)
-
 import {
   Home,
+  Package,
   Sparkles,
   Map,
   Shield,
@@ -63,6 +63,12 @@ export const DATA = {
       label: { ar: "السكن", en: "Housing" },
       color: "bg-rose-500",
     },
+    {
+      id: "carry",
+      label: { ar: "الشحنات", en: "Carry" },
+      icon: Package,
+    },
+
     {
       id: "education",
       icon: GraduationCap,

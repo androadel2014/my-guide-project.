@@ -114,8 +114,10 @@ export const HomeView = ({ lang, setPage }) => {
                 <div className="flex items-start justify-between mb-6 relative z-10">
                   <div
                     className={`w-14 h-14 ${
-                      item.color
-                    } bg-opacity-10 rounded-2xl flex items-center justify-center ${item.color.replace(
+                      item?.color ?? ""
+                    } bg-opacity-10 rounded-2xl flex items-center justify-center ${String(
+                      item?.color ?? ""
+                    ).replace(
                       "bg-",
                       "text-"
                     )} group-hover:scale-110 transition-transform duration-300`}
