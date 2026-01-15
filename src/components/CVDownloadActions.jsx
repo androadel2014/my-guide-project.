@@ -1,16 +1,75 @@
 import React from "react";
 
-export const CVDocument = ({ finalCV }) => {
+const normLang = (lang) => {
+  const v = String(lang || "en").toLowerCase();
+  if (v.startsWith("ar")) return "ar";
+  if (v.startsWith("es")) return "es";
+  return "en";
+};
+const isRTL = (lang) => normLang(lang) === "ar";
+const dirForLang = (lang) => (isRTL(lang) ? "rtl" : "ltr");
+
+const I18N = {
+  en: {
+    summary: "Professional Summary",
+    education: "Education",
+    courses: "Relevant Courses",
+    experience: "Work Experience",
+    skills: "Skills",
+    languages: "Languages:",
+  },
+  ar: {
+    summary: "Professional Summary",
+    education: "Education",
+    courses: "Relevant Courses",
+    experience: "Work Experience",
+    skills: "Skills",
+    languages: "Languages:",
+  },
+  es: {
+    summary: "Professional Summary",
+    education: "Education",
+    courses: "Relevant Courses",
+    experience: "Work Experience",
+    skills: "Skills",
+    languages: "Languages:",
+  },
+};
+
+const t = (lang, key) => {
+  const L = normLang(lang);
+  return (I18N[L] && I18N[L][key]) || I18N.en[key] || key;
+};
+
+const sectionTitleStyle = {
+  fontWeight: 900,
+  letterSpacing: "1px",
+  textTransform: "uppercase",
+  borderBottom: "2px solid #cbd5e1",
+  padding: "10px 0 8px",
+  marginBottom: "10px",
+  fontSize: "14px",
+};
+
+export const CVDocument = ({ lang = "en", finalCV }) => {
   if (!finalCV) return null;
 
+  const L = normLang(lang);
+  const dir = dirForLang(L);
+
+  // Keep the resume itself LTR (ATS + english output), but page dir can still be set by parent
+  // If you ever allow non-English resume output, switch this to `dir`.
+  const resumeDir = "ltr";
+
   return (
-    <>
+    <div dir={resumeDir}>
       <div
         className="header-name"
         style={{
           fontSize: "36px",
           fontWeight: 900,
           textAlign: "center",
+          wordBreak: "break-word",
         }}
       >
         {finalCV.name}
@@ -26,6 +85,7 @@ export const CVDocument = ({ finalCV }) => {
           borderRadius: "10px",
           fontSize: "14px",
           fontWeight: 600,
+          wordBreak: "break-word",
         }}
       >
         {finalCV.contact}
@@ -34,25 +94,15 @@ export const CVDocument = ({ finalCV }) => {
       {/* SUMMARY */}
       {finalCV.summary && (
         <div style={{ marginTop: "18px" }}>
-          <div
-            className="section-title"
-            style={{
-              fontWeight: 900,
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              borderBottom: "2px solid #cbd5e1",
-              padding: "10px 0 8px",
-              marginBottom: "10px",
-              fontSize: "14px",
-            }}
-          >
-            Professional Summary
+          <div className="section-title" style={sectionTitleStyle}>
+            {t(L, "summary")}
           </div>
           <p
             style={{
               fontSize: "14px",
               lineHeight: 1.45,
               textAlign: "justify",
+              margin: 0,
             }}
           >
             {finalCV.summary}
@@ -63,19 +113,8 @@ export const CVDocument = ({ finalCV }) => {
       {/* EDUCATION */}
       {finalCV.education && finalCV.education.length > 0 && (
         <div style={{ marginTop: "18px" }}>
-          <div
-            className="section-title"
-            style={{
-              fontWeight: 900,
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              borderBottom: "2px solid #cbd5e1",
-              padding: "10px 0 8px",
-              marginBottom: "10px",
-              fontSize: "14px",
-            }}
-          >
-            Education
+          <div className="section-title" style={sectionTitleStyle}>
+            {t(L, "education")}
           </div>
           {finalCV.education.map((edu, i) => (
             <div key={i} style={{ marginBottom: "10px" }}>
@@ -85,13 +124,14 @@ export const CVDocument = ({ finalCV }) => {
                   justifyContent: "space-between",
                   fontWeight: 800,
                   fontSize: "14px",
+                  gap: "12px",
                 }}
               >
-                <span>
+                <span style={{ minWidth: 0, wordBreak: "break-word" }}>
                   {edu.school}
                   {edu.location ? `, ${edu.location}` : ""}
                 </span>
-                <span>{edu.date}</span>
+                <span style={{ whiteSpace: "nowrap" }}>{edu.date}</span>
               </div>
               <div style={{ fontSize: "14px" }}>{edu.degree}</div>
             </div>
@@ -102,19 +142,8 @@ export const CVDocument = ({ finalCV }) => {
       {/* COURSES */}
       {finalCV.courses && finalCV.courses.length > 0 && (
         <div style={{ marginTop: "18px" }}>
-          <div
-            className="section-title"
-            style={{
-              fontWeight: 900,
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              borderBottom: "2px solid #cbd5e1",
-              padding: "10px 0 8px",
-              marginBottom: "10px",
-              fontSize: "14px",
-            }}
-          >
-            Relevant Courses
+          <div className="section-title" style={sectionTitleStyle}>
+            {t(L, "courses")}
           </div>
 
           {finalCV.courses.map((course, i) => (
@@ -125,13 +154,14 @@ export const CVDocument = ({ finalCV }) => {
                 display: "flex",
                 justifyContent: "space-between",
                 fontSize: "14px",
+                gap: "12px",
               }}
             >
-              <span>
+              <span style={{ minWidth: 0, wordBreak: "break-word" }}>
                 <strong>{course.name}</strong>
                 {course.provider ? ` – ${course.provider}` : ""}
               </span>
-              <span>{course.date}</span>
+              <span style={{ whiteSpace: "nowrap" }}>{course.date}</span>
             </div>
           ))}
         </div>
@@ -140,19 +170,8 @@ export const CVDocument = ({ finalCV }) => {
       {/* EXPERIENCE */}
       {finalCV.experience && finalCV.experience.length > 0 && (
         <div style={{ marginTop: "18px" }}>
-          <div
-            className="section-title"
-            style={{
-              fontWeight: 900,
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              borderBottom: "2px solid #cbd5e1",
-              padding: "10px 0 8px",
-              marginBottom: "10px",
-              fontSize: "14px",
-            }}
-          >
-            Work Experience
+          <div className="section-title" style={sectionTitleStyle}>
+            {t(L, "experience")}
           </div>
 
           {finalCV.experience.map((exp, i) => (
@@ -163,13 +182,14 @@ export const CVDocument = ({ finalCV }) => {
                   justifyContent: "space-between",
                   fontWeight: 800,
                   fontSize: "14px",
+                  gap: "12px",
                 }}
               >
-                <span>
+                <span style={{ minWidth: 0, wordBreak: "break-word" }}>
                   {exp.company}
                   {exp.location ? `, ${exp.location}` : ""}
                 </span>
-                <span>{exp.dates}</span>
+                <span style={{ whiteSpace: "nowrap" }}>{exp.dates}</span>
               </div>
 
               <div
@@ -202,24 +222,13 @@ export const CVDocument = ({ finalCV }) => {
       {/* SKILLS */}
       {(finalCV.skills || finalCV.languages) && (
         <div style={{ marginTop: "18px" }}>
-          <div
-            className="section-title"
-            style={{
-              fontWeight: 900,
-              letterSpacing: "1px",
-              textTransform: "uppercase",
-              borderBottom: "2px solid #cbd5e1",
-              padding: "10px 0 8px",
-              marginBottom: "10px",
-              fontSize: "14px",
-            }}
-          >
-            Skills
+          <div className="section-title" style={sectionTitleStyle}>
+            {t(L, "skills")}
           </div>
 
           {finalCV.languages && (
             <p style={{ marginBottom: "8px", fontSize: "14px" }}>
-              <strong>Languages:</strong> {finalCV.languages}
+              <strong>{t(L, "languages")}</strong> {finalCV.languages}
             </p>
           )}
 
@@ -239,6 +248,7 @@ export const CVDocument = ({ finalCV }) => {
                     display: "flex",
                     gap: "8px",
                     alignItems: "flex-start",
+                    minWidth: 0,
                   }}
                 >
                   <span
@@ -251,13 +261,15 @@ export const CVDocument = ({ finalCV }) => {
                       flexShrink: 0,
                     }}
                   />
-                  {skill}
+                  <span style={{ minWidth: 0, wordBreak: "break-word" }}>
+                    {skill}
+                  </span>
                 </div>
               ))}
             </div>
           )}
         </div>
       )}
-    </>
+    </div>
   );
 };

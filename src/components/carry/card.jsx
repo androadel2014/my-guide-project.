@@ -19,6 +19,10 @@ import {
   XCircle,
   User,
   BadgeCheck,
+  Link as LinkIcon,
+  Clock,
+  Tag,
+  Globe,
 } from "lucide-react";
 
 /* =========================
@@ -66,7 +70,6 @@ const PROHIBITED_LABELS = {
 function isEmpty(v) {
   return v === null || v === undefined || String(v).trim() === "";
 }
-
 function pickFirstNonEmpty(it, key, fallback = "") {
   const candidates = [
     it?.[key],
@@ -74,24 +77,47 @@ function pickFirstNonEmpty(it, key, fallback = "") {
     it?.payload?.[key],
     it?.meta?.[key],
   ];
-  for (const v of candidates) {
-    if (!isEmpty(v)) return v;
-  }
+  for (const v of candidates) if (!isEmpty(v)) return v;
   return fallback;
 }
-
 function pick(it, key, fallback = "") {
   return pickFirstNonEmpty(it, key, fallback);
 }
-
 function pickStr(it, key, fallback = "") {
   const v = pickFirstNonEmpty(it, key, fallback);
   return isEmpty(v) ? "" : String(v).trim();
 }
-
 function pickUpper(it, key, fallback = "") {
   const v = pickStr(it, key, fallback);
   return v ? v.toUpperCase() : "";
+}
+
+function normStatus(v) {
+  return String(v || "open")
+    .trim()
+    .toLowerCase();
+}
+function prettyStatus(s) {
+  const st = normStatus(s);
+  if (st === "open") return "Open";
+  if (st === "pending") return "Pending";
+  if (st === "accepted") return "Accepted";
+  if (st === "rejected") return "Rejected";
+  if (st === "cancelled" || st === "canceled") return "Cancelled";
+  if (st === "matched") return "Matched";
+  if (st === "in_transit") return "In transit";
+  if (st === "delivered") return "Delivered";
+  if (st === "completed") return "Completed";
+  return st;
+}
+
+function statusTone(st) {
+  const s = normStatus(st);
+  if (["accepted", "completed", "delivered"].includes(s)) return "emerald";
+  if (["pending", "counter", "counter_offer"].includes(s)) return "amber";
+  if (["rejected", "cancelled", "canceled"].includes(s)) return "rose";
+  if (["matched", "in_transit"].includes(s)) return "amber";
+  return "slate";
 }
 
 function OwnerLine({ ownerId, verified }) {
@@ -107,6 +133,21 @@ function OwnerLine({ ownerId, verified }) {
       ) : null}
     </div>
   );
+}
+
+function clampText(v, max = 120) {
+  const s = String(v || "").trim();
+  if (!s) return "";
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+function safeHref(url) {
+  const u = String(url || "").trim();
+  if (!u) return "";
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  // allow user paste without scheme
+  if (u.includes(".") && !u.startsWith("javascript:")) return `https://${u}`;
+  return "";
 }
 
 /* =========================
@@ -214,9 +255,8 @@ export function TripCard({
   const authed = !!currentUserId;
   const owner = authed && String(ownerId) === String(currentUserId);
 
-  const status = String(it?.status || "open").toLowerCase();
+  const tripStatus = normStatus(it?.status || "open");
 
-  // ✅ FIX: read route from data first (your console shows fields are inside data)
   const fromCode =
     pickUpper(it, "from_airport_code") ||
     pickUpper(it, "from_airport") ||
@@ -229,7 +269,6 @@ export function TripCard({
     pickUpper(it, "to_iata") ||
     pickUpper(it, "to_code");
 
-  // fallback city/country (sometimes empty)
   const fromCity = pickStr(it, "from_city");
   const fromCountry = pickStr(it, "from_country");
   const toCity = pickStr(it, "to_city");
@@ -241,8 +280,9 @@ export function TripCard({
     toCode || [toCity, toCountry].filter(Boolean).join(", ") || "—";
 
   const travelDate = fmtDT(
-    pickStr(it, "travel_date") || pickStr(it, "arrival_date")
+    pickStr(it, "travel_date") || pickStr(it, "date") || ""
   );
+  const arrivalDate = fmtDT(pickStr(it, "arrival_date") || "");
 
   const airline = pickStr(it, "traveler_airline") || pickStr(it, "airline");
   const flight =
@@ -256,7 +296,6 @@ export function TripCard({
       ? "—"
       : `${weightVal} kg`;
 
-  // ✅ FIX: no_carry in your object is empty top-level but exists inside data
   const noCarryRaw = pick(it, "no_carry", []);
   const noCarry = Array.isArray(noCarryRaw) ? noCarryRaw : [];
 
@@ -355,7 +394,11 @@ export function TripCard({
             <Pill tone="indigo">
               <Plane size={14} /> Trip
             </Pill>
-            <Pill tone={status === "open" ? "emerald" : "amber"}>{status}</Pill>
+            <Pill
+              tone={tripStatus === "open" ? "emerald" : statusTone(tripStatus)}
+            >
+              {prettyStatus(tripStatus)}
+            </Pill>
           </div>
 
           <div className="mt-2 text-base font-extrabold text-slate-900">
@@ -384,13 +427,14 @@ export function TripCard({
                 : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
             )}
             title={savedOn ? "Saved" : "Save"}
+            type="button"
           >
             <Heart size={16} className={savedOn ? "fill-current" : ""} />
           </button>
         ) : null}
       </div>
 
-      {/* ROUTE (FIXED) */}
+      {/* ROUTE */}
       <div className="px-4">
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">
@@ -414,7 +458,6 @@ export function TripCard({
             </div>
           </div>
 
-          {/* WON'T CARRY (FIXED) */}
           {noCarry.length ? (
             <div className="mt-3">
               <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">
@@ -436,7 +479,7 @@ export function TripCard({
         </div>
       </div>
 
-      {/* DETAILS GRID (NO REWARD) */}
+      {/* DETAILS */}
       <div className="px-4 mt-3">
         <div className="grid grid-cols-2 gap-2">
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
@@ -468,10 +511,10 @@ export function TripCard({
 
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <div className="flex items-center gap-1 text-[11px] font-extrabold text-slate-500 uppercase">
-              <Calendar size={14} /> Date
+              <Calendar size={14} /> Arrival
             </div>
             <div className="mt-1 text-sm font-extrabold text-slate-900">
-              {travelDate}
+              {arrivalDate !== "—" ? arrivalDate : travelDate}
             </div>
           </div>
         </div>
@@ -514,7 +557,6 @@ export function TripCard({
           </div>
         ) : null}
 
-        {/* ✅ Edit/Delete NOT same row (stacked) */}
         {showOwnerActions && owner && onEdit && onDelete ? (
           <div className="space-y-2">
             <button
@@ -546,7 +588,7 @@ export function TripCard({
 }
 
 /* =========================
-   ShipmentCard
+   ShipmentCard (more professional + more data)
 ========================= */
 export function ShipmentCard({
   it,
@@ -567,6 +609,8 @@ export function ShipmentCard({
 
   const savedOn = saved?.has?.(String(it?.id));
 
+  const st = normStatus(pickStr(it, "status") || "open");
+
   const fromCity = pickStr(it, "from_city");
   const fromCountry = pickStr(it, "from_country");
   const toCity = pickStr(it, "to_city");
@@ -575,27 +619,22 @@ export function ShipmentCard({
   const fromLabel = [fromCity, fromCountry].filter(Boolean).join(", ") || "—";
   const toLabel = [toCity, toCountry].filter(Boolean).join(", ") || "—";
 
+  const weightRaw = pick(it, "item_weight", null);
   const weightText =
-    pick(it, "item_weight", "") === null ||
-    pick(it, "item_weight", "") === undefined ||
-    String(pick(it, "item_weight", "")).trim() === ""
+    weightRaw === null ||
+    weightRaw === undefined ||
+    String(weightRaw).trim() === ""
       ? "—"
-      : `${pick(it, "item_weight")} kg`;
+      : `${weightRaw} kg`;
 
+  const budgetAmt = pick(it, "budget_amount", null);
+  const budgetCur = pickStr(it, "budget_currency", "USD") || "USD";
   const budgetText =
-    pick(it, "budget_amount", "") === null ||
-    pick(it, "budget_amount", "") === undefined ||
-    String(pick(it, "budget_amount", "")).trim() === ""
+    budgetAmt === null ||
+    budgetAmt === undefined ||
+    String(budgetAmt).trim() === ""
       ? "—"
-      : `${pickStr(it, "budget_currency", "USD") || "USD"} ${pick(
-          it,
-          "budget_amount"
-        )}`;
-
-  const showDetails = !!flags?.showDetails;
-  const showSave = !!flags?.showSave;
-  const showImage = !!flags?.showImage;
-  const showOwnerActions = !!flags?.showOwnerActions;
+      : `${budgetCur} ${budgetAmt}`;
 
   const catText = categoryLabel(
     pickStr(it, "category") ||
@@ -603,12 +642,31 @@ export function ShipmentCard({
       pickStr(it, "cat")
   );
 
+  const title = pickStr(it, "item_title") || pickStr(it, "title") || "Shipment";
+
+  const desc = clampText(
+    pickStr(it, "item_desc") || pickStr(it, "description"),
+    140
+  );
+
   const deadline = fmtDT(
     pickStr(it, "deadline") || pickStr(it, "deliver_before")
   );
 
+  const productUrl =
+    pickStr(it, "product_url") ||
+    pickStr(it, "productUrl") ||
+    pickStr(it, "url") ||
+    "";
+  const productHref = safeHref(productUrl);
+
   const img =
     pickStr(it, "image") || pickStr(it, "item_image") || pickStr(it, "photo");
+
+  const showDetails = !!flags?.showDetails;
+  const showSave = !!flags?.showSave;
+  const showImage = !!flags?.showImage;
+  const showOwnerActions = !!flags?.showOwnerActions;
 
   return (
     <div className="group rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden transition-all hover:shadow-md">
@@ -618,17 +676,16 @@ export function ShipmentCard({
             <Pill tone="amber">
               <Package size={14} /> Shipment
             </Pill>
+
             <Pill tone="indigo">
-              <Sparkles size={14} /> {catText}
+              <Tag size={14} /> {catText}
             </Pill>
-            <Pill tone="slate">
-              <Calendar size={14} /> {deadline}
-            </Pill>
+
+            <Pill tone={statusTone(st)}>{prettyStatus(st)}</Pill>
           </div>
 
           <div className="mt-2 text-base font-extrabold text-slate-900 truncate">
-            #{it?.id} •{" "}
-            {pickStr(it, "item_title") || pickStr(it, "title") || "Shipment"}
+            #{it?.id} • {title}
           </div>
 
           <div className="mt-2 space-y-1">
@@ -650,12 +707,14 @@ export function ShipmentCard({
                 : "border-slate-200 bg-white hover:bg-slate-50 text-slate-700"
             )}
             title={savedOn ? "Saved" : "Save"}
+            type="button"
           >
             <Heart size={16} className={savedOn ? "fill-current" : ""} />
           </button>
         ) : null}
       </div>
 
+      {/* ROUTE */}
       <div className="px-4">
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wide">
@@ -666,7 +725,9 @@ export function ShipmentCard({
               <div className="text-sm font-extrabold text-slate-900 truncate">
                 {fromLabel}
               </div>
-              <div className="text-xs text-slate-500">From</div>
+              <div className="text-xs text-slate-500 inline-flex items-center gap-1">
+                <Globe size={12} /> From
+              </div>
             </div>
             <div className="h-9 w-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-700 font-black">
               →
@@ -675,17 +736,73 @@ export function ShipmentCard({
               <div className="text-sm font-extrabold text-slate-900 truncate">
                 {toLabel}
               </div>
-              <div className="text-xs text-slate-500">To</div>
+              <div className="text-xs text-slate-500 inline-flex items-center gap-1 justify-end">
+                <Globe size={12} /> To
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <div className="flex items-center gap-1 text-[11px] font-extrabold text-slate-500 uppercase">
+                <Clock size={14} /> Deadline
+              </div>
+              <div className="mt-1 text-sm font-extrabold text-slate-900">
+                {deadline}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <div className="flex items-center gap-1 text-[11px] font-extrabold text-slate-500 uppercase">
+                <Weight size={14} /> Weight
+              </div>
+              <div className="mt-1 text-sm font-extrabold text-slate-900">
+                {weightText}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <div className="flex items-center gap-1 text-[11px] font-extrabold text-slate-500 uppercase">
+                <MapPin size={14} /> Budget
+              </div>
+              <div className="mt-1 text-sm font-extrabold text-slate-900">
+                {budgetText}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <div className="flex items-center gap-1 text-[11px] font-extrabold text-slate-500 uppercase">
+                <LinkIcon size={14} /> Product
+              </div>
+              <div className="mt-1 text-sm font-extrabold text-slate-900 truncate">
+                {productHref ? (
+                  <a
+                    href={productHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-indigo-700 hover:underline"
+                    onClick={(e) => e.stopPropagation()}
+                    title={productHref}
+                  >
+                    Open link
+                  </a>
+                ) : productUrl ? (
+                  <span className="text-slate-500">Invalid link</span>
+                ) : (
+                  "—"
+                )}
+              </div>
             </div>
           </div>
         </div>
       </div>
 
+      {/* IMAGE */}
       {showImage ? (
         <div className="px-4 mt-3">
           {img ? (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 overflow-hidden">
-              <img src={img} alt="" className="w-full h-40 object-cover" />
+              <img src={img} alt="" className="w-full h-44 object-cover" />
             </div>
           ) : (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
@@ -695,26 +812,21 @@ export function ShipmentCard({
         </div>
       ) : null}
 
-      <div className="px-4 mt-3 grid grid-cols-2 gap-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-3">
-          <div className="flex items-center gap-1 text-[11px] font-extrabold text-slate-500 uppercase">
-            <Weight size={14} /> Weight
-          </div>
-          <div className="mt-1 text-sm font-extrabold text-slate-900">
-            {weightText}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-3">
-          <div className="flex items-center gap-1 text-[11px] font-extrabold text-slate-500 uppercase">
-            <MapPin size={14} /> Budget
-          </div>
-          <div className="mt-1 text-sm font-extrabold text-slate-900">
-            {budgetText}
+      {/* DESC */}
+      {desc ? (
+        <div className="px-4 mt-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <div className="text-[11px] font-extrabold text-slate-500 uppercase">
+              Description
+            </div>
+            <div className="mt-1 text-sm text-slate-800 font-semibold whitespace-pre-wrap break-words">
+              {desc}
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
+      {/* ACTIONS */}
       <div className="p-4 pt-3 border-t border-slate-100 bg-slate-50/40 space-y-2">
         {showDetails ? (
           <button
@@ -726,7 +838,6 @@ export function ShipmentCard({
           </button>
         ) : null}
 
-        {/* ✅ Edit/Delete NOT same row (stacked) */}
         {showOwnerActions && owner && onEdit && onDelete ? (
           <div className="space-y-2">
             <button

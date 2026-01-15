@@ -3,19 +3,38 @@ import i18n from "../i18n/index";
 
 const isBrowser = typeof window !== "undefined";
 
+export const SUPPORTED_LANGS = ["en", "ar", "es"];
+export const DEFAULT_LANG = "en";
+
+function safeLang(v) {
+  const s = String(v || "")
+    .toLowerCase()
+    .trim();
+  return SUPPORTED_LANGS.includes(s) ? s : DEFAULT_LANG;
+}
+
 export function applyLang(lang) {
   if (!isBrowser) return;
 
-  localStorage.setItem("lang", lang);
-  i18n.changeLanguage(lang);
+  const l = safeLang(lang);
 
-  document.documentElement.lang = lang;
-  document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+  localStorage.setItem("lang", l);
+  i18n.changeLanguage(l);
+
+  document.documentElement.lang = l;
+  document.documentElement.dir = l === "ar" ? "rtl" : "ltr";
+
+  // optional hook for CSS/RTL tweaks
+  document.documentElement.dataset.lang = l;
 }
 
 export function initLang() {
-  if (!isBrowser) return "ar";
-  const lang = localStorage.getItem("lang") || i18n.language || "ar";
+  if (!isBrowser) return DEFAULT_LANG;
+
+  const stored = localStorage.getItem("lang");
+  const detected = i18n?.language;
+  const lang = safeLang(stored || detected || DEFAULT_LANG);
+
   applyLang(lang);
   return lang;
 }

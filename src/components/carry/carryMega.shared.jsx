@@ -59,6 +59,18 @@ export function isTripLocked(it) {
   return false;
 }
 
+/* ====== Shipment lock helper ====== */
+export function isShipmentLocked(it) {
+  const n = it || {};
+  const st = String(n.status ?? n.shipment_status ?? n.shipmentStatus ?? "")
+    .trim()
+    .toLowerCase();
+  if (["matched", "in_transit", "delivered", "completed"].includes(st))
+    return true;
+  if (["cancelled", "canceled"].includes(st)) return true;
+  return false;
+}
+
 /* ====== Normalizers ====== */
 export function normalizeTrip(raw) {
   const it = raw || {};
@@ -114,6 +126,7 @@ export function normalizeTrip(raw) {
 
     no_carry: it.no_carry || it.noCarry || it.restrictions || [],
     description: it.description || "",
+    status: it.status || "open",
   };
 }
 
@@ -126,18 +139,29 @@ export function normalizeShipment(raw) {
     ...it,
     _type: "shipment",
     _ownerId: ownerId ? Number(ownerId) || ownerId : ownerId,
+
+    status: it.status || "open",
+    is_active: it.is_active ?? it.isActive ?? 1,
+    created_at: it.created_at || it.createdAt || null,
+    updated_at: it.updated_at || it.updatedAt || null,
+
     category: it.category || it.item_category || it.cat || "other",
+
     from_country: it.from_country || "",
     to_country: it.to_country || "",
+    from_city: it.from_city || "",
+    to_city: it.to_city || "",
+
     deadline: it.deadline || it.deliver_before || "",
     item_title: it.item_title || it.title || "Shipment",
     item_desc: it.item_desc || it.description || "",
     item_weight: it.item_weight ?? it.weight ?? null,
+
     budget_amount: it.budget_amount ?? it.budget ?? null,
     budget_currency: it.budget_currency || it.currency || "USD",
+
+    product_url: it.product_url || it.productUrl || it.url || "",
     image: it.item_image || it.image || it.photo || "",
-    from_city: it.from_city || "",
-    to_city: it.to_city || "",
   };
 }
 
@@ -238,32 +262,39 @@ export function MyGrid(props) {
           />
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {(myTrips || []).map((it) => (
-              <CarryCard
-                key={`my_trip_${it.id}`}
-                kind="trip"
-                it={it}
-                saved={saved}
-                currentUserId={currentUserId}
-                loading={false}
-                requestState={getRequestState?.(it)}
-                flags={{
-                  showSave: true,
-                  showPrimary: true,
-                  showDetails: true,
-                  showOwnerActions: true,
-                  showImage: false,
-                }}
-                onOpen={() => onOpenTrip(it.id)}
-                onRequest={() => onRequest?.(it.id)}
-                onSave={() => onSave?.(it.id)}
-                onEdit={isTripLocked(it) ? undefined : () => onEditTrip?.(it)}
-                onDelete={
-                  isTripLocked(it) ? undefined : () => onDeleteTrip?.(it.id)
-                }
-                onLogin={onLogin}
-              />
-            ))}
+            {(myTrips || []).map((it) => {
+              const owner =
+                !!currentUserId &&
+                !!it?._ownerId &&
+                String(it._ownerId) === String(currentUserId);
+
+              return (
+                <CarryCard
+                  key={`my_trip_${it.id}`}
+                  kind="trip"
+                  it={it}
+                  saved={saved}
+                  currentUserId={currentUserId}
+                  loading={false}
+                  requestState={getRequestState?.(it)}
+                  flags={{
+                    showSave: true,
+                    showPrimary: true,
+                    showDetails: true,
+                    showOwnerActions: owner,
+                    showImage: false,
+                  }}
+                  onOpen={() => onOpenTrip(it.id)}
+                  onRequest={() => onRequest?.(it.id)}
+                  onSave={() => onSave?.(it.id)}
+                  onEdit={isTripLocked(it) ? undefined : () => onEditTrip?.(it)}
+                  onDelete={
+                    isTripLocked(it) ? undefined : () => onDeleteTrip?.(it.id)
+                  }
+                  onLogin={onLogin}
+                />
+              );
+            })}
           </div>
         )}
       </section>
@@ -293,6 +324,13 @@ export function MyGrid(props) {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {(myShipments || []).map((raw) => {
               const it = normalizeShipment(raw);
+              const owner =
+                !!currentUserId &&
+                !!it?._ownerId &&
+                String(it._ownerId) === String(currentUserId);
+
+              const locked = isShipmentLocked(it);
+
               return (
                 <CarryCard
                   key={`my_shipment_${it.id}`}
@@ -305,12 +343,14 @@ export function MyGrid(props) {
                     showSave: false,
                     showPrimary: false,
                     showDetails: true,
-                    showOwnerActions: true,
+                    showOwnerActions: owner && !locked,
                     showImage: true,
                   }}
                   onOpen={() => onOpenShipment(it)}
-                  onEdit={() => onEditShipment?.(it)}
-                  onDelete={() => onDeleteShipment?.(it.id)}
+                  onEdit={locked ? undefined : () => onEditShipment?.(it)}
+                  onDelete={
+                    locked ? undefined : () => onDeleteShipment?.(it.id)
+                  }
                   onLogin={onLogin}
                 />
               );
@@ -337,48 +377,58 @@ export function MyGrid(props) {
           />
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {(savedList || []).map((it) => (
-              <CarryCard
-                key={`saved_${it._type}_${it.id}`}
-                kind={it._type}
-                it={it}
-                saved={saved}
-                currentUserId={currentUserId}
-                loading={false}
-                requestState={
-                  it._type === "trip" ? getRequestState?.(it) : undefined
-                }
-                flags={{
-                  showSave: true,
-                  showPrimary: it._type === "trip",
-                  showDetails: true,
-                  showOwnerActions: true,
-                  showImage: it._type === "shipment",
-                }}
-                onOpen={() =>
-                  it._type === "trip" ? onOpenTrip(it.id) : onOpenShipment(it)
-                }
-                onRequest={
-                  it._type === "trip" ? () => onRequest?.(it.id) : undefined
-                }
-                onSave={() => onSave?.(it.id)}
-                onEdit={
-                  it._type === "trip"
-                    ? isTripLocked(it)
+            {(savedList || []).map((it) => {
+              const owner =
+                !!currentUserId &&
+                !!it?._ownerId &&
+                String(it._ownerId) === String(currentUserId);
+
+              const locked =
+                it._type === "trip" ? isTripLocked(it) : isShipmentLocked(it);
+
+              return (
+                <CarryCard
+                  key={`saved_${it._type}_${it.id}`}
+                  kind={it._type}
+                  it={it}
+                  saved={saved}
+                  currentUserId={currentUserId}
+                  loading={false}
+                  requestState={
+                    it._type === "trip" ? getRequestState?.(it) : undefined
+                  }
+                  flags={{
+                    showSave: true,
+                    showPrimary: it._type === "trip",
+                    showDetails: true,
+                    showOwnerActions: owner && !locked,
+                    showImage: it._type === "shipment",
+                  }}
+                  onOpen={() =>
+                    it._type === "trip" ? onOpenTrip(it.id) : onOpenShipment(it)
+                  }
+                  onRequest={
+                    it._type === "trip" ? () => onRequest?.(it.id) : undefined
+                  }
+                  onSave={() => onSave?.(it.id)}
+                  onEdit={
+                    locked
                       ? undefined
-                      : () => onEditTrip?.(it)
-                    : () => onEditShipment?.(it)
-                }
-                onDelete={
-                  it._type === "trip"
-                    ? isTripLocked(it)
+                      : it._type === "trip"
+                      ? () => onEditTrip?.(it)
+                      : () => onEditShipment?.(it)
+                  }
+                  onDelete={
+                    locked
                       ? undefined
-                      : () => onDeleteTrip?.(it.id)
-                    : () => onDeleteShipment?.(it.id)
-                }
-                onLogin={onLogin}
-              />
-            ))}
+                      : it._type === "trip"
+                      ? () => onDeleteTrip?.(it.id)
+                      : () => onDeleteShipment?.(it.id)
+                  }
+                  onLogin={onLogin}
+                />
+              );
+            })}
           </div>
         )}
       </section>
@@ -448,6 +498,13 @@ export function ShipmentsGrid(props) {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {(myShipments || []).map((raw) => {
             const it = normalizeShipment(raw);
+            const owner =
+              !!currentUserId &&
+              !!it?._ownerId &&
+              String(it._ownerId) === String(currentUserId);
+
+            const locked = isShipmentLocked(it);
+
             return (
               <CarryCard
                 key={`shipment_${it.id}`}
@@ -460,12 +517,12 @@ export function ShipmentsGrid(props) {
                   showSave: false,
                   showPrimary: false,
                   showDetails: true,
-                  showOwnerActions: true,
+                  showOwnerActions: owner && !locked,
                   showImage: true,
                 }}
                 onOpen={() => onOpenShipment?.(it.id)}
-                onEdit={() => onEdit?.(it)}
-                onDelete={() => onDelete?.(it.id)}
+                onEdit={locked ? undefined : () => onEdit?.(it)}
+                onDelete={locked ? undefined : () => onDelete?.(it.id)}
                 onLogin={onLogin}
               />
             );
@@ -523,30 +580,39 @@ export function TripsGrid(props) {
         />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {(trips || []).map((it) => (
-            <CarryCard
-              key={`trip_${it.id}`}
-              kind="trip"
-              it={it}
-              saved={saved}
-              currentUserId={currentUserId}
-              loading={loading}
-              requestState={getRequestState?.(it)}
-              flags={{
-                showSave: true,
-                showPrimary: true,
-                showDetails: true,
-                showOwnerActions: true,
-                showImage: false,
-              }}
-              onOpen={() => onOpenTrip(it.id)}
-              onRequest={() => onRequest(it.id)}
-              onSave={() => onSave(it.id)}
-              onEdit={isTripLocked(it) ? undefined : () => onEdit?.(it)}
-              onDelete={isTripLocked(it) ? undefined : () => onDelete?.(it.id)}
-              onLogin={onLogin}
-            />
-          ))}
+          {(trips || []).map((it) => {
+            const owner =
+              !!currentUserId &&
+              !!it?._ownerId &&
+              String(it._ownerId) === String(currentUserId);
+
+            return (
+              <CarryCard
+                key={`trip_${it.id}`}
+                kind="trip"
+                it={it}
+                saved={saved}
+                currentUserId={currentUserId}
+                loading={loading}
+                requestState={getRequestState?.(it)}
+                flags={{
+                  showSave: true,
+                  showPrimary: true,
+                  showDetails: true,
+                  showOwnerActions: owner,
+                  showImage: false,
+                }}
+                onOpen={() => onOpenTrip(it.id)}
+                onRequest={() => onRequest(it.id)}
+                onSave={() => onSave(it.id)}
+                onEdit={isTripLocked(it) ? undefined : () => onEdit?.(it)}
+                onDelete={
+                  isTripLocked(it) ? undefined : () => onDelete?.(it.id)
+                }
+                onLogin={onLogin}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -591,48 +657,65 @@ export function ExploreGrid(props) {
         />
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {items.map((it) => (
-            <CarryCard
-              key={`${it._type}_${it.id}`}
-              kind={it._type}
-              it={it}
-              saved={saved}
-              currentUserId={currentUserId}
-              loading={loading}
-              requestState={
-                it._type === "trip" ? getRequestState(it) : undefined
-              }
-              flags={{
-                showSave: true,
-                showPrimary: it._type === "trip",
-                showDetails: true,
-                showOwnerActions: true,
-                showImage: it._type === "shipment",
-              }}
-              onOpen={() =>
-                it._type === "trip" ? onOpenTrip(it.id) : onOpenShipment(it)
-              }
-              onRequest={
-                it._type === "trip" ? () => onRequest(it.id) : undefined
-              }
-              onSave={() => onSave(it.id)}
-              onEdit={
-                it._type === "trip"
-                  ? isTripLocked(it)
+          {items.map((raw) => {
+            const it =
+              raw?._type === "shipment"
+                ? normalizeShipment(raw)
+                : raw?._type === "trip"
+                ? normalizeTrip(raw)
+                : raw;
+
+            const owner =
+              !!currentUserId &&
+              !!it?._ownerId &&
+              String(it._ownerId) === String(currentUserId);
+
+            const locked =
+              it?._type === "trip" ? isTripLocked(it) : isShipmentLocked(it);
+
+            return (
+              <CarryCard
+                key={`${it._type}_${it.id}`}
+                kind={it._type}
+                it={it}
+                saved={saved}
+                currentUserId={currentUserId}
+                loading={loading}
+                requestState={
+                  it._type === "trip" ? getRequestState(it) : undefined
+                }
+                flags={{
+                  showSave: true,
+                  showPrimary: it._type === "trip",
+                  showDetails: true,
+                  showOwnerActions: owner && !locked,
+                  showImage: it._type === "shipment",
+                }}
+                onOpen={() =>
+                  it._type === "trip" ? onOpenTrip(it.id) : onOpenShipment(it)
+                }
+                onRequest={
+                  it._type === "trip" ? () => onRequest(it.id) : undefined
+                }
+                onSave={() => onSave(it.id)}
+                onEdit={
+                  locked
                     ? undefined
-                    : () => onEditTrip?.(it)
-                  : () => onEditShipment?.(it)
-              }
-              onDelete={
-                it._type === "trip"
-                  ? isTripLocked(it)
+                    : it._type === "trip"
+                    ? () => onEditTrip?.(it)
+                    : () => onEditShipment?.(it)
+                }
+                onDelete={
+                  locked
                     ? undefined
-                    : () => onDeleteTrip?.(it.id)
-                  : () => onDeleteShipment?.(it.id)
-              }
-              onLogin={onLogin}
-            />
-          ))}
+                    : it._type === "trip"
+                    ? () => onDeleteTrip?.(it.id)
+                    : () => onDeleteShipment?.(it.id)
+                }
+                onLogin={onLogin}
+              />
+            );
+          })}
         </div>
       )}
     </div>

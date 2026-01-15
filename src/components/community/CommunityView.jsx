@@ -1,16 +1,16 @@
-// CommunityView.jsx (FULL FILE - copy/paste)
+// src/components/community/CommunityView.jsx
 // ✅ Marketplace / Explore unified view
 // ✅ No window.confirm (uses toastConfirm)
 // ✅ Backward compatible with legacy community endpoints (places/groups)
 // ✅ Forward compatible with new listing types (services/jobs/housing/products)
 // ✅ Unified filters + unified "Add Listing" menu
+// ✅ i18n: AR/EN/ES (no react-i18next usage) + RTL support
+// ✅ Mobile-first layout improvements (clean header + scrollable tabs + collapsible filters + FAB)
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 import { toastConfirm } from "../../lib/notify";
-// import { createPortal } from "react-dom"; // ✅ add this import at top with other imports
-// import { normalizeToPlaceShape, fetchFirstOk } from "../ItemDetailsView";
 import {
   classNames,
   getToken,
@@ -48,6 +48,8 @@ import {
   Briefcase,
   Home,
   ShoppingCart,
+  SlidersHorizontal,
+  Filter,
 } from "lucide-react";
 
 const API_BASE =
@@ -58,8 +60,235 @@ const API_BASE =
 /* =========================
    Constants
 ========================= */
-const PAGE_SIZE = 12; // ✅ غيّرها براحتك
+const PAGE_SIZE = 12;
 
+const DIR = (l) => (l === "ar" ? "rtl" : "ltr");
+
+function pick(v, l) {
+  if (!v) return "";
+  if (typeof v === "string") return v;
+  return v?.[l] || v?.en || v?.ar || v?.es || Object.values(v || {})[0] || "";
+}
+
+const TXT = {
+  ar: {
+    explore: "استكشف",
+    exploreDesc:
+      "سوق للمهاجرين الجدد: أماكن، جروبات، خدمات، وظائف، سكن، منتجات.",
+    tip: "نصيحة:",
+    tipText: "استخدم",
+    state: "الولاية",
+    city: "المدينة",
+    search: "بحث",
+    refresh: "تحديث",
+    nearMe: "قريب مني",
+    nearMeTitle: "قريب مني (سيضع الإحداثيات في المدينة)",
+    addListing: "إضافة إعلان",
+    addListingTitle: "إضافة إعلان",
+    addListingSub: "اختر النوع ثم اختر تصنيف (اختياري).",
+    presets: "تصنيفات جاهزة",
+    presetsSub: "اختر واحد أو اضغط “مخصص”.",
+    custom: "مخصص",
+    listingType: "نوع الإعلان",
+    apply: "تطبيق",
+    reset: "مسح",
+    any: "الكل",
+    all: "الكل",
+    platform: "المنصة",
+    topic: "الموضوع",
+    category: "التصنيف",
+    loading: "جاري التحميل…",
+    noItems: "لا يوجد عناصر بعد",
+    noItemsDesc: "كن أول من يضيف إعلان مفيد.",
+    pageOf: "صفحة",
+    of: "من",
+    items: "عنصر",
+    first: "الأولى",
+    prev: "السابق",
+    next: "التالي",
+    last: "الأخيرة",
+    editListing: "تعديل الإعلان",
+    fillFields: "املأ البيانات ثم احفظ.",
+    save: "حفظ",
+    update: "تحديث",
+    loginRequired: "لازم تسجل دخول",
+    titleRequired: "العنوان مطلوب",
+    linkRequired: "الرابط مطلوب",
+    added: "تمت الإضافة",
+    updated: "تم التحديث",
+    addFailed: "فشل الإضافة",
+    updateFailed: "فشل التعديل",
+    somethingWrong: "حصل خطأ",
+    failedLoad: "فشل تحميل الإعلانات",
+    deleteTitle: "حذف الإعلان؟",
+    deleteDesc: "لا يمكن التراجع عن هذا الإجراء.",
+    deleteFailed: "فشل الحذف",
+    deleted: "تم الحذف",
+    geoNotSupported: "الموقع غير مدعوم على جهازك",
+    geoLoading: "جاري تحديد موقعك…",
+    geoSuccess: "تم تحديد الموقع. (اختر الولاية ثم اضغط تطبيق)",
+    geoDenied: "تم رفض صلاحية الموقع",
+    geoFailed: "فشل تحديد الموقع",
+    searchPH_places: "مثال: كباب، مسجد، كنيسة…",
+    searchPH_groups: "مثال: عرب، وظائف، هجرة…",
+    searchPH_other: "مثال: سباك، غرفة، آيفون…",
+    cityPH: "مثال: Fairfax",
+
+    // ✅ mobile ui
+    filters: "فلاتر",
+    showFilters: "إظهار الفلاتر",
+    hideFilters: "إخفاء الفلاتر",
+    clear: "مسح",
+    confirm: "تأكيد",
+    cancel: "إلغاء",
+  },
+  en: {
+    explore: "Explore",
+    exploreDesc:
+      "Marketplace for newcomers: places, groups, services, jobs, housing, products.",
+    tip: "Tip:",
+    tipText: "Use",
+    state: "State",
+    city: "City",
+    search: "Search",
+    refresh: "Refresh",
+    nearMe: "Near me",
+    nearMeTitle: "Near me (fills city with coordinates)",
+    addListing: "Add Listing",
+    addListingTitle: "Add Listing",
+    addListingSub: "Choose a type, then pick a preset (optional).",
+    presets: "Presets",
+    presetsSub: "Pick one, or choose “Custom”.",
+    custom: "Custom",
+    listingType: "Listing Type",
+    apply: "Apply",
+    reset: "Reset",
+    any: "Any",
+    all: "All",
+    platform: "Platform",
+    topic: "Topic",
+    category: "Category",
+    loading: "Loading…",
+    noItems: "No items yet",
+    noItemsDesc: "Be the first to add a helpful listing.",
+    pageOf: "Page",
+    of: "of",
+    items: "items",
+    first: "First",
+    prev: "Prev",
+    next: "Next",
+    last: "Last",
+    editListing: "Edit Listing",
+    fillFields: "Fill the fields and save.",
+    save: "Save",
+    update: "Update",
+    loginRequired: "Login required",
+    titleRequired: "Title is required",
+    linkRequired: "Link is required",
+    added: "Added",
+    updated: "Updated",
+    addFailed: "Add failed",
+    updateFailed: "Update failed",
+    somethingWrong: "Something went wrong",
+    failedLoad: "Failed to load listings",
+    deleteTitle: "Delete this listing?",
+    deleteDesc: "This action cannot be undone.",
+    deleteFailed: "Delete failed",
+    deleted: "Deleted",
+    geoNotSupported: "Geolocation not supported",
+    geoLoading: "Getting your location…",
+    geoSuccess: "Location detected. (Tip: pick your State, then Apply)",
+    geoDenied: "Location permission denied",
+    geoFailed: "Failed to get location",
+    searchPH_places: "e.g. kebab, mosque, church...",
+    searchPH_groups: "e.g. arab, jobs, immigration...",
+    searchPH_other: "e.g. handyman, room, iPhone...",
+    cityPH: "e.g. Fairfax",
+
+    // ✅ mobile ui
+    filters: "Filters",
+    showFilters: "Show filters",
+    hideFilters: "Hide filters",
+    clear: "Clear",
+    confirm: "Confirm",
+    cancel: "Cancel",
+  },
+  es: {
+    explore: "Explorar",
+    exploreDesc:
+      "Marketplace para recién llegados: lugares, grupos, servicios, trabajos, vivienda, productos.",
+    tip: "Tip:",
+    tipText: "Usa",
+    state: "Estado",
+    city: "Ciudad",
+    search: "Buscar",
+    refresh: "Actualizar",
+    nearMe: "Cerca de mí",
+    nearMeTitle: "Cerca de mí (pone coordenadas en ciudad)",
+    addListing: "Agregar anuncio",
+    addListingTitle: "Agregar anuncio",
+    addListingSub: "Elige un tipo y luego un preset (opcional).",
+    presets: "Presets",
+    presetsSub: "Elige uno o usa “Personalizado”.",
+    custom: "Personalizado",
+    listingType: "Tipo",
+    apply: "Aplicar",
+    reset: "Reiniciar",
+    any: "Cualquiera",
+    all: "Todos",
+    platform: "Plataforma",
+    topic: "Tema",
+    category: "Categoría",
+    loading: "Cargando…",
+    noItems: "Aún no hay elementos",
+    noItemsDesc: "Sé el primero en agregar un anuncio útil.",
+    pageOf: "Página",
+    of: "de",
+    items: "elementos",
+    first: "Primera",
+    prev: "Anterior",
+    next: "Siguiente",
+    last: "Última",
+    editListing: "Editar anuncio",
+    fillFields: "Completa los campos y guarda.",
+    save: "Guardar",
+    update: "Actualizar",
+    loginRequired: "Se requiere iniciar sesión",
+    titleRequired: "El título es obligatorio",
+    linkRequired: "El enlace es obligatorio",
+    added: "Agregado",
+    updated: "Actualizado",
+    addFailed: "Falló agregar",
+    updateFailed: "Falló actualizar",
+    somethingWrong: "Algo salió mal",
+    failedLoad: "No se pudieron cargar los anuncios",
+    deleteTitle: "¿Eliminar este anuncio?",
+    deleteDesc: "No se puede deshacer.",
+    deleteFailed: "Falló eliminar",
+    deleted: "Eliminado",
+    geoNotSupported: "Geolocalización no soportada",
+    geoLoading: "Obteniendo tu ubicación…",
+    geoSuccess: "Ubicación detectada. (Elige Estado y luego Aplicar)",
+    geoDenied: "Permiso de ubicación denegado",
+    geoFailed: "No se pudo obtener la ubicación",
+    searchPH_places: "Ej: kebab, mezquita, iglesia…",
+    searchPH_groups: "Ej: árabes, trabajos, inmigración…",
+    searchPH_other: "Ej: plomero, cuarto, iPhone…",
+    cityPH: "Ej: Fairfax",
+
+    // ✅ mobile ui
+    filters: "Filtros",
+    showFilters: "Mostrar filtros",
+    hideFilters: "Ocultar filtros",
+    clear: "Limpiar",
+    confirm: "Confirmar",
+    cancel: "Cancelar",
+  },
+};
+
+/* =========================
+   Utilities
+========================= */
 function safeTrim(v) {
   return String(v ?? "").trim();
 }
@@ -85,17 +314,11 @@ function useOutsideClick(ref, handler) {
   }, [ref, handler]);
 }
 
-// Marketplace extra categories (simple starter sets)
-
-/* =========================
-   Helpers
-========================= */
 function parseDateLike(v) {
   if (!v) return null;
   const s = String(v).trim();
   if (!s) return null;
 
-  // unix seconds / ms
   if (/^\d+$/.test(s)) {
     const n = Number(s);
     if (!Number.isFinite(n)) return null;
@@ -107,7 +330,6 @@ function parseDateLike(v) {
 }
 
 function pickCreatedAt(x) {
-  // try common fields (new + legacy)
   const candidates = [
     x?.createdAt,
     x?.created_at,
@@ -127,114 +349,64 @@ function pickCreatedAt(x) {
   return null;
 }
 
-function isNewByDate(date, hours = 48) {
-  const d = parseDateLike(date);
-  if (!d) return false;
-  const diffMs = Date.now() - d.getTime();
-  return diffMs >= 0 && diffMs <= hours * 60 * 60 * 1000;
-}
-
 /* =========================
-   Listing Types (Unified)
+   Listing Types (Unified) - localized
 ========================= */
-
 const LISTING_TYPES = [
   {
     key: "all",
-    label: "All",
+    label: { en: "All", ar: "الكل", es: "Todos" },
     Icon: Globe,
-    hint: "View everything",
+    hint: { en: "View everything", ar: "عرض كل شيء", es: "Ver todo" },
     hideFromAdd: true,
   },
   {
     key: "places",
-    label: "Places",
+    label: { en: "Places", ar: "أماكن", es: "Lugares" },
     Icon: Building2,
-    hint: "Restaurants...",
+    hint: { en: "Restaurants...", ar: "مطاعم...", es: "Restaurantes..." },
     legacy: true,
   },
   {
     key: "groups",
-    label: "Groups",
+    label: { en: "Groups", ar: "جروبات", es: "Grupos" },
     Icon: Users,
-    hint: "Social groups...",
+    hint: { en: "Social groups...", ar: "مجموعات...", es: "Grupos..." },
     legacy: true,
   },
-  { key: "services", label: "Services", Icon: Wrench, hint: "Handyman..." },
-  { key: "jobs", label: "Jobs", Icon: Briefcase, hint: "Work opportunities" },
-  { key: "housing", label: "Housing", Icon: Home, hint: "Rooms, rent..." },
+  {
+    key: "services",
+    label: { en: "Services", ar: "خدمات", es: "Servicios" },
+    Icon: Wrench,
+    hint: { en: "Handyman...", ar: "صنايعي...", es: "Manitas..." },
+  },
+  {
+    key: "jobs",
+    label: { en: "Jobs", ar: "وظائف", es: "Trabajos" },
+    Icon: Briefcase,
+    hint: { en: "Work opportunities", ar: "فرص عمل", es: "Oportunidades" },
+  },
+  {
+    key: "housing",
+    label: { en: "Housing", ar: "سكن", es: "Vivienda" },
+    Icon: Home,
+    hint: {
+      en: "Rooms, rent...",
+      ar: "غرف، إيجار...",
+      es: "Cuartos, renta...",
+    },
+  },
   {
     key: "products",
-    label: "Products",
+    label: { en: "Products", ar: "منتجات", es: "Productos" },
     Icon: ShoppingCart,
-    hint: "Buy & sell",
+    hint: { en: "Buy & sell", ar: "بيع وشراء", es: "Comprar y vender" },
   },
 ];
-
-function CardBanner({ tab, placeCategory, groupPlatform, subtitleRight }) {
-  // tab is listing type key (places/groups/services/...)
-  let ui = {
-    label: "Listing",
-    Icon: Building2,
-    bg: "from-gray-50 to-gray-100 border-gray-200",
-    icon: "bg-gray-700",
-  };
-
-  if (tab === "places") {
-    const key = normalizePlaceCategoryKey(placeCategory);
-    ui = PLACE_BANNER[key] || PLACE_BANNER.other;
-  } else if (tab === "groups") {
-    const key = normalizeGroupPlatformKey(groupPlatform);
-    ui = GROUP_BANNER[key] || GROUP_BANNER.other;
-  } else {
-    ui = TYPE_BANNER[tab] || ui;
-  }
-
-  const Icon = ui.Icon;
-
-  return (
-    <div
-      className={classNames(
-        "w-full rounded-2xl border bg-gradient-to-r px-4 py-3 flex items-center justify-between",
-        ui.bg
-      )}
-    >
-      <div className="flex items-center gap-3 min-w-0">
-        <div
-          className={classNames(
-            "w-9 h-9 rounded-xl flex items-center justify-center shrink-0",
-            ui.icon
-          )}
-        >
-          <Icon className="w-5 h-5 text-white" />
-        </div>
-        <div className="min-w-0">
-          <div className="font-extrabold text-gray-900 leading-5 truncate">
-            {ui.label}
-          </div>
-          <div className="text-xs text-gray-600 mt-0.5 truncate">
-            {tab === "places"
-              ? "Curated for newcomers"
-              : tab === "groups"
-              ? "Join & connect with people"
-              : "Marketplace for newcomers"}
-          </div>
-        </div>
-      </div>
-
-      {subtitleRight ? (
-        <div className="hidden sm:inline-flex text-xs font-semibold text-gray-700 rounded-full bg-white/70 border border-gray-200 px-2.5 py-1">
-          {subtitleRight}
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 /* =========================
    UI Components
 ========================= */
-
 function EmptyState({ icon, title, desc }) {
   const Icon = icon;
   return (
@@ -248,86 +420,16 @@ function EmptyState({ icon, title, desc }) {
   );
 }
 
-function Dropdown({ align = "right", trigger, children, open, setOpen }) {
-  const ref = useRef(null);
-  useOutsideClick(ref, () => setOpen(false));
-
-  return (
-    <div className="relative" ref={ref}>
-      <div onClick={() => setOpen((v) => !v)}>{trigger}</div>
-      {open ? (
-        <div
-          className={classNames(
-            // ✅ خليها تسكّرول جوّه المنيو
-            "absolute z-50 mt-2 min-w-[260px] rounded-2xl border border-gray-200 bg-white shadow-xl",
-            "max-h-[70vh] overflow-y-auto overscroll-contain",
-            // ✅ مهم: منيو ما تكبرش زيادة
-            "scrollbar-thin",
-            align === "right" ? "left-0" : "right-0"
-          )}
-          onWheel={(e) => e.stopPropagation()}
-        >
-          {children}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function MenuItem({ icon: Icon, title, desc, onClick, danger, rightEl }) {
-  return (
-    <button
-      onClick={onClick}
-      className={classNames(
-        "w-full text-left px-4 py-3 hover:bg-gray-50 flex items-start justify-between gap-3",
-        danger ? "text-red-600" : "text-gray-800"
-      )}
-    >
-      <div className="flex items-start gap-3 min-w-0">
-        <div
-          className={classNames(
-            "mt-0.5 w-9 h-9 rounded-xl flex items-center justify-center border shrink-0",
-            danger ? "border-red-200 bg-red-50" : "border-gray-200 bg-gray-50"
-          )}
-        >
-          <Icon size={18} />
-        </div>
-        <div className="min-w-0">
-          <div className="font-semibold leading-5">{title}</div>
-          {desc ? (
-            <div className="text-xs text-gray-500 mt-0.5">{desc}</div>
-          ) : null}
-        </div>
-      </div>
-      {rightEl ? (
-        <div className="shrink-0 text-gray-400 mt-1">{rightEl}</div>
-      ) : null}
-    </button>
-  );
-}
-
-function SectionTitle({ title, desc }) {
-  return (
-    <div className="mb-2">
-      <div className="text-sm font-extrabold text-gray-900">{title}</div>
-      {desc ? <div className="text-xs text-gray-500 mt-0.5">{desc}</div> : null}
-    </div>
-  );
-}
-
 /* =========================
    Page (Unified Marketplace)
 ========================= */
-
-export default function CommunityView() {
+export default function CommunityView({ lang = "en" }) {
   const navigate = useNavigate();
+  const L = TXT[lang] || TXT.en;
 
-  // active listing type (tab)
-  const [tab, setTab] = useState("all"); // places | groups | services | jobs | housing | products
-
+  const [tab, setTab] = useState("all");
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState([]);
-  // ✅ Pagination
   const [page, setPage] = useState(1);
 
   const [isLoggedIn, setIsLoggedIn] = useState(!!getToken());
@@ -341,35 +443,32 @@ export default function CommunityView() {
     };
   }, []);
 
-  // unified filters
+  // filters
   const [q, setQ] = useState("");
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
 
-  // legacy / specialized filters
-  const [category, setCategory] = useState(""); // places/services/jobs/housing/products category
-  const [platform, setPlatform] = useState(""); // groups
-  const [topic, setTopic] = useState(""); // groups
+  const [category, setCategory] = useState("");
+  const [platform, setPlatform] = useState("");
+  const [topic, setTopic] = useState("");
 
-  // ✅ Add Listing Center (Modal)
+  // ✅ Mobile: collapsible filters
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Add Picker
   const [addPickerOpen, setAddPickerOpen] = useState(false);
-  const [addPickerType, setAddPickerType] = useState("places"); // places|groups|services|jobs|housing|products
+  const [addPickerType, setAddPickerType] = useState("places");
 
   const endpoints = useMemo(() => {
-    // ✅ helper: marketplace list urls (try both styles)
     const mpList = (type) => [
       `${API_BASE}/api/listings?type=${type}`,
       `${API_BASE}/api/marketplace/listings?type=${type}`,
     ];
 
-    // ✅ ALL = load from multiple sources and merge
     if (tab === "all") {
       return {
-        // ✅ legacy only
         places: [`${API_BASE}/api/community/places`],
         groups: [`${API_BASE}/api/community/groups`],
-
-        // ✅ marketplace: try BOTH (some backends expose /api/listings, some /api/marketplace/listings)
         services: mpList("services"),
         jobs: mpList("jobs"),
         housing: mpList("housing"),
@@ -377,26 +476,37 @@ export default function CommunityView() {
       };
     }
 
-    // ✅ single tab
     if (tab === "places") return [`${API_BASE}/api/community/places`];
     if (tab === "groups") return [`${API_BASE}/api/community/groups`];
-
-    // ✅ marketplace single tab (try BOTH)
     return mpList(tab);
   }, [tab]);
 
   /* =========================
-     ✅ Unified Form (ONE add/edit modal)
+     Unified Form
   ========================= */
-
   const [formOpen, setFormOpen] = useState(false);
-  const [formMode, setFormMode] = useState("add"); // "add" | "edit"
-  const [formType, setFormType] = useState("places"); // places|groups|services|jobs|housing|products
+  const [formMode, setFormMode] = useState("add");
+  const [formType, setFormType] = useState("places");
   const [formId, setFormId] = useState(null);
   const [values, setValues] = useState({ ...EMPTY_VALUES });
 
   function setField(k, v) {
     setValues((p) => ({ ...p, [k]: v }));
+  }
+
+  function resetFilters() {
+    setQ("");
+    setState("");
+    setCity("");
+    setCategory("");
+    setPlatform("");
+    setTopic("");
+  }
+
+  function requireLoginOrToast() {
+    const ok = !!getToken();
+    if (!ok) toast.error(L.loginRequired);
+    return ok;
   }
 
   function openFormAdd(typeKey, preset) {
@@ -406,8 +516,6 @@ export default function CommunityView() {
     setFormId(null);
 
     const next = { ...EMPTY_VALUES };
-
-    // defaults/presets
     if (typeKey === "places") next.category = preset || "Restaurant";
     if (typeKey === "groups") next.platform = preset || "Facebook";
     if (["services", "jobs", "housing", "products"].includes(typeKey))
@@ -416,6 +524,7 @@ export default function CommunityView() {
     setValues(next);
     setFormOpen(true);
   }
+
   function openFormEdit(item, typeKey) {
     if (!requireLoginOrToast()) return;
 
@@ -467,7 +576,6 @@ export default function CommunityView() {
       next.state = item.state || "";
       next.city = item.city || "";
 
-      // ✅ price mapping (supports old + new DB fields)
       const pv =
         item?.price_value ??
         item?.priceValue ??
@@ -490,18 +598,13 @@ export default function CommunityView() {
     try {
       if (!requireLoginOrToast()) return;
 
-      // validate
-      if (!values.title.trim()) return toast.error("Title is required");
+      if (!values.title.trim()) return toast.error(L.titleRequired);
       const type = formType;
 
       if (type === "groups" && !String(values.link || "").trim())
-        return toast.error("Link is required");
+        return toast.error(L.linkRequired);
 
       const isEdit = formMode === "edit" && !!formId;
-
-      // =========================
-      // ✅ Payload per type (SMALL + COMPATIBLE)
-      // =========================
 
       const title = safeTrim(values.title);
       const cityV = safeTrim(values.city);
@@ -545,10 +648,9 @@ export default function CommunityView() {
           notes: safeTrim(values.notes),
         };
       } else {
-        // marketplace: services/jobs/housing/products
         url = isEdit
-          ? `${API_BASE}/api/listings/${formId}` // ✅ prefixed id
-          : `${API_BASE}/api/listings`; // ✅ unified create
+          ? `${API_BASE}/api/listings/${formId}`
+          : `${API_BASE}/api/listings`;
 
         body = {
           type,
@@ -556,11 +658,8 @@ export default function CommunityView() {
           category: safeTrim(values.category),
           state: stateV,
           city: cityV,
-
-          // ✅ send both (new + backward compatible)
           price_value: safeTrim(values.price),
           price: safeTrim(values.price),
-
           contact: safeTrim(values.contact),
           website: safeUrl(values.link),
           notes: safeTrim(values.description) || safeTrim(values.notes),
@@ -573,44 +672,26 @@ export default function CommunityView() {
         body: JSON.stringify(body),
       });
 
-      if (!out.ok) return toast.error(isEdit ? "Update failed" : "Add failed");
+      if (!out.ok) return toast.error(isEdit ? L.updateFailed : L.addFailed);
 
-      toast.success(isEdit ? "Updated" : "Added");
+      toast.success(isEdit ? L.updated : L.added);
       setFormOpen(false);
 
       if (tab !== type) setTab(type);
       setTimeout(load, 150);
     } catch (e) {
       console.error(e);
-      toast.error("Something went wrong");
+      toast.error(L.somethingWrong);
     }
   }
 
-  function resetFilters() {
-    setQ("");
-    setState("");
-    setCity("");
-    setCategory("");
-    setPlatform("");
-    setTopic("");
-  }
-
-  function requireLoginOrToast() {
-    const ok = !!getToken();
-    if (!ok) toast.error("Login required");
-    return ok;
-  }
-
   /* =========================
-     Endpoints strategy (fallbacks)
-     - places/groups use legacy endpoints first
-     - others try a few common patterns (you can wire backend later)
+     Loading
   ========================= */
-
   async function load() {
     setPage(1);
-
     setLoading(true);
+
     try {
       const params = new URLSearchParams();
       if (q.trim()) params.set("q", q.trim());
@@ -624,17 +705,16 @@ export default function CommunityView() {
         if (topic && topic !== "all" && topic !== "All")
           params.set("topic", topic);
       } else {
-        // ✅ في All هنفلتر بعد الدمج (مش نبعته للباك لكل التايبس)
         if (tab !== "all") {
           if (category && category !== "all" && category !== "All")
             params.set("category", category);
         }
       }
 
-      // ✅ ALL: fetch multiple types and merge
       if (tab === "all") {
-        const bundles = endpoints; // object
+        const bundles = endpoints;
         const types = Object.keys(bundles);
+
         const results = await Promise.all(
           types.map(async (typeKey) => {
             const bases = bundles[typeKey] || [];
@@ -691,7 +771,6 @@ export default function CommunityView() {
 
         const merged = results.flat();
 
-        // ✅ All: فلتر Category locally (عشان كل type كاتيجوريز مختلفة)
         const filtered =
           category && category !== "all" && category !== "All"
             ? merged.filter((x) => {
@@ -701,29 +780,9 @@ export default function CommunityView() {
             : merged;
 
         setItems(filtered);
-        // DEBUG: detect id collisions across types
-        const map = new Map();
-        for (const x of filtered) {
-          const key = String(x.id);
-          const t = x.type || "unknown";
-          if (!map.has(key)) map.set(key, new Set());
-          map.get(key).add(t);
-        }
-        const collisions = [];
-        for (const [id, types] of map.entries()) {
-          if (types.size > 1)
-            collisions.push({ id, types: Array.from(types).join(", ") });
-        }
-        if (collisions.length) {
-          //   console.warn("ID collisions across types:", collisions);
-        } else {
-          //   console.log("No ID collisions across types ✅");
-        }
-
         return;
       }
 
-      // ✅ Single tab
       const qs = params.toString();
       const urls = endpoints.map((base) => {
         if (!qs) return base;
@@ -749,9 +808,8 @@ export default function CommunityView() {
         })
       );
     } catch (e) {
-      //   console.log(e);
       console.error(e);
-      toast.error("Failed to load listings");
+      toast.error(L.failedLoad);
       setItems([]);
     } finally {
       setLoading(false);
@@ -764,7 +822,6 @@ export default function CommunityView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // ✅ لو الفلاتر اتغيرت وإنت على All → اعمل load تلقائي
   useEffect(() => {
     if (tab !== "all") return;
     const t = setTimeout(() => load(), 250);
@@ -772,7 +829,6 @@ export default function CommunityView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, q, state, city, category, platform, topic]);
 
-  // city suggestions (from items)
   const citySuggestions = useMemo(() => {
     const s = new Set();
     for (const it of items) {
@@ -793,7 +849,6 @@ export default function CommunityView() {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [items, state]);
 
-  // datalist for forms
   const formCitySuggestions = useMemo(() => {
     const s = new Set();
     const selectedState = values.state || "";
@@ -813,21 +868,12 @@ export default function CommunityView() {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [items, values.state]);
 
-  function extractCreatedItem(data) {
-    if (!data) return null;
-    return (
-      data.item || data.listing || data.place || data.group || data.data || null
-    );
-  }
   function extractArray(data) {
     if (Array.isArray(data)) return data;
-
-    // common wrappers
     if (Array.isArray(data?.items)) return data.items;
     if (Array.isArray(data?.rows)) return data.rows;
     if (Array.isArray(data?.results)) return data.results;
     if (Array.isArray(data?.data)) return data.data;
-
     return [];
   }
 
@@ -835,25 +881,27 @@ export default function CommunityView() {
     try {
       if (!requireLoginOrToast()) return;
 
-      const ok = await toastConfirm(
-        "Delete this listing?",
-        "This action cannot be undone."
-      );
+      // ✅ FIX: correct toastConfirm usage (object)
+      const ok = await toastConfirm({
+        title: L.deleteTitle,
+        message: L.deleteDesc,
+        confirmText:
+          lang === "ar" ? "مسح" : lang === "es" ? "Eliminar" : "Delete",
+        cancelText:
+          lang === "ar" ? "إلغاء" : lang === "es" ? "Cancelar" : "Cancel",
+        variant: "danger",
+      });
       if (!ok) return;
 
       const t = typeKey || tab;
       let url = "";
 
-      if (t === "places") {
-        url = `${API_BASE}/api/community/places/${id}`;
-      } else if (t === "groups") {
-        url = `${API_BASE}/api/community/groups/${id}`;
-      } else {
-        // لو id جاي رقم (في All) حوّله لــ prefixed قبل الحذف
+      if (t === "places") url = `${API_BASE}/api/community/places/${id}`;
+      else if (t === "groups") url = `${API_BASE}/api/community/groups/${id}`;
+      else {
         const prefixed = String(id).includes("_")
           ? id
           : `${t}_${normalizeId(id, t)}`;
-
         url = `${API_BASE}/api/listings/${prefixed}`;
       }
 
@@ -862,45 +910,41 @@ export default function CommunityView() {
         headers: { ...authHeaders() },
       });
 
-      if (!out.ok) return toast.error("Delete failed");
+      if (!out.ok) return toast.error(L.deleteFailed);
 
-      toast.success("Deleted");
+      toast.success(L.deleted);
       load();
     } catch (e) {
       console.error(e);
-      toast.error("Delete failed");
+      toast.error(L.deleteFailed);
     }
   }
 
-  // near me (simple)
   async function nearMe() {
     try {
-      if (!navigator.geolocation)
-        return toast.error("Geolocation not supported");
-      toast.loading("Getting your location…", { id: "geo" });
+      if (!navigator.geolocation) return toast.error(L.geoNotSupported);
+      toast.loading(L.geoLoading, { id: "geo" });
 
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude, longitude } = pos.coords || {};
-          toast.success(
-            "Location detected. (Tip: pick your State, then Apply)",
-            { id: "geo" }
-          );
+          toast.success(L.geoSuccess, { id: "geo" });
           setQ((prev) => prev || "nearby");
           setCity(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
+          setFiltersOpen(true);
         },
         (err) => {
           console.error(err);
-          toast.error("Location permission denied", { id: "geo" });
+          toast.error(L.geoDenied, { id: "geo" });
         },
         { enableHighAccuracy: false, timeout: 9000 }
       );
     } catch (e) {
       console.error(e);
-      toast.error("Failed to get location", { id: "geo" });
+      toast.error(L.geoFailed, { id: "geo" });
     }
   }
-  // ✅ Pagination derived
+
   const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
   const pageSafe = Math.min(Math.max(1, page), totalPages);
 
@@ -917,242 +961,294 @@ export default function CommunityView() {
   const activeTypeMeta =
     LISTING_TYPES.find((t) => t.key === tab) || LISTING_TYPES[0];
 
+  // ✅ count active filters (for mobile label)
+  const activeFiltersCount = useMemo(() => {
+    let n = 0;
+    if (q.trim()) n++;
+    if (state) n++;
+    if (city.trim()) n++;
+    if (tab === "groups") {
+      if (platform) n++;
+      if (topic) n++;
+    } else {
+      if (category) n++;
+    }
+    return n;
+  }, [q, state, city, category, platform, topic, tab]);
+
   return (
-    <div className="max-w-6xl mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b border-gray-100 -mx-4 px-4 py-4 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-3xl font-extrabold text-gray-900">Explore</h1>
-          <p className="mt-1 text-gray-600">
-            Marketplace for newcomers: places, groups, services, jobs, housing,
-            products.
-          </p>
+    <div className="max-w-6xl mx-auto px-4 py-4 sm:py-6" dir={DIR(lang)}>
+      {/* ✅ Mobile-first Header (clean) */}
+      <div className="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-gray-100 -mx-4 px-4 py-3">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 leading-tight">
+              {L.explore}
+            </h1>
+            <p className="mt-1 text-sm sm:text-base text-gray-600">
+              {L.exploreDesc}
+            </p>
 
-          <div className="mt-3 inline-flex flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
-            <span className="text-xs font-semibold text-gray-600">Tip:</span>
-            <span className="text-xs text-gray-600">
-              Use <span className="font-semibold">State</span> +{" "}
-              <span className="font-semibold">City</span> for fast search.
-            </span>
+            <div className="mt-3 hidden sm:inline-flex flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+              <span className="text-xs font-semibold text-gray-600">
+                {L.tip}
+              </span>
+              <span className="text-xs text-gray-600">
+                {L.tipText} <span className="font-semibold">{L.state}</span> +{" "}
+                <span className="font-semibold">{L.city}</span>
+              </span>
+            </div>
           </div>
-        </div>
 
-        <div className="flex gap-2 shrink-0">
-          <button
-            onClick={load}
-            className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-800 inline-flex items-center gap-2"
-          >
-            <RefreshCw size={16} />
-            Refresh
-          </button>
+          {/* ✅ Actions (icon-only on mobile) */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={load}
+              className={classNames(
+                "inline-flex items-center gap-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-800",
+                "px-3 py-2 sm:px-4 sm:py-2"
+              )}
+              type="button"
+              title={L.refresh}
+              aria-label={L.refresh}
+            >
+              <RefreshCw size={16} />
+              <span className="hidden sm:inline">{L.refresh}</span>
+            </button>
 
-          <button
-            onClick={nearMe}
-            className="px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-800 inline-flex items-center gap-2"
-            title="Near me (fills city with coordinates)"
-          >
-            <LocateFixed size={16} />
-            Near me
-          </button>
-          {isLoggedIn ? (
-            <>
+            <button
+              onClick={nearMe}
+              className={classNames(
+                "inline-flex items-center gap-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-800",
+                "px-3 py-2 sm:px-4 sm:py-2"
+              )}
+              title={L.nearMeTitle}
+              type="button"
+              aria-label={L.nearMe}
+            >
+              <LocateFixed size={16} />
+              <span className="hidden sm:inline">{L.nearMe}</span>
+            </button>
+
+            {isLoggedIn ? (
               <button
                 onClick={() => {
                   setAddPickerType("places");
                   setAddPickerOpen(true);
                 }}
-                className="px-4 py-2 rounded-xl bg-black text-white hover:bg-black/90 inline-flex items-center gap-2"
+                className={classNames(
+                  "inline-flex items-center gap-2 rounded-xl bg-black text-white hover:bg-black/90",
+                  "px-3 py-2 sm:px-4 sm:py-2"
+                )}
+                type="button"
+                aria-label={L.addListing}
+                title={L.addListing}
               >
                 <Plus size={18} />
-                Add Listing
+                <span className="hidden sm:inline">{L.addListing}</span>
               </button>
+            ) : null}
+          </div>
+        </div>
 
-              {/* ✅ Add Listing Center Modal */}
-              <Modal
-                open={addPickerOpen}
-                onClose={() => setAddPickerOpen(false)}
-                title="Add Listing"
-                subtitle="Choose a type, then pick a preset (optional)."
+        {/* ✅ Mobile Tip */}
+        <div className="mt-3 sm:hidden">
+          <div className="inline-flex flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm w-full">
+            <span className="text-xs font-semibold text-gray-600">{L.tip}</span>
+            <span className="text-xs text-gray-600">
+              {L.tipText} <span className="font-semibold">{L.state}</span> +{" "}
+              <span className="font-semibold">{L.city}</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ✅ Add Picker Modal */}
+      <Modal
+        open={addPickerOpen}
+        onClose={() => setAddPickerOpen(false)}
+        title={L.addListingTitle}
+        subtitle={L.addListingSub}
+      >
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {LISTING_TYPES.filter((t) => !t.hideFromAdd).map((t) => {
+            const Active = addPickerType === t.key;
+            const Icon = t.Icon;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setAddPickerType(t.key)}
+                className={classNames(
+                  "rounded-2xl border p-4 text-left hover:bg-gray-50 transition",
+                  Active
+                    ? "border-black ring-2 ring-black/10"
+                    : "border-gray-200"
+                )}
+                type="button"
               >
-                {/* Types */}
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {LISTING_TYPES.filter((t) => !t.hideFromAdd).map((t) => {
-                    const Active = addPickerType === t.key;
-                    const Icon = t.Icon;
-                    return (
-                      <button
-                        key={t.key}
-                        onClick={() => setAddPickerType(t.key)}
-                        className={classNames(
-                          "rounded-2xl border p-4 text-left hover:bg-gray-50 transition",
-                          Active
-                            ? "border-black ring-2 ring-black/10"
-                            : "border-gray-200"
-                        )}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={classNames(
-                              "w-10 h-10 rounded-xl flex items-center justify-center border",
-                              Active
-                                ? "bg-black text-white border-black"
-                                : "bg-gray-50 text-gray-800 border-gray-200"
-                            )}
-                          >
-                            <Icon size={18} />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="font-extrabold text-gray-900">
-                              {t.label}
-                            </div>
-                            <div className="text-xs text-gray-500 truncate">
-                              {t.hint}
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Presets */}
-                <div className="mt-5 rounded-2xl border border-gray-200 bg-white">
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <div className="text-sm font-extrabold text-gray-900">
-                      Presets
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      Pick one, or choose “Custom”.
-                    </div>
-                  </div>
-
-                  <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {addPickerType === "places" ? (
-                      <>
-                        {[
-                          "Restaurant",
-                          "Mosque",
-                          "Church",
-                          "Clinic / Doctor",
-                          "School / Daycare",
-                          "Grocery / Arab Market",
-                          "Things to do",
-                          "Park / Outdoors",
-                          "Car Services",
-                          "Handyman / Home Services",
-                        ].map((preset) => (
-                          <button
-                            key={preset}
-                            onClick={() => {
-                              setAddPickerOpen(false);
-                              openFormAdd("places", preset);
-                            }}
-                            className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-left font-semibold"
-                          >
-                            {preset}
-                          </button>
-                        ))}
-                      </>
-                    ) : addPickerType === "groups" ? (
-                      <>
-                        {[
-                          "Facebook",
-                          "WhatsApp",
-                          "Telegram",
-                          "Discord",
-                          "Meetup",
-                        ].map((preset) => (
-                          <button
-                            key={preset}
-                            onClick={() => {
-                              setAddPickerOpen(false);
-                              openFormAdd("groups", preset);
-                            }}
-                            className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-left font-semibold"
-                          >
-                            {preset}
-                          </button>
-                        ))}
-                      </>
-                    ) : (
-                      <>
-                        {getCategoryOptionsForTab(addPickerType)
-                          .slice(0, 10)
-                          .map((preset) => (
-                            <button
-                              key={preset}
-                              onClick={() => {
-                                setAddPickerOpen(false);
-                                openFormAdd(addPickerType, preset);
-                              }}
-                              className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-left font-semibold"
-                            >
-                              {preset}
-                            </button>
-                          ))}
-                      </>
+                <div className="flex items-center gap-3">
+                  <div
+                    className={classNames(
+                      "w-10 h-10 rounded-xl flex items-center justify-center border",
+                      Active
+                        ? "bg-black text-white border-black"
+                        : "bg-gray-50 text-gray-800 border-gray-200"
                     )}
+                  >
+                    <Icon size={18} />
                   </div>
+                  <div className="min-w-0">
+                    <div className="font-extrabold text-gray-900">
+                      {pick(t.label, lang)}
+                    </div>
+                    <div className="text-xs text-gray-500 truncate">
+                      {pick(t.hint, lang)}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
 
-                  <div className="px-3 pb-3">
+        <div className="mt-5 rounded-2xl border border-gray-200 bg-white">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <div className="text-sm font-extrabold text-gray-900">
+              {L.presets}
+            </div>
+            <div className="text-xs text-gray-500 mt-0.5">{L.presetsSub}</div>
+          </div>
+
+          <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {addPickerType === "places" ? (
+              <>
+                {[
+                  "Restaurant",
+                  "Mosque",
+                  "Church",
+                  "Clinic / Doctor",
+                  "School / Daycare",
+                  "Grocery / Arab Market",
+                  "Things to do",
+                  "Park / Outdoors",
+                  "Car Services",
+                  "Handyman / Home Services",
+                ].map((preset) => (
+                  <button
+                    key={preset}
+                    onClick={() => {
+                      setAddPickerOpen(false);
+                      openFormAdd("places", preset);
+                    }}
+                    className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-left font-semibold"
+                    type="button"
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </>
+            ) : addPickerType === "groups" ? (
+              <>
+                {["Facebook", "WhatsApp", "Telegram", "Discord", "Meetup"].map(
+                  (preset) => (
                     <button
+                      key={preset}
                       onClick={() => {
                         setAddPickerOpen(false);
-                        openFormAdd(addPickerType);
+                        openFormAdd("groups", preset);
                       }}
-                      className="w-full px-4 py-3 rounded-xl bg-black text-white hover:bg-black/90 font-extrabold"
+                      className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-left font-semibold"
+                      type="button"
                     >
-                      Custom{" "}
-                      {addPickerType.slice(0, 1).toUpperCase() +
-                        addPickerType.slice(1)}
+                      {preset}
                     </button>
-                  </div>
-                </div>
-              </Modal>
-            </>
-          ) : null}
-        </div>
-      </div>
+                  )
+                )}
+              </>
+            ) : (
+              <>
+                {getCategoryOptionsForTab(addPickerType)
+                  .slice(0, 10)
+                  .map((preset) => (
+                    <button
+                      key={preset}
+                      onClick={() => {
+                        setAddPickerOpen(false);
+                        openFormAdd(addPickerType, preset);
+                      }}
+                      className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-left font-semibold"
+                      type="button"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+              </>
+            )}
+          </div>
 
-      {/* Listing Type pills */}
-      <div className="mt-5 flex items-center justify-between gap-3 flex-wrap">
+          <div className="px-3 pb-3">
+            <button
+              onClick={() => {
+                setAddPickerOpen(false);
+                openFormAdd(addPickerType);
+              }}
+              className="w-full px-4 py-3 rounded-xl bg-black text-white hover:bg-black/90 font-extrabold"
+              type="button"
+            >
+              {L.custom}{" "}
+              {pick(
+                LISTING_TYPES.find((t) => t.key === addPickerType)?.label,
+                lang
+              ) || ""}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ✅ Listing type (scrollable pills on mobile) */}
+      <div className="mt-5 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div>
           <div className="text-sm font-extrabold text-gray-900">
-            Listing Type
+            {L.listingType}
           </div>
           <div className="text-xs text-gray-500 mt-0.5">
-            {activeTypeMeta.hint}
+            {pick(activeTypeMeta.hint, lang)}
           </div>
         </div>
 
-        <div className="flex gap-2 flex-wrap">
-          {/* ✅ هنا لا نستخدم فلتر، نريد عرض كل التابات بما فيها All */}
-          {LISTING_TYPES.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => {
-                setTab(t.key);
-                resetFilters();
-                setPage(1);
-              }}
-              className={classNames(
-                "px-4 py-2 rounded-full border text-sm font-semibold",
-                tab === t.key
-                  ? "bg-black text-white border-black"
-                  : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="w-full sm:w-auto overflow-x-auto">
+          <div className="flex gap-2 whitespace-nowrap pb-1">
+            {LISTING_TYPES.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => {
+                  setTab(t.key);
+                  resetFilters();
+                  setPage(1);
+                }}
+                className={classNames(
+                  "px-4 py-2 rounded-full border text-sm font-semibold shrink-0",
+                  tab === t.key
+                    ? "bg-black text-white border-black"
+                    : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                )}
+                type="button"
+              >
+                {pick(t.label, lang)}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Filters */}
+      {/* ✅ Filters (mobile collapsible) */}
       <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-          <div className="md:col-span-4">
-            <label className="text-sm font-medium text-gray-700">Search</label>
+        {/* Top row: Search + filters toggle + apply/reset */}
+        <div className="grid grid-cols-1 gap-3">
+          <div>
+            <label className="text-sm font-medium text-gray-700">
+              {L.search}
+            </label>
             <div className="mt-1 relative">
               <Search
                 size={18}
@@ -1163,102 +1259,139 @@ export default function CommunityView() {
                 onChange={(e) => setQ(e.target.value)}
                 placeholder={
                   tab === "places"
-                    ? "e.g. kebab, mosque, church..."
+                    ? L.searchPH_places
                     : tab === "groups"
-                    ? "e.g. arab, jobs, immigration..."
-                    : "e.g. handyman, room, iPhone..."
+                    ? L.searchPH_groups
+                    : L.searchPH_other
                 }
                 className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
               />
             </div>
           </div>
 
-          <div className="md:col-span-2">
-            <label className="text-sm font-medium text-gray-700">State</label>
-            <select
-              value={state}
-              onChange={(e) => setState(e.target.value)}
-              className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+          {/* Mobile controls */}
+          <div className="sm:hidden flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((v) => !v)}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-800 inline-flex items-center justify-center gap-2 font-semibold"
             >
-              <option value="">Any</option>
-              {US_STATES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+              <SlidersHorizontal size={16} />
+              {filtersOpen ? L.hideFilters : L.showFilters}
+              {activeFiltersCount ? (
+                <span className="ml-1 inline-flex items-center justify-center min-w-[22px] h-[22px] rounded-full bg-black text-white text-xs font-black px-2">
+                  {activeFiltersCount}
+                </span>
+              ) : null}
+            </button>
+
+            <button
+              onClick={load}
+              className="px-4 py-2.5 rounded-xl bg-black text-white font-semibold hover:bg-black/90"
+              type="button"
+            >
+              {L.apply}
+            </button>
+
+            <button
+              onClick={() => {
+                resetFilters();
+                setTimeout(load, 0);
+              }}
+              className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-800"
+              title={L.reset}
+              aria-label={L.reset}
+              type="button"
+            >
+              <X size={18} />
+            </button>
           </div>
+        </div>
 
-          <div className="md:col-span-2">
-            <label className="text-sm font-medium text-gray-700">City</label>
-            <input
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              placeholder="e.g. Fairfax"
-              list="city-suggestions"
-              className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-            />
-            <datalist id="city-suggestions">
-              {citySuggestions.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          </div>
+        {/* Desktop grid (always open on sm+) */}
+        <div className="hidden sm:block mt-3">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div className="md:col-span-2">
+              <label className="text-sm font-medium text-gray-700">
+                {L.state}
+              </label>
+              <select
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+              >
+                <option value="">{L.any}</option>
+                {US_STATES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Category/Platform */}
-          {tab === "groups" ? (
-            <>
-              <div className="md:col-span-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Platform
-                </label>
-                <select
-                  value={platform}
-                  onChange={(e) => setPlatform(e.target.value)}
-                  className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                >
-                  <option value="">All</option>
-                  {GROUP_PLATFORMS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="md:col-span-2">
+              <label className="text-sm font-medium text-gray-700">
+                {L.city}
+              </label>
+              <input
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder={L.cityPH}
+                list="city-suggestions"
+                className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+              />
+            </div>
 
-              <div className="md:col-span-2">
-                <label className="text-sm font-medium text-gray-700">
-                  Topic
-                </label>
-                <select
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
-                >
-                  <option value="">All</option>
-                  {GROUP_TOPICS.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </>
-          ) : (
-            <>
+            {tab === "groups" ? (
+              <>
+                <div className="md:col-span-3">
+                  <label className="text-sm font-medium text-gray-700">
+                    {L.platform}
+                  </label>
+                  <select
+                    value={platform}
+                    onChange={(e) => setPlatform(e.target.value)}
+                    className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                  >
+                    <option value="">{L.all}</option>
+                    {GROUP_PLATFORMS.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-3">
+                  <label className="text-sm font-medium text-gray-700">
+                    {L.topic}
+                  </label>
+                  <select
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                  >
+                    <option value="">{L.all}</option>
+                    {GROUP_TOPICS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            ) : (
               <div className="md:col-span-4">
                 <label className="text-sm font-medium text-gray-700">
-                  Category
+                  {L.category}
                 </label>
-
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                   className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
                 >
-                  <option value="">All</option>
+                  <option value="">{L.all}</option>
 
-                  {/* ✅ All: اعرض كل الكاتيجوريز (Places + Services + Jobs + Housing + Products) */}
                   {tab === "all"
                     ? Array.from(
                         new Set([
@@ -1279,53 +1412,167 @@ export default function CommunityView() {
                         </option>
                       ))}
                 </select>
-
-                {/* {tab === "all" ? (
-                  <div className="mt-1 text-xs text-gray-500">
-                    Tip: In All, Category is a broad filter across all types.
-                  </div>
-                ) : null} */}
               </div>
-            </>
-          )}
+            )}
 
-          <div className="md:col-span-2 flex gap-2">
-            <button
-              onClick={load}
-              className="w-full px-4 py-2.5 rounded-xl bg-black text-white font-semibold hover:bg-black/90"
-            >
-              Apply
-            </button>
-            <button
-              onClick={() => {
-                resetFilters();
-                setTimeout(load, 0);
-              }}
-              className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-800"
-              title="Reset"
-              aria-label="Reset"
-            >
-              <X size={18} />
-            </button>
+            <div className="md:col-span-2 flex gap-2">
+              <button
+                onClick={load}
+                className="w-full px-4 py-2.5 rounded-xl bg-black text-white font-semibold hover:bg-black/90"
+                type="button"
+              >
+                {L.apply}
+              </button>
+              <button
+                onClick={() => {
+                  resetFilters();
+                  setTimeout(load, 0);
+                }}
+                className="px-3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-800"
+                title={L.reset}
+                aria-label={L.reset}
+                type="button"
+              >
+                <X size={18} />
+              </button>
+            </div>
           </div>
         </div>
+
+        {/* Mobile expanded filters */}
+        {filtersOpen ? (
+          <div className="sm:hidden mt-3 space-y-3">
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  {L.state}
+                </label>
+                <select
+                  value={state}
+                  onChange={(e) => setState(e.target.value)}
+                  className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                >
+                  <option value="">{L.any}</option>
+                  {US_STATES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700">
+                  {L.city}
+                </label>
+                <input
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  placeholder={L.cityPH}
+                  list="city-suggestions"
+                  className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                />
+              </div>
+
+              {tab === "groups" ? (
+                <>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {L.platform}
+                    </label>
+                    <select
+                      value={platform}
+                      onChange={(e) => setPlatform(e.target.value)}
+                      className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                    >
+                      <option value="">{L.all}</option>
+                      {GROUP_PLATFORMS.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">
+                      {L.topic}
+                    </label>
+                    <select
+                      value={topic}
+                      onChange={(e) => setTopic(e.target.value)}
+                      className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                    >
+                      <option value="">{L.all}</option>
+                      {GROUP_TOPICS.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="text-sm font-medium text-gray-700">
+                    {L.category}
+                  </label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="mt-1 w-full py-2.5 px-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-black/20"
+                  >
+                    <option value="">{L.all}</option>
+
+                    {tab === "all"
+                      ? Array.from(
+                          new Set([
+                            ...PLACE_CATEGORIES,
+                            ...SERVICE_CATEGORIES,
+                            ...JOB_CATEGORIES,
+                            ...HOUSING_CATEGORIES,
+                            ...PRODUCT_CATEGORIES,
+                          ])
+                        ).map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))
+                      : getCategoryOptionsForTab(tab).map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        <datalist id="city-suggestions">
+          {citySuggestions.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
       </div>
 
-      {/* List */}
+      {/* ✅ List */}
       <div className="mt-4">
         {loading ? (
-          <div className="py-10 text-center text-gray-500">Loading…</div>
+          <div className="py-10 text-center text-gray-500">{L.loading}</div>
         ) : items.length === 0 ? (
           <EmptyState
             icon={activeTypeMeta.Icon}
-            title="No items yet"
-            desc="Be the first to add a helpful listing."
+            title={L.noItems}
+            desc={L.noItemsDesc}
           />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {pagedItems.map((it) => (
               <CardItem
                 key={`${it.type || tab}-${it.id}`}
+                lang={lang}
                 tab={tab}
                 it={it}
                 isLoggedIn={isLoggedIn}
@@ -1340,8 +1587,6 @@ export default function CommunityView() {
                 onOpen={() => {
                   const t = tab === "all" ? it.type || "places" : tab;
                   const id = normalizeId(it.id, t);
-
-                  // ✅ survive refresh
                   sessionStorage.setItem(`mp:type:${t}:${id}`, t);
                   return navigate(`/marketplace/item/${id}`, {
                     state: { type: t },
@@ -1352,16 +1597,17 @@ export default function CommunityView() {
           </div>
         )}
       </div>
-      {/* Pagination */}
+
+      {/* ✅ Pagination */}
       {items.length > 0 ? (
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="text-sm text-gray-600">
-            Page <span className="font-semibold">{pageSafe}</span> of{" "}
+            {L.pageOf} <span className="font-semibold">{pageSafe}</span> {L.of}{" "}
             <span className="font-semibold">{totalPages}</span> —{" "}
-            <span className="font-semibold">{items.length}</span> items
+            <span className="font-semibold">{items.length}</span> {L.items}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => setPage(1)}
               disabled={pageSafe === 1}
@@ -1371,8 +1617,9 @@ export default function CommunityView() {
                   ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
                   : "border-gray-200 text-gray-800 hover:bg-gray-50"
               )}
+              type="button"
             >
-              First
+              {L.first}
             </button>
 
             <button
@@ -1384,72 +1631,10 @@ export default function CommunityView() {
                   ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
                   : "border-gray-200 text-gray-800 hover:bg-gray-50"
               )}
+              type="button"
             >
-              Prev
+              {L.prev}
             </button>
-            {/* Page numbers */}
-            {(() => {
-              const MAX = 5; // ✅ عدد أزرار الصفحات اللي هتظهر
-              const half = Math.floor(MAX / 2);
-
-              let start = Math.max(1, pageSafe - half);
-              let end = Math.min(totalPages, start + MAX - 1);
-              start = Math.max(1, end - MAX + 1);
-
-              const pages = [];
-              for (let i = start; i <= end; i++) pages.push(i);
-
-              return (
-                <div className="flex items-center gap-1">
-                  {start > 1 ? (
-                    <>
-                      <button
-                        onClick={() => setPage(1)}
-                        className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold text-gray-800"
-                      >
-                        1
-                      </button>
-                      {start > 2 ? (
-                        <span className="px-2 text-gray-500 select-none">
-                          …
-                        </span>
-                      ) : null}
-                    </>
-                  ) : null}
-
-                  {pages.map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setPage(p)}
-                      className={classNames(
-                        "px-3 py-2 rounded-xl border text-sm font-semibold",
-                        p === pageSafe
-                          ? "bg-black text-white border-black"
-                          : "border-gray-200 text-gray-800 hover:bg-gray-50"
-                      )}
-                    >
-                      {p}
-                    </button>
-                  ))}
-
-                  {end < totalPages ? (
-                    <>
-                      {end < totalPages - 1 ? (
-                        <span className="px-2 text-gray-500 select-none">
-                          …
-                        </span>
-                      ) : null}
-                      <button
-                        onClick={() => setPage(totalPages)}
-                        className="px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-sm font-semibold text-gray-800"
-                      >
-                        {totalPages}
-                      </button>
-                    </>
-                  ) : null}
-                </div>
-              );
-            })()}
 
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
@@ -1460,8 +1645,9 @@ export default function CommunityView() {
                   ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
                   : "border-gray-200 text-gray-800 hover:bg-gray-50"
               )}
+              type="button"
             >
-              Next
+              {L.next}
             </button>
 
             <button
@@ -1473,11 +1659,32 @@ export default function CommunityView() {
                   ? "border-gray-200 text-gray-400 bg-gray-50 cursor-not-allowed"
                   : "border-gray-200 text-gray-800 hover:bg-gray-50"
               )}
+              type="button"
             >
-              Last
+              {L.last}
             </button>
           </div>
         </div>
+      ) : null}
+
+      {/* ✅ Mobile FAB (Add Listing) */}
+      {isLoggedIn ? (
+        <button
+          type="button"
+          onClick={() => {
+            setAddPickerType("places");
+            setAddPickerOpen(true);
+          }}
+          className={classNames(
+            "fixed sm:hidden z-50 right-5 bottom-24",
+            "w-14 h-14 rounded-2xl bg-black text-white shadow-2xl",
+            "flex items-center justify-center active:scale-95 transition"
+          )}
+          aria-label={L.addListing}
+          title={L.addListing}
+        >
+          <Plus size={22} />
+        </button>
       ) : null}
 
       {/* ✅ Unified Add/Edit Modal */}
@@ -1486,13 +1693,15 @@ export default function CommunityView() {
         onClose={() => setFormOpen(false)}
         title={
           formMode === "edit"
-            ? "Edit Listing"
-            : `Add ${
-                LISTING_TYPES.find((t) => t.key === formType)?.label ||
-                "Listing"
+            ? L.editListing
+            : `${L.addListingTitle} ${
+                pick(
+                  LISTING_TYPES.find((t) => t.key === formType)?.label,
+                  lang
+                ) || ""
               }`
         }
-        subtitle="Fill the fields and save."
+        subtitle={L.fillFields}
       >
         <ListingFormBody
           formType={formType}
@@ -1502,13 +1711,9 @@ export default function CommunityView() {
           formCitySuggestions={formCitySuggestions}
           onCancel={() => setFormOpen(false)}
           onSubmit={submitForm}
-          submitLabel={formMode === "edit" ? "Update" : "Save"}
+          submitLabel={formMode === "edit" ? L.update : L.save}
         />
       </Modal>
     </div>
   );
 }
-
-/* =========================
-   Card
-========================= */

@@ -69,33 +69,33 @@ function pickCreatedAt(it) {
   );
 }
 
-function timeAgo(date) {
+function timeAgo(date, t) {
   const d = parseDateLike(date);
   if (!d) return "";
 
   const diffMs = Date.now() - d.getTime();
-  if (diffMs < 0) return "just now";
+  if (diffMs < 0) return t.justNow;
 
   const sec = Math.floor(diffMs / 1000);
-  if (sec < 60) return "just now";
+  if (sec < 60) return t.justNow;
 
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
+  if (min < 60) return t.mAgo(min);
 
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
+  if (hr < 24) return t.hAgo(hr);
 
   const day = Math.floor(hr / 24);
-  if (day < 7) return `${day}d ago`;
+  if (day < 7) return t.dAgo(day);
 
   const wk = Math.floor(day / 7);
-  if (wk < 5) return `${wk}w ago`;
+  if (wk < 5) return t.wAgo(wk);
 
   const mo = Math.floor(day / 30);
-  if (mo < 12) return `${mo}mo ago`;
+  if (mo < 12) return t.moAgo(mo);
 
   const yr = Math.floor(day / 365);
-  return `${yr}y ago`;
+  return t.yAgo(yr);
 }
 
 function isNewByDate(date, hours = 48) {
@@ -106,8 +106,85 @@ function isNewByDate(date, hours = 48) {
 }
 
 /* =========================
-   Banners
+   i18n
 ========================= */
+
+const getDir = (lang) => (lang === "ar" ? "rtl" : "ltr");
+
+const UI = {
+  ar: {
+    listing: "إعلان",
+    curated: "مُختار للمهاجرين الجدد",
+    joinConnect: "انضم وتواصل مع الناس",
+    marketplace: "ماركت بليس للمهاجرين الجدد",
+    locationNotSet: "الموقع غير محدد",
+    newTag: "جديد",
+    actions: "إجراءات",
+    edit: "تعديل",
+    del: "حذف",
+    openMap: "فتح الخريطة",
+    website: "الموقع",
+    openLink: "فتح الرابط",
+    open: "فتح",
+    contact: "تواصل",
+    justNow: "دلوقتي",
+    mAgo: (n) => `منذ ${n} د`,
+    hAgo: (n) => `منذ ${n} س`,
+    dAgo: (n) => `منذ ${n} يوم`,
+    wAgo: (n) => `منذ ${n} أسبوع`,
+    moAgo: (n) => `منذ ${n} شهر`,
+    yAgo: (n) => `منذ ${n} سنة`,
+    ratingNew: "جديد",
+  },
+  en: {
+    listing: "Listing",
+    curated: "Curated for newcomers",
+    joinConnect: "Join & connect with people",
+    marketplace: "Marketplace for newcomers",
+    locationNotSet: "Location not set",
+    newTag: "NEW",
+    actions: "Actions",
+    edit: "Edit",
+    del: "Delete",
+    openMap: "Open Map",
+    website: "Website",
+    openLink: "Open Link",
+    open: "Open",
+    contact: "Contact",
+    justNow: "just now",
+    mAgo: (n) => `${n}m ago`,
+    hAgo: (n) => `${n}h ago`,
+    dAgo: (n) => `${n}d ago`,
+    wAgo: (n) => `${n}w ago`,
+    moAgo: (n) => `${n}mo ago`,
+    yAgo: (n) => `${n}y ago`,
+    ratingNew: "New",
+  },
+  es: {
+    listing: "Anuncio",
+    curated: "Recomendado para recién llegados",
+    joinConnect: "Únete y conecta con personas",
+    marketplace: "Mercado para recién llegados",
+    locationNotSet: "Ubicación no establecida",
+    newTag: "NUEVO",
+    actions: "Acciones",
+    edit: "Editar",
+    del: "Eliminar",
+    openMap: "Abrir mapa",
+    website: "Sitio web",
+    openLink: "Abrir enlace",
+    open: "Abrir",
+    contact: "Contacto",
+    justNow: "ahora",
+    mAgo: (n) => `hace ${n} min`,
+    hAgo: (n) => `hace ${n} h`,
+    dAgo: (n) => `hace ${n} d`,
+    wAgo: (n) => `hace ${n} sem`,
+    moAgo: (n) => `hace ${n} mes`,
+    yAgo: (n) => `hace ${n} año`,
+    ratingNew: "Nuevo",
+  },
+};
 
 function normalizePlaceCategoryKey(raw) {
   const v = String(raw || "")
@@ -150,6 +227,10 @@ function normalizeGroupPlatformKey(raw) {
   if (v.includes("meetup")) return "meetup";
   return "other";
 }
+
+/* =========================
+   Banners
+========================= */
 
 const PLACE_BANNER = {
   restaurant: {
@@ -322,22 +403,31 @@ const TYPE_BANNER = {
   },
 };
 
-function CardBanner({ tab, placeCategory, groupPlatform, subtitleRight }) {
+function CardBanner({
+  tab,
+  placeCategory,
+  groupPlatform,
+  subtitleRight,
+  lang,
+}) {
+  const t = UI[lang] || UI.en;
+
   let ui = {
-    label: "Listing",
+    label: t.listing,
     Icon: Building2,
     bg: "from-gray-50 to-gray-100 border-gray-200",
     icon: "bg-gray-700",
+    sub: t.marketplace,
   };
 
   if (tab === "places") {
     const key = normalizePlaceCategoryKey(placeCategory);
-    ui = PLACE_BANNER[key] || PLACE_BANNER.other;
+    ui = { ...(PLACE_BANNER[key] || PLACE_BANNER.other), sub: t.curated };
   } else if (tab === "groups") {
     const key = normalizeGroupPlatformKey(groupPlatform);
-    ui = GROUP_BANNER[key] || GROUP_BANNER.other;
+    ui = { ...(GROUP_BANNER[key] || GROUP_BANNER.other), sub: t.joinConnect };
   } else {
-    ui = TYPE_BANNER[tab] || ui;
+    ui = { ...(TYPE_BANNER[tab] || ui), sub: t.marketplace };
   }
 
   const Icon = ui.Icon;
@@ -362,13 +452,7 @@ function CardBanner({ tab, placeCategory, groupPlatform, subtitleRight }) {
           <div className="font-extrabold text-gray-900 leading-5 truncate">
             {ui.label}
           </div>
-          <div className="text-xs text-gray-600 mt-0.5 truncate">
-            {tab === "places"
-              ? "Curated for newcomers"
-              : tab === "groups"
-              ? "Join & connect with people"
-              : "Marketplace for newcomers"}
-          </div>
+          <div className="text-xs text-gray-600 mt-0.5 truncate">{ui.sub}</div>
         </div>
       </div>
 
@@ -385,23 +469,34 @@ function CardBanner({ tab, placeCategory, groupPlatform, subtitleRight }) {
    ✅ CardItem
 ========================= */
 
-export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
+export function CardItem({
+  tab,
+  it,
+  isLoggedIn,
+  onEdit,
+  onDelete,
+  onOpen,
+  lang = "en",
+}) {
   const [open, setOpen] = useState(false);
+
+  const t = UI[lang] || UI.en;
+  const dir = getDir(lang);
 
   const cardClickable = typeof onOpen === "function";
 
-  const t = tab === "all" ? it.type || "places" : tab;
-  const isPlace = t === "places";
-  const isGroup = t === "groups";
+  const typeKey = tab === "all" ? it.type || "places" : tab;
+  const isPlace = typeKey === "places";
+  const isGroup = typeKey === "groups";
 
   const placeMapUrl = isPlace
     ? mapsLink({ address: it.address, city: it.city, state: it.state })
     : "";
 
   const locText =
-    [it.city, it.state].filter(Boolean).join(", ") || "Location not set";
+    [it.city, it.state].filter(Boolean).join(", ") || t.locationNotSet;
 
-  const typeChip = t;
+  const typeChip = typeKey;
 
   const badgeChip = isGroup
     ? it.topic || it.platform || ""
@@ -430,13 +525,14 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
   const rating = Number(ratingRaw) || 0;
   const reviewsCount = Number(reviewsRaw) || 0;
 
-  const ratingText = rating > 0 ? rating.toFixed(1) : "New";
+  const ratingText = rating > 0 ? rating.toFixed(1) : t.ratingNew;
 
   const titleText = it.name || it.title || "Untitled";
   const priceValue = it.price_value;
   const createdAtVal = pickCreatedAt(it);
-  const createdAgo = timeAgo(createdAtVal);
+  const createdAgo = timeAgo(createdAtVal, t);
   const isNew = isNewByDate(createdAtVal, 48);
+
   // ✅ Ownership (show actions ONLY for owner)
   const me = useMemo(() => {
     try {
@@ -466,9 +562,9 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
   const isOwner = !!meId && !!ownerId && meId === ownerId;
 
   const rightSubtitle =
-    t !== "places" && t !== "groups" && (it.price || it.budget)
+    typeKey !== "places" && typeKey !== "groups" && (it.price || it.budget)
       ? String(it.price || it.budget)
-      : t === "groups"
+      : typeKey === "groups"
       ? it.platform || ""
       : it.category || "";
 
@@ -494,6 +590,7 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
         placeCategory={it.category}
         groupPlatform={it.platform}
         subtitleRight={rightSubtitle}
+        lang={lang}
       />
 
       <div className="mt-4 flex items-start justify-between gap-3">
@@ -537,7 +634,7 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
 
             {isNew ? (
               <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-700">
-                NEW
+                {t.newTag}
               </span>
             ) : null}
           </div>
@@ -554,6 +651,7 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
                 target="_blank"
                 rel="noreferrer"
                 className="text-gray-600 truncate hover:underline"
+                onClick={(e) => e.stopPropagation()}
               >
                 {it.address}
               </a>
@@ -574,10 +672,11 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
                 href={placeMapUrl}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
                 className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
               >
                 <Navigation size={16} />
-                Open Map
+                {t.openMap}
                 <ExternalLink size={14} className="text-gray-500" />
               </a>
             ) : null}
@@ -587,10 +686,11 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
                 href={safeUrl(it.website)}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
                 className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
               >
                 <Globe size={16} />
-                Website
+                {t.website}
                 <ExternalLink size={14} className="text-gray-500" />
               </a>
             ) : null}
@@ -598,6 +698,7 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
             {isPlace && it.phone ? (
               <a
                 href={`tel:${String(it.phone).replace(/\s+/g, "")}`}
+                onClick={(e) => e.stopPropagation()}
                 className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
               >
                 <Phone size={16} />
@@ -610,10 +711,11 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
                 href={safeUrl(it.link)}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
                 className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
               >
                 <Globe size={16} />
-                Open Link
+                {t.openLink}
                 <ExternalLink size={14} className="text-gray-500" />
               </a>
             ) : null}
@@ -623,10 +725,11 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
                 href={safeUrl(it.link)}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
                 className="inline-flex items-center gap-2 text-sm font-semibold px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50"
               >
                 <Globe size={16} />
-                Open
+                {t.open}
                 <ExternalLink size={14} className="text-gray-500" />
               </a>
             ) : null}
@@ -655,13 +758,19 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
                 setOpen((v) => !v);
               }}
               className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50"
-              title="Actions"
+              title={t.actions}
+              type="button"
             >
               <MoreVertical size={18} />
             </button>
 
             {open ? (
-              <div className="absolute mt-2 right-0 w-44 rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden z-50">
+              <div
+                className={classNames(
+                  "absolute mt-2 w-44 rounded-2xl border border-gray-200 bg-white shadow-xl overflow-hidden z-50",
+                  dir === "rtl" ? "left-0" : "right-0"
+                )}
+              >
                 <button
                   onClick={(e) => {
                     e.preventDefault();
@@ -670,9 +779,10 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
                     onEdit?.();
                   }}
                   className="w-full px-3 py-2.5 text-left hover:bg-gray-50 flex items-center gap-2 text-sm font-semibold"
+                  type="button"
                 >
                   <Pencil size={16} />
-                  Edit
+                  {t.edit}
                 </button>
 
                 <button
@@ -683,9 +793,10 @@ export function CardItem({ tab, it, isLoggedIn, onEdit, onDelete, onOpen }) {
                     onDelete?.();
                   }}
                   className="w-full px-3 py-2.5 text-left hover:bg-red-50 flex items-center gap-2 text-sm font-semibold text-red-600"
+                  type="button"
                 >
                   <Trash2 size={16} />
-                  Delete
+                  {t.del}
                 </button>
               </div>
             ) : null}

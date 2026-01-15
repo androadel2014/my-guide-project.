@@ -1,8 +1,8 @@
-// ProfilePage.jsx (FULL FILE - copy/paste)
-// ✅ Fixes in this version:
-// - ✅ FIX 400 comments: لا نستخدم pp_18 في comments URLs (comments لازم رقم فقط)
-// - ✅ لو البوست id بتاعه pp_.. يبقى comments disabled بدل ما يضرب 400
-// - KEEP: كل شغلك (isMe fallback, safe tabs, edit/delete posts, comment tree, etc)
+// src/components/ProfilePage.jsx  (FULL FILE - copy/paste)
+// ✅ 3 languages AR/EN/ES + RTL/LTR
+// ✅ Keeps your logic (fallbacks, safe tabs, edit/delete posts, comment tree, etc)
+// ✅ FIX 400 comments: لا نستخدم pp_.. في comments URLs (comments لازم رقم فقط)
+// ✅ لو البوست id بتاعه pp_.. يبقى comments disabled بدل 400
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -29,6 +29,253 @@ import {
   UserPlus,
 } from "lucide-react";
 
+/* =========================
+   i18n (Profile)
+========================= */
+const STR = {
+  ar: {
+    profileNotFound: "الملف الشخصي غير موجود",
+    back: "رجوع",
+    share: "مشاركة",
+    follow: "متابعة",
+    following: "متابع",
+    editProfile: "تعديل البروفايل",
+    website: "الموقع",
+    noBio: "لا يوجد نبذة بعد.",
+    loginFirst: "سجّل دخول الأول",
+    loginToFollow: "سجّل دخول الأول عشان تعمل Follow",
+    followFailed: "فشل المتابعة",
+    saved: "تم الحفظ",
+    saveFailed: "فشل الحفظ",
+    failedLoadProfile: "فشل تحميل البروفايل",
+    failedLoadTab: "فشل تحميل التبويب",
+    posts: "المنشورات",
+    services: "الخدمات",
+    products: "المنتجات",
+    reviews: "التقييمات",
+    addService: "إضافة خدمة",
+    addProduct: "إضافة منتج",
+    writeReview: "اكتب تقييم",
+    loading: "جاري التحميل…",
+    shared: "تمت المشاركة",
+    linkCopied: "تم نسخ الرابط",
+    post: "نشر",
+    postPlaceholder: "احكي تجربتك، اسأل سؤال، أو شارك معلومة تساعد غيرك… ✍️",
+    category: "التصنيف",
+    comments: "التعليقات",
+    commentsUnavailable: "التعليقات غير متاحة للبوست ده",
+    noComments: "لا يوجد تعليقات بعد.",
+    writeComment: "اكتب تعليق…",
+    send: "إرسال",
+    reply: "رد",
+    like: "إعجاب",
+    delete: "حذف",
+    edit: "تعديل",
+    hideReplies: "إخفاء الردود",
+    viewReplies: "عرض الردود",
+    deletePostQ: "حذف البوست؟",
+    deleteCommentQ: "حذف التعليق؟",
+    deleteServiceQ: "حذف الخدمة؟",
+    deleteProductQ: "حذف المنتج؟",
+    confirmDelete: "حذف",
+    cancel: "إلغاء",
+    cannotUndo: "لا يمكن التراجع عن هذا الإجراء.",
+    deleted: "تم الحذف",
+    updated: "تم التحديث",
+    posted: "تم النشر",
+    createPostFailed: "فشل إنشاء البوست",
+    deleteFailed: "فشل الحذف",
+    updateFailed: "فشل التعديل",
+    add: "إضافة",
+    reviewSent: "تم إرسال التقييم",
+    reviewFailed: "فشل إرسال التقييم",
+    cannotReviewSelf: "مش ينفع تعمل Review لنفسك",
+    ratingBad: "التقييم لازم من 1 لـ 5",
+    writeYourComment: "اكتب تعليقك",
+    serviceAdded: "تمت إضافة الخدمة",
+    productAdded: "تمت إضافة المنتج",
+    createServiceFailed: "فشل إنشاء الخدمة",
+    createProductFailed: "فشل إنشاء المنتج",
+    review: "تقييم",
+    sendReview: "إرسال",
+    overallRating: "التقييم العام",
+    noPosts: "لا يوجد منشورات بعد.",
+    noServices: "لا يوجد خدمات بعد.",
+    noProducts: "لا يوجد منتجات بعد.",
+    noReviews: "لا يوجد تقييمات بعد.",
+    addFailed: "فشل الإضافة",
+    updateOk: "تم التعديل",
+    deleteOk: "تم الحذف",
+    postContentRequired: "اكتب محتوى البوست",
+    writePostFirst: "اكتب البوست الأول",
+    commentsDisabled: "التعليقات غير متاحة للبوست ده",
+    replying: "بترد على…",
+  },
+  en: {
+    profileNotFound: "Profile not found",
+    back: "Back",
+    share: "Share",
+    follow: "Follow",
+    following: "Following",
+    editProfile: "Edit profile",
+    website: "Website",
+    noBio: "No bio yet.",
+    loginFirst: "Login first",
+    loginToFollow: "Login first to follow",
+    followFailed: "Follow failed",
+    saved: "Saved",
+    saveFailed: "Save failed",
+    failedLoadProfile: "Failed to load profile",
+    failedLoadTab: "Failed to load tab",
+    posts: "Posts",
+    services: "Services",
+    products: "Products",
+    reviews: "Reviews",
+    addService: "Add service",
+    addProduct: "Add product",
+    writeReview: "Write review",
+    loading: "Loading…",
+    shared: "Shared",
+    linkCopied: "Link copied",
+    post: "Post",
+    postPlaceholder:
+      "Share your experience, ask a question, or help others… ✍️",
+    category: "Category",
+    comments: "Comments",
+    commentsUnavailable: "Comments not available for this post",
+    noComments: "No comments yet.",
+    writeComment: "Write a comment…",
+    send: "Send",
+    reply: "Reply",
+    like: "Like",
+    delete: "Delete",
+    edit: "Edit",
+    hideReplies: "Hide replies",
+    viewReplies: "View replies",
+    deletePostQ: "Delete this post?",
+    deleteCommentQ: "Delete this comment?",
+    deleteServiceQ: "Delete this service?",
+    deleteProductQ: "Delete this product?",
+    confirmDelete: "Delete",
+    cancel: "Cancel",
+    cannotUndo: "This action can’t be undone.",
+    deleted: "Deleted",
+    updated: "Updated",
+    posted: "Posted",
+    createPostFailed: "Create post failed",
+    deleteFailed: "Delete failed",
+    updateFailed: "Update failed",
+    add: "Add",
+    reviewSent: "Review sent",
+    reviewFailed: "Review failed",
+    cannotReviewSelf: "You can’t review yourself",
+    ratingBad: "Rating must be 1 to 5",
+    writeYourComment: "Write your comment",
+    serviceAdded: "Service added",
+    productAdded: "Product added",
+    createServiceFailed: "Create service failed",
+    createProductFailed: "Create product failed",
+    review: "Review",
+    sendReview: "Send",
+    overallRating: "Overall rating",
+    noPosts: "No posts yet.",
+    noServices: "No services yet.",
+    noProducts: "No products yet.",
+    noReviews: "No reviews yet.",
+    addFailed: "Add failed",
+    updateOk: "Updated",
+    deleteOk: "Deleted",
+    postContentRequired: "Write post content",
+    writePostFirst: "Write the post first",
+    commentsDisabled: "Comments are not available for this post",
+    replying: "Replying…",
+  },
+  es: {
+    profileNotFound: "Perfil no encontrado",
+    back: "Volver",
+    share: "Compartir",
+    follow: "Seguir",
+    following: "Siguiendo",
+    editProfile: "Editar perfil",
+    website: "Sitio web",
+    noBio: "Aún no hay biografía.",
+    loginFirst: "Inicia sesión primero",
+    loginToFollow: "Inicia sesión para seguir",
+    followFailed: "Falló seguir",
+    saved: "Guardado",
+    saveFailed: "Falló guardar",
+    failedLoadProfile: "No se pudo cargar el perfil",
+    failedLoadTab: "No se pudo cargar la pestaña",
+    posts: "Publicaciones",
+    services: "Servicios",
+    products: "Productos",
+    reviews: "Reseñas",
+    addService: "Agregar servicio",
+    addProduct: "Agregar producto",
+    writeReview: "Escribir reseña",
+    loading: "Cargando…",
+    shared: "Compartido",
+    linkCopied: "Enlace copiado",
+    post: "Publicar",
+    postPlaceholder: "Comparte tu experiencia, pregunta o ayuda a otros… ✍️",
+    category: "Categoría",
+    comments: "Comentarios",
+    commentsUnavailable: "Comentarios no disponibles para esta publicación",
+    noComments: "Aún no hay comentarios.",
+    writeComment: "Escribe un comentario…",
+    send: "Enviar",
+    reply: "Responder",
+    like: "Me gusta",
+    delete: "Eliminar",
+    edit: "Editar",
+    hideReplies: "Ocultar respuestas",
+    viewReplies: "Ver respuestas",
+    deletePostQ: "¿Eliminar esta publicación?",
+    deleteCommentQ: "¿Eliminar este comentario?",
+    deleteServiceQ: "¿Eliminar este servicio?",
+    deleteProductQ: "¿Eliminar este producto?",
+    confirmDelete: "Eliminar",
+    cancel: "Cancelar",
+    cannotUndo: "No se puede deshacer.",
+    deleted: "Eliminado",
+    updated: "Actualizado",
+    posted: "Publicado",
+    createPostFailed: "Falló publicar",
+    deleteFailed: "Falló eliminar",
+    updateFailed: "Falló actualizar",
+    add: "Agregar",
+    reviewSent: "Reseña enviada",
+    reviewFailed: "Falló la reseña",
+    cannotReviewSelf: "No puedes reseñarte a ti mismo",
+    ratingBad: "La calificación debe ser 1 a 5",
+    writeYourComment: "Escribe tu comentario",
+    serviceAdded: "Servicio agregado",
+    productAdded: "Producto agregado",
+    createServiceFailed: "Falló crear servicio",
+    createProductFailed: "Falló crear producto",
+    review: "Reseña",
+    sendReview: "Enviar",
+    overallRating: "Calificación general",
+    noPosts: "Aún no hay publicaciones.",
+    noServices: "Aún no hay servicios.",
+    noProducts: "Aún no hay productos.",
+    noReviews: "Aún no hay reseñas.",
+    addFailed: "Falló agregar",
+    updateOk: "Actualizado",
+    deleteOk: "Eliminado",
+    postContentRequired: "Escribe el contenido",
+    writePostFirst: "Escribe la publicación primero",
+    commentsDisabled: "Comentarios no disponibles para esta publicación",
+    replying: "Respondiendo…",
+  },
+};
+
+const tt = (lang, key) => (STR[lang] || STR.en)[key] || STR.en[key] || key;
+const getDir = (lang) => (lang === "ar" ? "rtl" : "ltr");
+
+/* =========================
+   API / Auth
+========================= */
 const getAPIBase = () =>
   import.meta.env.VITE_API_BASE_URL ||
   import.meta.env.VITE_API_BASE ||
@@ -91,7 +338,7 @@ const normId = (v) => {
   return n !== null ? String(n) : String(v);
 };
 
-// ✅ UPDATED: always show a clear timestamp too
+// ✅ timestamp formatter
 const formatTime = (value) => {
   if (!value) return "";
   try {
@@ -120,7 +367,7 @@ const formatTime = (value) => {
   }
 };
 
-// ✅ category badge helper
+// ✅ category badge helper (keep as is)
 function getCategory(cat) {
   const key = String(cat || "General").trim() || "General";
 
@@ -160,15 +407,12 @@ function getCategory(cat) {
   return map[key] || map.General;
 }
 
-// ✅ confirm toast
-const toastConfirm = ({
-  title = "Are you sure?",
-  confirmText = "Delete",
-} = {}) =>
+// ✅ confirm toast (localized)
+const toastConfirm = ({ lang = "en", title, confirmText } = {}) =>
   new Promise((resolve) => {
     toast.custom(
       (t) => (
-        <div className="bg-white border border-gray-200 shadow-xl rounded-2xl px-4 py-3 w-[360px]">
+        <div className="bg-white border border-gray-200 shadow-xl rounded-2xl px-4 py-3 w-[360px] max-w-[92vw]">
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-full bg-red-50 text-red-600 flex items-center justify-center font-bold">
               !
@@ -176,7 +420,7 @@ const toastConfirm = ({
             <div className="flex-1">
               <div className="font-semibold text-gray-900">{title}</div>
               <div className="text-xs text-gray-500 mt-1">
-                This action can’t be undone.
+                {tt(lang, "cannotUndo")}
               </div>
 
               <div className="flex items-center gap-2 mt-3 justify-end">
@@ -188,7 +432,7 @@ const toastConfirm = ({
                     resolve(false);
                   }}
                 >
-                  Cancel
+                  {tt(lang, "cancel")}
                 </button>
                 <button
                   type="button"
@@ -274,11 +518,11 @@ function Modal({ title, open, onClose, children, footer }) {
 /* =========================
    Main Page
 ========================= */
-
-export function ProfilePage({ lang }) {
+export function ProfilePage({ lang = "en" }) {
   const API_BASE = useMemo(() => getAPIBase(), []);
   const { userId } = useParams();
   const navigate = useNavigate();
+  const dir = getDir(lang);
 
   const [loading, setLoading] = useState(true);
 
@@ -289,7 +533,6 @@ export function ProfilePage({ lang }) {
 
   const [tab, setTab] = useState("posts"); // posts | services | products | reviews
 
-  // Tabs data
   const [posts, setPosts] = useState([]);
   const [services, setServices] = useState([]);
   const [products, setProducts] = useState([]);
@@ -297,13 +540,11 @@ export function ProfilePage({ lang }) {
 
   const [tabLoading, setTabLoading] = useState(false);
 
-  // Modals
   const [editOpen, setEditOpen] = useState(false);
   const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [addProductOpen, setAddProductOpen] = useState(false);
   const [addReviewOpen, setAddReviewOpen] = useState(false);
 
-  // Forms
   const [editForm, setEditForm] = useState({
     username: "",
     display_name: "",
@@ -316,7 +557,6 @@ export function ProfilePage({ lang }) {
     website: "",
   });
 
-  // ✅ Feed-like post form (content + media + category)
   const FEED_CATEGORIES = useMemo(
     () => ["General", "Taxes", "Housing", "Work", "Immigration", "Questions"],
     []
@@ -349,20 +589,16 @@ export function ProfilePage({ lang }) {
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
 
   const canAct = isAuthed();
-
-  // ✅ NEW: isMe/canEdit fallback by comparing route userId with authed id
   const authedId = getAuthUserId();
   const computedIsMe =
     !!authedId && !!userId && normId(authedId) === normId(String(userId));
   const canEdit = canAct && (isMe || computedIsMe);
 
-  // ✅ helpers for counters on tabs
   const countPosts = Number(stats?.posts ?? posts.length ?? 0) || 0;
   const countServices = Number(stats?.services ?? services.length ?? 0) || 0;
   const countProducts = Number(stats?.products ?? products.length ?? 0) || 0;
   const countReviews = Number(stats?.ratingCount ?? reviews.length ?? 0) || 0;
 
-  // Load profile
   useEffect(() => {
     let dead = false;
 
@@ -392,14 +628,10 @@ export function ProfilePage({ lang }) {
         setProfile(p);
         setStats(st);
 
-        // ✅ FIX: fallback isMe if backend doesn't send isMe
         const meId = getAuthUserId();
-        const fallbackIsMe =
-          !!meId && normId(meId) === normId(uid) ? true : false;
+        const fallbackIsMe = !!meId && normId(meId) === normId(uid);
 
         setIsMe(!!data?.isMe || fallbackIsMe);
-
-        // ✅ follow fallback (if backend doesn't send isFollowing keep current)
         setIsFollowing(
           typeof data?.isFollowing === "boolean" ? data.isFollowing : false
         );
@@ -416,7 +648,7 @@ export function ProfilePage({ lang }) {
           website: p?.website || "",
         });
       } catch (e) {
-        toast.error(e.message || "Failed to load profile");
+        toast.error(e.message || tt(lang, "failedLoadProfile"));
         setProfile(null);
         setStats(null);
       } finally {
@@ -428,9 +660,8 @@ export function ProfilePage({ lang }) {
     return () => {
       dead = true;
     };
-  }, [API_BASE, userId]);
+  }, [API_BASE, userId, lang]);
 
-  // Load tab data
   useEffect(() => {
     if (!userId) return;
     let dead = false;
@@ -506,7 +737,7 @@ export function ProfilePage({ lang }) {
           if (!dead) setReviews(Array.isArray(items) ? items : []);
         }
       } catch (e) {
-        toast.error(e.message || "Failed to load tab");
+        toast.error(e.message || tt(lang, "failedLoadTab"));
         if (!dead) {
           if (tab === "posts") setPosts([]);
           if (tab === "services") setServices([]);
@@ -522,7 +753,7 @@ export function ProfilePage({ lang }) {
     return () => {
       dead = true;
     };
-  }, [API_BASE, userId, tab]);
+  }, [API_BASE, userId, tab, lang]);
 
   const cover = profile?.cover_url || "";
   const avatar = profile?.avatar_url || "";
@@ -531,7 +762,7 @@ export function ProfilePage({ lang }) {
   const verified = !!profile?.is_verified;
 
   async function onFollowToggle() {
-    if (!canAct) return toast.error("سجّل دخول الأول عشان تعمل Follow");
+    if (!canAct) return toast.error(tt(lang, "loginToFollow"));
     try {
       if (isFollowing) {
         await tryFetchFallback(
@@ -563,7 +794,7 @@ export function ProfilePage({ lang }) {
         setStats((s) => (s ? { ...s, followers: (s.followers || 0) + 1 } : s));
       }
     } catch (e) {
-      toast.error(e.message || "Follow failed");
+      toast.error(e.message || tt(lang, "followFailed"));
     }
   }
 
@@ -583,11 +814,11 @@ export function ProfilePage({ lang }) {
           body: JSON.stringify(payload),
         }
       );
-      toast.success("Saved");
+      toast.success(tt(lang, "saved"));
       setProfile(r.profile || r.user_profile || r.user || r);
       setEditOpen(false);
     } catch (e) {
-      toast.error(e.message || "Save failed");
+      toast.error(e.message || tt(lang, "saveFailed"));
     }
   }
 
@@ -661,11 +892,10 @@ export function ProfilePage({ lang }) {
     } catch {}
   }
 
-  // ✅ CREATE POST
   async function onCreatePost() {
     if (!canEdit) return;
     const content = String(postForm.content || "").trim();
-    if (!content) return toast.error("اكتب البوست الأول");
+    if (!content) return toast.error(tt(lang, "writePostFirst"));
 
     const category = String(postForm.category || "General").trim() || "General";
     const media_url = String(postForm.media_url || "").trim() || null;
@@ -692,13 +922,13 @@ export function ProfilePage({ lang }) {
         }
       );
 
-      toast.success("Posted");
+      toast.success(tt(lang, "posted"));
       setPostForm((s) => ({ ...s, content: "", media_url: "" }));
       setTab("posts");
       await refreshCurrentTab();
       setStats((s) => (s ? { ...s, posts: (s.posts || 0) + 1 } : s));
     } catch (e) {
-      toast.error(e.message || "Create post failed");
+      toast.error(e.message || tt(lang, "createPostFailed"));
     }
   }
 
@@ -706,20 +936,19 @@ export function ProfilePage({ lang }) {
     if (!canEdit) return;
 
     const ok = await toastConfirm({
-      title: "Delete this post?",
-      confirmText: "Delete",
+      lang,
+      title: tt(lang, "deletePostQ"),
+      confirmText: tt(lang, "confirmDelete"),
     });
     if (!ok) return;
 
     const target = normId(postId);
     const prev = posts;
 
-    // ✅ optimistic remove with normalized id compare
     setPosts((xs) =>
-      (Array.isArray(xs) ? xs : []).filter((p) => {
-        const pid = normId(getPostId(p));
-        return pid !== target;
-      })
+      (Array.isArray(xs) ? xs : []).filter(
+        (p) => normId(getPostId(p)) !== target
+      )
     );
 
     try {
@@ -736,29 +965,26 @@ export function ProfilePage({ lang }) {
         { method: "DELETE", headers: { ...authHeaders() } }
       );
 
-      toast.success("Deleted");
+      toast.success(tt(lang, "deleted"));
       setStats((s) =>
         s ? { ...s, posts: Math.max(0, (s.posts || 0) - 1) } : s
       );
-
       await refreshCurrentTab();
     } catch (e) {
       setPosts(prev);
-      toast.error(e.message || "Delete failed");
+      toast.error(e.message || tt(lang, "deleteFailed"));
     }
   }
 
-  // ✅ UPDATE POST (Edit)
   async function onUpdatePost(postId, payload) {
     if (!canEdit) return;
 
     const content = String(payload?.content ?? "").trim();
-    if (!content) return toast.error("اكتب محتوى البوست");
+    if (!content) return toast.error(tt(lang, "postContentRequired"));
 
     const prev = posts;
     const target = normId(postId);
 
-    // ✅ optimistic update
     setPosts((xs) =>
       (Array.isArray(xs) ? xs : []).map((p) => {
         const pid = normId(getPostId(p));
@@ -798,18 +1024,19 @@ export function ProfilePage({ lang }) {
         });
       }
 
-      toast.success("Updated");
+      toast.success(tt(lang, "updated"));
       await refreshCurrentTab();
     } catch (e) {
       setPosts(prev);
-      toast.error(e.message || "Update failed");
+      toast.error(e.message || tt(lang, "updateFailed"));
     }
   }
 
   async function onCreateService() {
     if (!canEdit) return;
     const title = String(serviceForm.title || "").trim();
-    if (!title) return toast.error("اكتب عنوان الخدمة");
+    if (!title) return toast.error("Title is required");
+
     const priceValue =
       serviceForm.price_value === "" ? null : Number(serviceForm.price_value);
 
@@ -830,7 +1057,7 @@ export function ProfilePage({ lang }) {
           }),
         }
       );
-      toast.success("Service added");
+      toast.success(tt(lang, "serviceAdded"));
       setAddServiceOpen(false);
       setServiceForm({
         title: "",
@@ -844,7 +1071,7 @@ export function ProfilePage({ lang }) {
       await refreshCurrentTab();
       setStats((s) => (s ? { ...s, services: (s.services || 0) + 1 } : s));
     } catch (e) {
-      toast.error(e.message || "Create service failed");
+      toast.error(e.message || tt(lang, "createServiceFailed"));
     }
   }
 
@@ -852,8 +1079,9 @@ export function ProfilePage({ lang }) {
     if (!canEdit) return;
 
     const ok = await toastConfirm({
-      title: "Delete this service?",
-      confirmText: "Delete",
+      lang,
+      title: tt(lang, "deleteServiceQ"),
+      confirmText: tt(lang, "confirmDelete"),
     });
     if (!ok) return;
 
@@ -871,21 +1099,22 @@ export function ProfilePage({ lang }) {
         ],
         { method: "DELETE", headers: { ...authHeaders() } }
       );
-      toast.success("Deleted");
+      toast.success(tt(lang, "deleted"));
       setStats((st) =>
         st ? { ...st, services: Math.max(0, (st.services || 0) - 1) } : st
       );
       await refreshCurrentTab();
     } catch (e) {
       setServices(prev);
-      toast.error(e.message || "Delete failed");
+      toast.error(e.message || tt(lang, "deleteFailed"));
     }
   }
 
   async function onCreateProduct() {
     if (!canEdit) return;
     const title = String(productForm.title || "").trim();
-    if (!title) return toast.error("اكتب عنوان المنتج");
+    if (!title) return toast.error("Title is required");
+
     const price = productForm.price === "" ? null : Number(productForm.price);
     const images = String(productForm.imagesText || "")
       .split("\n")
@@ -912,7 +1141,7 @@ export function ProfilePage({ lang }) {
           }),
         }
       );
-      toast.success("Product added");
+      toast.success(tt(lang, "productAdded"));
       setAddProductOpen(false);
       setProductForm({
         title: "",
@@ -926,7 +1155,7 @@ export function ProfilePage({ lang }) {
       await refreshCurrentTab();
       setStats((s) => (s ? { ...s, products: (s.products || 0) + 1 } : s));
     } catch (e) {
-      toast.error(e.message || "Create product failed");
+      toast.error(e.message || tt(lang, "createProductFailed"));
     }
   }
 
@@ -934,8 +1163,9 @@ export function ProfilePage({ lang }) {
     if (!canEdit) return;
 
     const ok = await toastConfirm({
-      title: "Delete this product?",
-      confirmText: "Delete",
+      lang,
+      title: tt(lang, "deleteProductQ"),
+      confirmText: tt(lang, "confirmDelete"),
     });
     if (!ok) return;
 
@@ -953,25 +1183,26 @@ export function ProfilePage({ lang }) {
         ],
         { method: "DELETE", headers: { ...authHeaders() } }
       );
-      toast.success("Deleted");
+      toast.success(tt(lang, "deleted"));
       setStats((st) =>
         st ? { ...st, products: Math.max(0, (st.products || 0) - 1) } : st
       );
       await refreshCurrentTab();
     } catch (e) {
       setProducts(prev);
-      toast.error(e.message || "Delete failed");
+      toast.error(e.message || tt(lang, "deleteFailed"));
     }
   }
 
   async function onCreateReview() {
-    if (!canAct) return toast.error("سجّل دخول الأول عشان تكتب Review");
-    if (isMe || computedIsMe) return toast.error("مش ينفع تعمل Review لنفسك");
+    if (!canAct) return toast.error(tt(lang, "loginFirst"));
+    if (isMe || computedIsMe) return toast.error(tt(lang, "cannotReviewSelf"));
+
     const rating = Number(reviewForm.rating);
     const comment = String(reviewForm.comment || "").trim();
-    if (!comment) return toast.error("اكتب تعليقك");
+    if (!comment) return toast.error(tt(lang, "writeYourComment"));
     if (!Number.isFinite(rating) || rating < 1 || rating > 5)
-      return toast.error("Rating لازم من 1 لـ 5");
+      return toast.error(tt(lang, "ratingBad"));
 
     try {
       await tryFetchFallback(
@@ -986,13 +1217,13 @@ export function ProfilePage({ lang }) {
           body: JSON.stringify({ rating, comment }),
         }
       );
-      toast.success("Review sent");
+      toast.success(tt(lang, "reviewSent"));
       setAddReviewOpen(false);
       setReviewForm({ rating: 5, comment: "" });
       setTab("reviews");
       await refreshCurrentTab();
     } catch (e) {
-      toast.error(e.message || "Review failed");
+      toast.error(e.message || tt(lang, "reviewFailed"));
     }
   }
 
@@ -1003,15 +1234,15 @@ export function ProfilePage({ lang }) {
     try {
       if (navigator.share) {
         await navigator.share({ title: "AnswerForU", text, url });
-        toast.success("Shared");
+        toast.success(tt(lang, "shared"));
         return;
       }
       await navigator.clipboard.writeText(url);
-      toast.success("Link copied");
+      toast.success(tt(lang, "linkCopied"));
     } catch {
       try {
         await navigator.clipboard.writeText(url);
-        toast.success("Link copied");
+        toast.success(tt(lang, "linkCopied"));
       } catch {
         toast("Copy link: " + url);
       }
@@ -1020,7 +1251,7 @@ export function ProfilePage({ lang }) {
 
   if (loading) {
     return (
-      <div className="max-w-5xl mx-auto p-4 md:p-6">
+      <div className="max-w-5xl mx-auto p-4 md:p-6" dir={dir}>
         <div className="animate-pulse space-y-4">
           <div className="h-44 rounded-2xl bg-gray-200" />
           <div className="h-20 rounded-2xl bg-gray-200" />
@@ -1032,14 +1263,16 @@ export function ProfilePage({ lang }) {
 
   if (!profile) {
     return (
-      <div className="max-w-5xl mx-auto p-6">
+      <div className="max-w-5xl mx-auto p-6" dir={dir}>
         <div className="bg-white border rounded-2xl p-6">
-          <div className="font-semibold mb-2">Profile not found</div>
+          <div className="font-semibold mb-2">
+            {tt(lang, "profileNotFound")}
+          </div>
           <button
             onClick={() => navigate("/")}
             className="px-4 py-2 rounded-xl bg-black text-white"
           >
-            Back
+            {tt(lang, "back")}
           </button>
         </div>
       </div>
@@ -1051,7 +1284,7 @@ export function ProfilePage({ lang }) {
   const following = Number(stats?.following ?? 0) || 0;
 
   return (
-    <div className="max-w-5xl mx-auto p-4 md:p-6">
+    <div className="max-w-5xl mx-auto p-4 md:p-6" dir={dir}>
       {/* Cover */}
       <div className="relative rounded-2xl overflow-hidden border bg-white">
         <div className="h-40 md:h-56 bg-gradient-to-r from-gray-100 to-gray-200">
@@ -1094,13 +1327,18 @@ export function ProfilePage({ lang }) {
               </div>
             </div>
 
-            <div className="md:ml-auto flex flex-wrap gap-2">
+            <div
+              className={classNames(
+                "md:ml-auto flex flex-wrap gap-2",
+                lang === "ar" ? "md:ml-0 md:mr-auto" : ""
+              )}
+            >
               <button
                 onClick={onShare}
                 className="px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 flex items-center gap-2"
               >
                 <Share2 size={16} />
-                Share
+                {tt(lang, "share")}
               </button>
 
               {!canEdit ? (
@@ -1114,7 +1352,7 @@ export function ProfilePage({ lang }) {
                   )}
                 >
                   <MessageCircle size={16} />
-                  {isFollowing ? "Following" : "Follow"}
+                  {isFollowing ? tt(lang, "following") : tt(lang, "follow")}
                 </button>
               ) : (
                 <button
@@ -1122,7 +1360,7 @@ export function ProfilePage({ lang }) {
                   className="px-4 py-2 rounded-xl bg-black text-white hover:bg-gray-900 flex items-center gap-2"
                 >
                   <Pencil size={16} />
-                  Edit profile
+                  {tt(lang, "editProfile")}
                 </button>
               )}
             </div>
@@ -1133,7 +1371,7 @@ export function ProfilePage({ lang }) {
             <div className="md:col-span-2">
               <div className="text-gray-800 whitespace-pre-wrap">
                 {profile.bio || (
-                  <span className="text-gray-400">No bio yet.</span>
+                  <span className="text-gray-400">{tt(lang, "noBio")}</span>
                 )}
               </div>
 
@@ -1151,7 +1389,7 @@ export function ProfilePage({ lang }) {
                     rel="noreferrer"
                     className="flex items-center gap-2 hover:underline"
                   >
-                    <LinkIcon size={16} /> Website
+                    <LinkIcon size={16} /> {tt(lang, "website")}
                   </a>
                 ) : null}
 
@@ -1164,6 +1402,7 @@ export function ProfilePage({ lang }) {
             </div>
 
             <StatsPanel
+              lang={lang}
               ratingAvg={ratingAvg}
               ratingCount={countReviews}
               followers={followers}
@@ -1183,35 +1422,40 @@ export function ProfilePage({ lang }) {
             active={tab === "posts"}
             onClick={() => setTab("posts")}
             icon={<MessageCircle size={16} />}
-            label={`Posts (${countPosts})`}
+            label={`${tt(lang, "posts")} (${countPosts})`}
           />
           <TabPill
             active={tab === "services"}
             onClick={() => setTab("services")}
             icon={<Briefcase size={16} />}
-            label={`Services (${countServices})`}
+            label={`${tt(lang, "services")} (${countServices})`}
           />
           <TabPill
             active={tab === "products"}
             onClick={() => setTab("products")}
             icon={<Store size={16} />}
-            label={`Products (${countProducts})`}
+            label={`${tt(lang, "products")} (${countProducts})`}
           />
           <TabPill
             active={tab === "reviews"}
             onClick={() => setTab("reviews")}
             icon={<Star size={16} />}
-            label={`Reviews (${countReviews})`}
+            label={`${tt(lang, "reviews")} (${countReviews})`}
           />
 
-          <div className="ml-auto flex flex-wrap gap-2">
+          <div
+            className={classNames(
+              "ml-auto flex flex-wrap gap-2",
+              lang === "ar" ? "ml-0 mr-auto" : ""
+            )}
+          >
             {canEdit && tab === "services" ? (
               <button
                 onClick={() => setAddServiceOpen(true)}
                 className="px-3 py-2 rounded-xl bg-black text-white hover:bg-gray-900 flex items-center gap-2"
               >
                 <Plus size={16} />
-                Add service
+                {tt(lang, "addService")}
               </button>
             ) : null}
 
@@ -1221,7 +1465,7 @@ export function ProfilePage({ lang }) {
                 className="px-3 py-2 rounded-xl bg-black text-white hover:bg-gray-900 flex items-center gap-2"
               >
                 <Plus size={16} />
-                Add product
+                {tt(lang, "addProduct")}
               </button>
             ) : null}
 
@@ -1230,12 +1474,12 @@ export function ProfilePage({ lang }) {
                 onClick={() =>
                   canAct
                     ? setAddReviewOpen(true)
-                    : toast.error("سجّل دخول الأول")
+                    : toast.error(tt(lang, "loginFirst"))
                 }
                 className="px-3 py-2 rounded-xl bg-black text-white hover:bg-gray-900 flex items-center gap-2"
               >
                 <Star size={16} />
-                Write review
+                {tt(lang, "writeReview")}
               </button>
             ) : null}
           </div>
@@ -1252,6 +1496,7 @@ export function ProfilePage({ lang }) {
 
           {!tabLoading && tab === "posts" ? (
             <PostsTab
+              lang={lang}
               API_BASE={API_BASE}
               profile={profile}
               items={posts}
@@ -1269,6 +1514,7 @@ export function ProfilePage({ lang }) {
 
           {!tabLoading && tab === "services" ? (
             <ServicesTab
+              lang={lang}
               items={services}
               isMe={canEdit}
               onDelete={onDeleteService}
@@ -1277,6 +1523,7 @@ export function ProfilePage({ lang }) {
 
           {!tabLoading && tab === "products" ? (
             <ProductsTab
+              lang={lang}
               items={products}
               isMe={canEdit}
               onDelete={onDeleteProduct}
@@ -1285,6 +1532,7 @@ export function ProfilePage({ lang }) {
 
           {!tabLoading && tab === "reviews" ? (
             <ReviewsTab
+              lang={lang}
               items={reviews}
               ratingAvg={ratingAvg}
               ratingCount={countReviews}
@@ -1295,7 +1543,7 @@ export function ProfilePage({ lang }) {
 
       {/* ===== Modals ===== */}
       <Modal
-        title="Edit profile"
+        title={tt(lang, "editProfile")}
         open={editOpen}
         onClose={() => setEditOpen(false)}
         footer={
@@ -1304,13 +1552,13 @@ export function ProfilePage({ lang }) {
               onClick={() => setEditOpen(false)}
               className="px-4 py-2 rounded-xl border hover:bg-gray-50"
             >
-              Cancel
+              {tt(lang, "cancel")}
             </button>
             <button
               onClick={onSaveProfile}
               className="px-4 py-2 rounded-xl bg-black text-white hover:bg-gray-900"
             >
-              Save
+              {tt(lang, "saved")}
             </button>
           </div>
         }
@@ -1379,7 +1627,7 @@ export function ProfilePage({ lang }) {
       </Modal>
 
       <Modal
-        title="Add service"
+        title={tt(lang, "addService")}
         open={addServiceOpen}
         onClose={() => setAddServiceOpen(false)}
         footer={
@@ -1388,13 +1636,13 @@ export function ProfilePage({ lang }) {
               onClick={() => setAddServiceOpen(false)}
               className="px-4 py-2 rounded-xl border hover:bg-gray-50"
             >
-              Cancel
+              {tt(lang, "cancel")}
             </button>
             <button
               onClick={onCreateService}
               className="px-4 py-2 rounded-xl bg-black text-white hover:bg-gray-900"
             >
-              Add
+              {tt(lang, "add")}
             </button>
           </div>
         }
@@ -1453,7 +1701,7 @@ export function ProfilePage({ lang }) {
       </Modal>
 
       <Modal
-        title="Add product"
+        title={tt(lang, "addProduct")}
         open={addProductOpen}
         onClose={() => setAddProductOpen(false)}
         footer={
@@ -1462,13 +1710,13 @@ export function ProfilePage({ lang }) {
               onClick={() => setAddProductOpen(false)}
               className="px-4 py-2 rounded-xl border hover:bg-gray-50"
             >
-              Cancel
+              {tt(lang, "cancel")}
             </button>
             <button
               onClick={onCreateProduct}
               className="px-4 py-2 rounded-xl bg-black text-white hover:bg-gray-900"
             >
-              Add
+              {tt(lang, "add")}
             </button>
           </div>
         }
@@ -1526,7 +1774,7 @@ export function ProfilePage({ lang }) {
       </Modal>
 
       <Modal
-        title="Write review"
+        title={tt(lang, "writeReview")}
         open={addReviewOpen}
         onClose={() => setAddReviewOpen(false)}
         footer={
@@ -1535,13 +1783,13 @@ export function ProfilePage({ lang }) {
               onClick={() => setAddReviewOpen(false)}
               className="px-4 py-2 rounded-xl border hover:bg-gray-50"
             >
-              Cancel
+              {tt(lang, "cancel")}
             </button>
             <button
               onClick={onCreateReview}
               className="px-4 py-2 rounded-xl bg-black text-white hover:bg-gray-900"
             >
-              Send
+              {tt(lang, "send")}
             </button>
           </div>
         }
@@ -1584,8 +1832,8 @@ export function ProfilePage({ lang }) {
 /* =========================
    Small Components
 ========================= */
-
 function StatsPanel({
+  lang,
   ratingAvg,
   ratingCount,
   followers,
@@ -1606,7 +1854,9 @@ function StatsPanel({
               <Star size={18} />
             </div>
             <div>
-              <div className="text-xs text-gray-500">Rating</div>
+              <div className="text-xs text-gray-500">
+                {tt(lang, "overallRating")}
+              </div>
               <div className="text-lg font-extrabold leading-tight">
                 {safeAvg.toFixed(1)}
               </div>
@@ -1624,7 +1874,8 @@ function StatsPanel({
               ))}
             </div>
             <div className="mt-1 text-xs text-gray-500">
-              {ratingCount} review{ratingCount === 1 ? "" : "s"}
+              {ratingCount} {tt(lang, "review")}
+              {ratingCount === 1 ? "" : "s"}
             </div>
           </div>
         </div>
@@ -1646,17 +1897,17 @@ function StatsPanel({
       <div className="mt-3 grid grid-cols-3 gap-3">
         <StatMini
           icon={<MessageCircle size={16} />}
-          label="Posts"
+          label={tt(lang, "posts")}
           value={posts}
         />
         <StatMini
           icon={<Briefcase size={16} />}
-          label="Services"
+          label={tt(lang, "services")}
           value={services}
         />
         <StatMini
           icon={<Store size={16} />}
-          label="Products"
+          label={tt(lang, "products")}
           value={products}
         />
       </div>
@@ -1730,7 +1981,6 @@ function Field({ label, value, onChange, placeholder }) {
 /* =========================
    Comments (Feed-like)
 ========================= */
-
 const VISUAL_MAX_DEPTH = 6;
 const INDENT_PX = 16;
 
@@ -1802,8 +2052,8 @@ function buildCommentTree(flat = []) {
 /* =========================
    Tabs
 ========================= */
-
 function PostsTab({
+  lang,
   API_BASE,
   profile,
   items,
@@ -1822,6 +2072,7 @@ function PostsTab({
     <div className="space-y-4">
       {showComposer ? (
         <ProfileComposer
+          lang={lang}
           profile={profile}
           postForm={postForm}
           setPostForm={setPostForm}
@@ -1836,6 +2087,7 @@ function PostsTab({
         return (
           <PostCard
             key={key}
+            lang={lang}
             API_BASE={API_BASE}
             post={p}
             profile={profile}
@@ -1848,13 +2100,14 @@ function PostsTab({
       })}
 
       {!safeItems.length ? (
-        <div className="text-sm text-gray-500">No posts yet.</div>
+        <div className="text-sm text-gray-500">{tt(lang, "noPosts")}</div>
       ) : null}
     </div>
   );
 }
 
 function ProfileComposer({
+  lang,
   profile,
   postForm,
   setPostForm,
@@ -1885,13 +2138,13 @@ function ProfileComposer({
             onChange={(e) =>
               setPostForm((s) => ({ ...s, content: e.target.value }))
             }
-            placeholder="احكي تجربتك، اسأل سؤال، أو شارك معلومة تساعد غيرك… ✍️"
+            placeholder={tt(lang, "postPlaceholder")}
           />
 
           <div className="mt-3 flex flex-col md:flex-row md:items-center gap-2">
             <div className="flex-1">
               <div className="text-xs text-gray-500 hidden md:block">
-                Category
+                {tt(lang, "category")}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -1931,7 +2184,7 @@ function ProfileComposer({
                 onClick={onCreatePost}
                 className="px-5 py-3 rounded-2xl bg-black text-white hover:bg-gray-900 font-semibold"
               >
-                Post
+                {tt(lang, "post")}
               </button>
             </div>
           </div>
@@ -1944,9 +2197,6 @@ function ProfileComposer({
 /* =========================
    ✅ FIX: comments ids
 ========================= */
-
-// ✅ pp_18 = profile_posts id (مش مربوط بـ /api/posts/:id/comments)
-// ✅ p_18 = post id (ممكن يتحول لـ 18)
 const normalizeFeedPostId = (raw) => {
   const s = String(raw ?? "").trim();
   if (!s) return null;
@@ -1963,6 +2213,7 @@ const normalizeFeedPostId = (raw) => {
 };
 
 function PostCard({
+  lang,
   API_BASE,
   post,
   profile,
@@ -1973,12 +2224,9 @@ function PostCard({
 }) {
   const rawPostId = getPostId(post);
 
-  // ✅ الرقم الحقيقي اللي ينفع للـ comments endpoints
   const numericPostId = useMemo(() => {
     const s = String(rawPostId ?? "").trim();
     if (!s) return null;
-
-    // ✅ IMPORTANT: pp_ لازم يتقفّل قبل أي extraction
     if (s.startsWith("pp_")) return null;
 
     const direct = normalizeFeedPostId(s);
@@ -1988,11 +2236,7 @@ function PostCard({
     return extracted || null;
   }, [rawPostId]);
 
-  // ✅ ده الوحيد اللي نستخدمه في URLs
   const postIdForComments = numericPostId ? String(numericPostId) : null;
-
-  // ✅ optimistic/local فقط
-  const idForUrl = numericPostId ?? rawPostId;
 
   const created = formatTime(post.created_at || post.createdAt) || "";
 
@@ -2019,7 +2263,6 @@ function PostCard({
   const [replyTo, setReplyTo] = useState(null);
   const [showRepliesMap, setShowRepliesMap] = useState({});
 
-  // ✅ edit modal state
   const [editOpen, setEditOpen] = useState(false);
   const [editContent, setEditContent] = useState(String(post.content || ""));
 
@@ -2034,11 +2277,8 @@ function PostCard({
   ];
 
   const makeCommentPostUrls = (pid) => [
-    // ✅ الأهم: ده غالبًا اللي الـ Feed شغال عليه
     `${API_BASE}/api/comments`,
     `${API_BASE}/api/comments/post/${encodeURIComponent(pid)}`,
-
-    // ✅ احتياط لو السيرفر شغال nested
     `${API_BASE}/api/posts/${encodeURIComponent(pid)}/comments`,
     `${API_BASE}/api/post/${encodeURIComponent(pid)}/comments`,
   ];
@@ -2080,9 +2320,10 @@ function PostCard({
     loadComments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [String(postIdForComments ?? "")]);
+
   async function onSendComment() {
-    if (!canAct) return toast.error("سجّل دخول الأول");
-    if (!postIdForComments) return toast.error("التعليقات غير متاحة للبوست ده");
+    if (!canAct) return toast.error(tt(lang, "loginFirst"));
+    if (!postIdForComments) return toast.error(tt(lang, "commentsDisabled"));
 
     const content = String(draft || "").trim();
     if (!content) return;
@@ -2127,8 +2368,9 @@ function PostCard({
 
   async function onDeleteComment(commentId) {
     const ok = await toastConfirm({
-      title: "Delete this comment?",
-      confirmText: "Delete",
+      lang,
+      title: tt(lang, "deleteCommentQ"),
+      confirmText: tt(lang, "confirmDelete"),
     });
     if (!ok) return;
 
@@ -2144,16 +2386,16 @@ function PostCard({
         headers: { ...authHeaders() },
       });
 
-      toast.success("Deleted");
+      toast.success(tt(lang, "deleted"));
       await loadComments();
     } catch (e) {
       setComments(prev);
-      toast.error(e.message || "Delete failed");
+      toast.error(e.message || tt(lang, "deleteFailed"));
     }
   }
 
   async function onToggleLikeComment(commentId, currentlyLiked) {
-    if (!canAct) return toast.error("سجّل دخول الأول");
+    if (!canAct) return toast.error(tt(lang, "loginFirst"));
 
     setComments((xs) =>
       xs.map((c) => {
@@ -2198,16 +2440,15 @@ function PostCard({
 
   async function saveEdit() {
     const content = String(editContent || "").trim();
-    if (!content) return toast.error("اكتب محتوى البوست");
+    if (!content) return toast.error(tt(lang, "postContentRequired"));
     await onUpdate({ content });
     setEditOpen(false);
   }
 
   return (
     <div className="border rounded-2xl bg-white overflow-hidden">
-      {/* Edit modal */}
       <Modal
-        title="Edit post"
+        title={tt(lang, "edit")}
         open={editOpen}
         onClose={() => setEditOpen(false)}
         footer={
@@ -2216,13 +2457,13 @@ function PostCard({
               onClick={() => setEditOpen(false)}
               className="px-4 py-2 rounded-xl border hover:bg-gray-50"
             >
-              Cancel
+              {tt(lang, "cancel")}
             </button>
             <button
               onClick={saveEdit}
               className="px-4 py-2 rounded-xl bg-black text-white hover:bg-gray-900"
             >
-              Save
+              {tt(lang, "saved")}
             </button>
           </div>
         }
@@ -2261,14 +2502,14 @@ function PostCard({
                 <button
                   onClick={openEdit}
                   className="p-2 rounded-xl hover:bg-gray-50 text-gray-700"
-                  title="Edit post"
+                  title={tt(lang, "edit")}
                 >
                   <Pencil size={16} />
                 </button>
                 <button
                   onClick={onDelete}
                   className="p-2 rounded-xl hover:bg-gray-50 text-red-600"
-                  title="Delete post"
+                  title={tt(lang, "delete")}
                 >
                   <Trash2 size={16} />
                 </button>
@@ -2298,13 +2539,13 @@ function PostCard({
             onClick={() => setOpenComments((v) => !v)}
             className="text-sm font-semibold text-gray-800 flex items-center gap-2"
           >
-            Comments
+            {tt(lang, "comments")}
             {openComments ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
 
           {!postIdForComments ? (
             <span className="text-xs text-gray-500">
-              Comments not available for this post id
+              {tt(lang, "commentsUnavailable")}
             </span>
           ) : null}
         </div>
@@ -2321,6 +2562,7 @@ function PostCard({
                 {tree.map((node) => (
                   <CommentNode
                     key={node.id}
+                    lang={lang}
                     node={node}
                     depth={0}
                     showRepliesMap={showRepliesMap}
@@ -2334,7 +2576,9 @@ function PostCard({
                 ))}
 
                 {!tree.length ? (
-                  <div className="text-sm text-gray-500">No comments yet.</div>
+                  <div className="text-sm text-gray-500">
+                    {tt(lang, "noComments")}
+                  </div>
                 ) : null}
               </div>
             )}
@@ -2348,7 +2592,7 @@ function PostCard({
                 {replyTo ? (
                   <div className="mb-2 flex items-center justify-between text-xs bg-white border rounded-xl px-3 py-2">
                     <span className="text-gray-700">
-                      Replying… (comment #{String(replyTo).slice(0, 6)})
+                      {tt(lang, "replying")} (#{String(replyTo).slice(0, 6)})
                     </span>
                     <button
                       onClick={() => setReplyTo(null)}
@@ -2363,7 +2607,7 @@ function PostCard({
                   <input
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
-                    placeholder="Write a comment…"
+                    placeholder={tt(lang, "writeComment")}
                     className="w-full bg-white border rounded-2xl px-4 py-3 outline-none focus:ring-2 focus:ring-black/10"
                   />
                   <button
@@ -2371,13 +2615,13 @@ function PostCard({
                     className="px-4 py-3 rounded-2xl bg-black text-white hover:bg-gray-900 flex items-center gap-2"
                   >
                     <SendHorizontal size={16} />
-                    Send
+                    {tt(lang, "send")}
                   </button>
                 </div>
 
                 {!canAct ? (
                   <div className="text-xs text-gray-500 mt-2">
-                    لازم تسجّل دخول عشان تكتب تعليق.
+                    {tt(lang, "loginFirst")}
                   </div>
                 ) : null}
               </div>
@@ -2390,6 +2634,7 @@ function PostCard({
 }
 
 function CommentNode({
+  lang,
   node,
   depth,
   showRepliesMap,
@@ -2398,7 +2643,6 @@ function CommentNode({
   onDelete,
   onLike,
   canAct,
-  isMe,
 }) {
   const id = node.id;
   const d = Math.min(depth, VISUAL_MAX_DEPTH);
@@ -2456,7 +2700,9 @@ function CommentNode({
             <div className="mt-2 flex items-center gap-3 text-xs text-gray-600">
               <button
                 onClick={() =>
-                  canAct ? onLike(id, liked) : toast.error("سجّل دخول الأول")
+                  canAct
+                    ? onLike(id, liked)
+                    : toast.error(tt(lang, "loginFirst"))
                 }
                 className={classNames(
                   "inline-flex items-center gap-1 hover:text-gray-900",
@@ -2464,16 +2710,16 @@ function CommentNode({
                 )}
               >
                 <ThumbsUp size={14} />
-                Like {likes ? `(${likes})` : ""}
+                {tt(lang, "like")} {likes ? `(${likes})` : ""}
               </button>
 
               <button
                 onClick={() =>
-                  canAct ? onReply(id) : toast.error("سجّل دخول الأول")
+                  canAct ? onReply(id) : toast.error(tt(lang, "loginFirst"))
                 }
                 className="hover:text-gray-900"
               >
-                Reply
+                {tt(lang, "reply")}
               </button>
 
               {canDelete ? (
@@ -2481,7 +2727,7 @@ function CommentNode({
                   onClick={() => onDelete(id)}
                   className="hover:text-red-600 text-red-500"
                 >
-                  Delete
+                  {tt(lang, "delete")}
                 </button>
               ) : null}
             </div>
@@ -2494,8 +2740,8 @@ function CommentNode({
                 className="text-xs font-semibold text-gray-700 hover:text-gray-900 inline-flex items-center gap-2"
               >
                 {showReplies
-                  ? "Hide replies"
-                  : `View replies (${node.replies.length})`}
+                  ? tt(lang, "hideReplies")
+                  : `${tt(lang, "viewReplies")} (${node.replies.length})`}
                 {showReplies ? (
                   <ChevronUp size={14} />
                 ) : (
@@ -2508,6 +2754,7 @@ function CommentNode({
                   {node.replies.map((r) => (
                     <CommentNode
                       key={r.id}
+                      lang={lang}
                       node={r}
                       depth={depth + 1}
                       showRepliesMap={showRepliesMap}
@@ -2516,7 +2763,6 @@ function CommentNode({
                       onDelete={onDelete}
                       onLike={onLike}
                       canAct={canAct}
-                      isMe={isMe}
                     />
                   ))}
                 </div>
@@ -2529,7 +2775,7 @@ function CommentNode({
   );
 }
 
-function ServicesTab({ items, isMe, onDelete }) {
+function ServicesTab({ lang, items, isMe, onDelete }) {
   const safeItems = Array.isArray(items) ? items : [];
   return (
     <div className="space-y-3">
@@ -2562,7 +2808,7 @@ function ServicesTab({ items, isMe, onDelete }) {
               <button
                 onClick={() => onDelete(s.id ?? s.service_id)}
                 className="p-2 rounded-xl hover:bg-gray-50 text-red-600"
-                title="Delete"
+                title={tt(lang, "delete")}
               >
                 <Trash2 size={16} />
               </button>
@@ -2577,13 +2823,13 @@ function ServicesTab({ items, isMe, onDelete }) {
         </div>
       ))}
       {!safeItems.length ? (
-        <div className="text-sm text-gray-500">No services yet.</div>
+        <div className="text-sm text-gray-500">{tt(lang, "noServices")}</div>
       ) : null}
     </div>
   );
 }
 
-function ProductsTab({ items, isMe, onDelete }) {
+function ProductsTab({ lang, items, isMe, onDelete }) {
   const safeItems = Array.isArray(items) ? items : [];
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -2620,7 +2866,7 @@ function ProductsTab({ items, isMe, onDelete }) {
                 <button
                   onClick={() => onDelete(p.id ?? p.product_id)}
                   className="p-2 rounded-xl hover:bg-gray-50 text-red-600"
-                  title="Delete"
+                  title={tt(lang, "delete")}
                 >
                   <Trash2 size={16} />
                 </button>
@@ -2649,13 +2895,13 @@ function ProductsTab({ items, isMe, onDelete }) {
         </div>
       ))}
       {!safeItems.length ? (
-        <div className="text-sm text-gray-500">No products yet.</div>
+        <div className="text-sm text-gray-500">{tt(lang, "noProducts")}</div>
       ) : null}
     </div>
   );
 }
 
-function ReviewsTab({ items, ratingAvg, ratingCount }) {
+function ReviewsTab({ lang, items, ratingAvg, ratingCount }) {
   const safeItems = Array.isArray(items) ? items : [];
   const dist = useMemo(() => {
     const buckets = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
@@ -2679,9 +2925,12 @@ function ReviewsTab({ items, ratingAvg, ratingCount }) {
               </div>
             </div>
             <div>
-              <div className="font-semibold text-gray-900">Overall rating</div>
+              <div className="font-semibold text-gray-900">
+                {tt(lang, "overallRating")}
+              </div>
               <div className="text-sm text-gray-500">
-                {ratingCount} review{ratingCount === 1 ? "" : "s"}
+                {ratingCount} {tt(lang, "review")}
+                {ratingCount === 1 ? "" : "s"}
               </div>
               <div className="mt-1 flex items-center gap-1">
                 {Array.from({ length: 5 }).map((_, i) => (
@@ -2748,7 +2997,7 @@ function ReviewsTab({ items, ratingAvg, ratingCount }) {
         ))}
 
         {!safeItems.length ? (
-          <div className="text-sm text-gray-500">No reviews yet.</div>
+          <div className="text-sm text-gray-500">{tt(lang, "noReviews")}</div>
         ) : null}
       </div>
     </div>

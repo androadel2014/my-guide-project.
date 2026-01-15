@@ -1,5 +1,6 @@
-import React, { useState } from "react";
-import { UserPlus, Mail, Lock, ArrowLeft } from "lucide-react";
+// src/components/AuthView.jsx
+import React, { useMemo, useState } from "react";
+import { UserPlus, Mail, Lock, ArrowLeft, ArrowRight } from "lucide-react";
 import toast from "react-hot-toast";
 import { useNavigate } from "react-router-dom";
 
@@ -11,6 +12,97 @@ export const AuthView = ({ lang = "en" }) => {
 
   const navigate = useNavigate();
 
+  const normLang = (v) => {
+    const s = String(v || "en").toLowerCase();
+    if (s.startsWith("ar")) return "ar";
+    if (s.startsWith("es")) return "es";
+    return "en";
+  };
+  const LKEY = normLang(lang);
+  const dir = LKEY === "ar" ? "rtl" : "ltr";
+
+  const L = useMemo(
+    () =>
+      ({
+        ar: {
+          back: "العودة للرئيسية",
+          signIn: "تسجيل الدخول",
+          createAccount: "إنشاء حساب جديد",
+          welcomeBack: "أهلاً بك مجدداً",
+          startNow: "ابدأ حسابك الآن",
+          name: "الاسم",
+          emailOrUser: "الإيميل أو اليوزر",
+          email: "الإيميل",
+          password: "كلمة المرور",
+          fillFields: "املأ البيانات الأول",
+          emailValid: "التسجيل لازم يكون بإيميل صحيح",
+          processing: "جارٍ التنفيذ...",
+          login: "دخول",
+          register: "سجل الآن",
+          noAccount: "ليس لديك حساب؟ سجل الآن",
+          haveAccount: "لديك حساب؟ سجل دخولك",
+          wrongCred: "الإيميل/اليوزر أو كلمة السر غلط",
+          badReq: "البيانات ناقصة أو الطلب غلط",
+          somethingWrong: "حدث خطأ",
+          serverNoToken: "السيرفر لم يُرجع Token",
+          registered: "تم إنشاء الحساب ✅",
+          loggedIn: "تم تسجيل الدخول ✅",
+          serverConnFail: "تعذر الاتصال بالسيرفر (شغل الباك أولاً)",
+        },
+        en: {
+          back: "Back to Home",
+          signIn: "Sign In",
+          createAccount: "Create Account",
+          welcomeBack: "Welcome back",
+          startNow: "Create your account",
+          name: "Name",
+          emailOrUser: "Email or Username",
+          email: "Email",
+          password: "Password",
+          fillFields: "Fill the fields",
+          emailValid: "Registration requires a valid email",
+          processing: "Processing...",
+          login: "Login",
+          register: "Register",
+          noAccount: "Don't have an account? Sign up",
+          haveAccount: "Already have an account? Sign in",
+          wrongCred: "Wrong credentials",
+          badReq: "Bad request — missing/invalid fields",
+          somethingWrong: "Something went wrong",
+          serverNoToken: "Server did not return a token",
+          registered: "Registered ✅",
+          loggedIn: "Logged in ✅",
+          serverConnFail: "Server connection failed",
+        },
+        es: {
+          back: "Volver al inicio",
+          signIn: "Iniciar sesión",
+          createAccount: "Crear cuenta",
+          welcomeBack: "Bienvenido de nuevo",
+          startNow: "Crea tu cuenta",
+          name: "Nombre",
+          emailOrUser: "Correo o usuario",
+          email: "Correo",
+          password: "Contraseña",
+          fillFields: "Completa los campos",
+          emailValid: "El registro requiere un correo válido",
+          processing: "Procesando...",
+          login: "Entrar",
+          register: "Registrarse",
+          noAccount: "¿No tienes cuenta? Regístrate",
+          haveAccount: "¿Ya tienes cuenta? Inicia sesión",
+          wrongCred: "Credenciales incorrectas",
+          badReq: "Solicitud inválida — faltan datos",
+          somethingWrong: "Algo salió mal",
+          serverNoToken: "El servidor no devolvió un token",
+          registered: "Registrado ✅",
+          loggedIn: "Sesión iniciada ✅",
+          serverConnFail: "No se pudo conectar al servidor",
+        },
+      }[LKEY] || {}),
+    [LKEY]
+  );
+
   const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
 
@@ -19,6 +111,8 @@ export const AuthView = ({ lang = "en" }) => {
     identifier: "",
     password: "",
   });
+
+  const BackIcon = LKEY === "ar" ? ArrowRight : ArrowLeft;
 
   const switchMode = () => {
     setIsLogin((p) => !p);
@@ -40,28 +134,11 @@ export const AuthView = ({ lang = "en" }) => {
   const isEmail = (v) => /.+@.+\..+/.test(String(v || "").trim());
 
   const normalizeErr = (res, data) => {
-    if (res.status === 401) {
-      return (
-        data?.message ||
-        (lang === "ar"
-          ? "الإيميل/اليوزر أو كلمة السر غلط"
-          : "Wrong credentials")
-      );
-    }
-    if (res.status === 400) {
-      return (
-        data?.message ||
-        (lang === "ar"
-          ? "البيانات ناقصة أو الطلب غلط"
-          : "Bad request — missing/invalid fields")
-      );
-    }
-    return (
-      data?.message || (lang === "ar" ? "حدث خطأ" : "Something went wrong")
-    );
+    if (res.status === 401) return data?.message || L.wrongCred;
+    if (res.status === 400) return data?.message || L.badReq;
+    return data?.message || L.somethingWrong;
   };
 
-  // ✅ request helper
   const postAuth = async (endpoint, payload) => {
     const res = await fetch(`${API_BASE}${endpoint}`, {
       method: "POST",
@@ -77,11 +154,7 @@ export const AuthView = ({ lang = "en" }) => {
     const user = data?.user || data?.data?.user || data?.me;
 
     if (!token) {
-      toast.error(
-        lang === "ar"
-          ? "السيرفر لم يُرجع Token"
-          : "Server did not return a token"
-      );
+      toast.error(L.serverNoToken);
       return false;
     }
 
@@ -102,23 +175,18 @@ export const AuthView = ({ lang = "en" }) => {
     const username = String(formData.username || "").trim();
     const password = String(formData.password || "");
 
-    // ✅ Validation
     if (isLogin) {
       if (!identifier || !password) {
-        toast.error(lang === "ar" ? "املأ البيانات الأول" : "Fill the fields");
+        toast.error(L.fillFields);
         return;
       }
     } else {
       if (!username || !identifier || !password) {
-        toast.error(lang === "ar" ? "املأ البيانات الأول" : "Fill the fields");
+        toast.error(L.fillFields);
         return;
       }
       if (!isEmail(identifier)) {
-        toast.error(
-          lang === "ar"
-            ? "التسجيل لازم يكون بإيميل صحيح"
-            : "Registration requires a valid email"
-        );
+        toast.error(L.emailValid);
         return;
       }
     }
@@ -126,9 +194,6 @@ export const AuthView = ({ lang = "en" }) => {
     setLoading(true);
 
     try {
-      // =========================
-      // ✅ REGISTER
-      // =========================
       if (!isLogin) {
         const payload = { username, email: identifier, password };
         const { res, data } = await postAuth(endpoint, payload);
@@ -140,19 +205,14 @@ export const AuthView = ({ lang = "en" }) => {
 
         if (!saveAuth(data)) return;
 
-        toast.success(lang === "ar" ? "تم إنشاء الحساب ✅" : "Registered ✅");
+        toast.success(L.registered);
         navigate("/", { replace: true });
         return;
       }
 
-      // =========================
-      // ✅ LOGIN (Email OR Username) with auto-retry
-      // =========================
-      // 1) try as email payload first (works with your backend غالبًا)
       const tryEmailPayload = { email: identifier, password };
       let { res, data } = await postAuth(endpoint, tryEmailPayload);
 
-      // 2) if failed AND identifier is NOT email → retry as username payload
       if (!res.ok && !isEmail(identifier)) {
         const tryUsernamePayload = { username: identifier, password };
         const retry = await postAuth(endpoint, tryUsernamePayload);
@@ -167,58 +227,45 @@ export const AuthView = ({ lang = "en" }) => {
 
       if (!saveAuth(data)) return;
 
-      toast.success(lang === "ar" ? "تم تسجيل الدخول ✅" : "Logged in ✅");
+      toast.success(L.loggedIn);
       navigate("/", { replace: true });
     } catch (err) {
       console.error(err);
-      toast.error(
-        lang === "ar"
-          ? "تعذر الاتصال بالسيرفر (شغل الباك أولاً)"
-          : "Server connection failed"
-      );
+      toast.error(L.serverConnFail);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center px-6 animate-[fadeIn_0.4s_ease-out]">
+    <div
+      className="min-h-[80vh] flex items-center justify-center px-3 sm:px-6 animate-[fadeIn_0.4s_ease-out]"
+      dir={dir}
+    >
       <div className="bg-white w-full max-w-md rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
-        <div className="p-8">
+        <div className="p-5 sm:p-8">
           <button
             type="button"
             onClick={() => navigate("/", { replace: true })}
-            className="flex items-center gap-2 text-slate-400 hover:text-blue-600 mb-8 transition-colors text-sm font-bold cursor-pointer"
+            className="flex items-center gap-2 text-slate-400 hover:text-blue-600 mb-6 sm:mb-8 transition-colors text-sm font-bold cursor-pointer"
           >
-            <ArrowLeft size={16} />
-            {lang === "ar" ? "العودة للرئيسية" : "Back to Home"}
+            <BackIcon size={16} />
+            {L.back}
           </button>
 
-          <h2 className="text-3xl font-black text-slate-900 mb-2">
-            {isLogin
-              ? lang === "ar"
-                ? "تسجيل الدخول"
-                : "Sign In"
-              : lang === "ar"
-              ? "إنشاء حساب جديد"
-              : "Create Account"}
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-900 mb-2">
+            {isLogin ? L.signIn : L.createAccount}
           </h2>
 
-          <p className="text-slate-500 mb-8 font-medium">
-            {isLogin
-              ? lang === "ar"
-                ? "أهلاً بك مجدداً"
-                : "Welcome back"
-              : lang === "ar"
-              ? "ابدأ حسابك الآن"
-              : "Create your account"}
+          <p className="text-slate-500 mb-6 sm:mb-8 font-medium">
+            {isLogin ? L.welcomeBack : L.startNow}
           </p>
 
           <form className="space-y-4" onSubmit={handleSubmit}>
             {!isLogin && (
               <div>
                 <label className="block text-sm font-bold mb-2 pr-1">
-                  {lang === "ar" ? "الاسم" : "Name"}
+                  {L.name}
                 </label>
                 <div className="relative">
                   <input
@@ -227,10 +274,17 @@ export const AuthView = ({ lang = "en" }) => {
                     value={formData.username}
                     onChange={handleChange}
                     required={!isLogin}
-                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none pl-12"
+                    autoComplete="name"
+                    className={classNames(
+                      "w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none",
+                      dir === "rtl" ? "pr-12" : "pl-12"
+                    )}
                   />
                   <UserPlus
-                    className="absolute left-4 top-4 text-slate-400"
+                    className={classNames(
+                      "absolute top-4 text-slate-400",
+                      dir === "rtl" ? "right-4" : "left-4"
+                    )}
                     size={20}
                   />
                 </div>
@@ -239,13 +293,7 @@ export const AuthView = ({ lang = "en" }) => {
 
             <div>
               <label className="block text-sm font-bold mb-2 pr-1">
-                {isLogin
-                  ? lang === "ar"
-                    ? "الإيميل أو اليوزر"
-                    : "Email or Username"
-                  : lang === "ar"
-                  ? "الإيميل"
-                  : "Email"}
+                {isLogin ? L.emailOrUser : L.email}
               </label>
               <div className="relative">
                 <input
@@ -254,10 +302,18 @@ export const AuthView = ({ lang = "en" }) => {
                   value={formData.identifier}
                   onChange={handleChange}
                   required
-                  className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none pl-12"
+                  autoComplete={isLogin ? "username" : "email"}
+                  inputMode={isLogin ? "text" : "email"}
+                  className={classNames(
+                    "w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none",
+                    dir === "rtl" ? "pr-12" : "pl-12"
+                  )}
                 />
                 <Mail
-                  className="absolute left-4 top-4 text-slate-400"
+                  className={classNames(
+                    "absolute top-4 text-slate-400",
+                    dir === "rtl" ? "right-4" : "left-4"
+                  )}
                   size={20}
                 />
               </div>
@@ -265,7 +321,7 @@ export const AuthView = ({ lang = "en" }) => {
 
             <div>
               <label className="block text-sm font-bold mb-2 pr-1">
-                {lang === "ar" ? "كلمة المرور" : "Password"}
+                {L.password}
               </label>
               <div className="relative">
                 <input
@@ -274,10 +330,17 @@ export const AuthView = ({ lang = "en" }) => {
                   value={formData.password}
                   onChange={handleChange}
                   required
-                  className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none pl-12"
+                  autoComplete={isLogin ? "current-password" : "new-password"}
+                  className={classNames(
+                    "w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none",
+                    dir === "rtl" ? "pr-12" : "pl-12"
+                  )}
                 />
                 <Lock
-                  className="absolute left-4 top-4 text-slate-400"
+                  className={classNames(
+                    "absolute top-4 text-slate-400",
+                    dir === "rtl" ? "right-4" : "left-4"
+                  )}
                   size={20}
                 />
               </div>
@@ -292,17 +355,7 @@ export const AuthView = ({ lang = "en" }) => {
                   : "bg-blue-600 text-white hover:bg-blue-700 shadow-blue-100 cursor-pointer"
               }`}
             >
-              {loading
-                ? lang === "ar"
-                  ? "جارٍ التنفيذ..."
-                  : "Processing..."
-                : isLogin
-                ? lang === "ar"
-                  ? "دخول"
-                  : "Login"
-                : lang === "ar"
-                ? "سجل الآن"
-                : "Register"}
+              {loading ? L.processing : isLogin ? L.login : L.register}
             </button>
           </form>
         </div>
@@ -313,16 +366,12 @@ export const AuthView = ({ lang = "en" }) => {
             onClick={switchMode}
             className="text-blue-600 font-bold hover:underline cursor-pointer"
           >
-            {isLogin
-              ? lang === "ar"
-                ? "ليس لديك حساب؟ سجل الآن"
-                : "Don't have an account? Sign up"
-              : lang === "ar"
-              ? "لديك حساب؟ سجل دخولك"
-              : "Already have an account? Sign in"}
+            {isLogin ? L.noAccount : L.haveAccount}
           </button>
         </div>
       </div>
     </div>
   );
 };
+
+const classNames = (...arr) => arr.filter(Boolean).join(" ");

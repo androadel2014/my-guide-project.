@@ -1,50 +1,67 @@
 @import "tailwindcss";
 
-/* هذا الجزء يضمن أن البوردرات ستظهر حتى لو كانت هناك مشكلة في الإعدادات */
+/* =========================================
+   Base resets
+========================================= */
 @layer base {
   *,
   ::before,
   ::after {
-    border-color: #e2e8f0; /* لون البوردر الرمادي الفاتح */
+    border-color: #e2e8f0;
     border-style: solid;
     border-width: 0;
   }
-}
 
-body {
-  background-color: #0f172a !important; /* لضمان الخلفية الغامقة */
-  /* color: white; */
-  margin: 0;
-}
+  html,
+  body {
+    height: 100%;
+  }
 
-/* الكلاسات الخاصة بالـ CV Builder لضمان ظهور التقسيمات */
-.border {
-  border-width: 1px !important;
-}
-.border-b {
-  border-bottom-width: 1px !important;
-}
-.border-t {
-  border-top-width: 1px !important;
-}
+  body {
+    margin: 0;
+    font-family: "Cairo", sans-serif;
+    background-color: #f8fafc;
+    color: #0f172a;
+    overflow-x: hidden; /* ✅ مهم للموبايل */
+  }
 
-/* @import url("https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap"); */
-
-body {
-  font-family: "Cairo", sans-serif;
-  background-color: #f8fafc;
+  /* ✅ safe-area for iOS */
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
 }
 
 /* =========================================
-           PREVIEW STYLE (What you see on screen)
-           ========================================= */
+   Helpers (mobile / UI)
+========================================= */
+.glass-nav {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* =========================================
+   CV Builder: isolated styles (only #cv-document)
+========================================= */
 #cv-document {
   width: 100%;
   max-width: 800px;
   font-family: "Times New Roman", Times, serif;
   color: #000;
   line-height: 1.25;
-  background: white;
+  background: #fff;
   padding: 20px;
   width: 8.5in;
   min-height: 11in;
@@ -58,7 +75,7 @@ body {
   font-size: 28pt;
   font-weight: bold;
   text-align: center;
-  margin-bottom: 4pt; /* تقليل المسافة عشان التوازن */
+  margin-bottom: 4pt;
   text-transform: capitalize;
   line-height: 1.2;
   margin-top: 10px;
@@ -67,15 +84,13 @@ body {
 #cv-document .contact-info {
   font-weight: normal;
   text-align: center;
-  /* التعديل هنا لضمان التوسط */
-  font-size: 13pt; /* حجم خط مناسب */
+  font-size: 13pt;
   background-color: #e2e8f0;
-  /* سر التوسط الاحترافي */
   display: flex;
-  justify-content: center; /* توسط أفقي */
-  align-items: center; /* توسط رأسي */
-  min-height: 30pt; /* ارتفاع ثابت للشريط لضمان الشكل */
-  padding: 0; /* نعتمد على الـ height والتوسط */
+  justify-content: center;
+  align-items: center;
+  min-height: 30pt;
+  padding: 0;
   line-height: 1;
   width: 100%;
 }
@@ -141,7 +156,7 @@ body {
 #cv-document .skill-dot {
   height: 6px;
   width: 6px;
-  background-color: black;
+  background-color: #000;
   border-radius: 50%;
   display: inline-block;
   margin-right: 10px;
@@ -152,19 +167,13 @@ body {
   #cv-document .contact-info,
   #cv-document .section-title {
     -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }
 
-/* #cv-document {
-  margin: 0 auto !important;
-  position: static !important; /* تأكد أنه ثابت لسهولة حساب إحداثياته */
-/* transform: none !important; */
-/* } */
-/* 2. التصميم الخاص بالكمبيوتر والتحميل (Desktop & Print) */
-
 @media (min-width: 1024px) {
   #cv-document {
-    width: 210mm; /* مقاس A4 الحقيقي يظهر فقط في الشاشات الكبيرة */
+    width: 210mm;
     min-height: 297mm;
     padding: 15mm 20mm;
   }

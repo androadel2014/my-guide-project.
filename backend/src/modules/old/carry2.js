@@ -9,9 +9,16 @@
       - carry_reviews
    ✅ Accept/Reject supports BOTH: POST + PATCH (fix 404)
    ✅ Cancel request: requester can cancel pending
-   ✅ Negotiate note/offer/shipment: requester can update while pending
+   ✅ Negotiate:
+      - traveler can COUNTER (counter_offer) with counter_amount/currency/note
+      - requester can ACCEPT COUNTER (becomes accepted)
    ✅ IMPORTANT: safe ALTER for existing DB (fix 500 from missing columns)
    ✅ FIX: messages include sender_name using best available field (username/full_name/email)
+   ✅ FIX: /api/carry/listings now includes my_request_status for authed user (so cards update)
+   ✅ RULES:
+      - Trip must be OPEN to accept NEW requests (matched trips reject new)
+      - Shipment can be used in ONLY ONE active request (pending/counter_offer/accepted)
+      - Matched/completed/cancelled shipments can't be used
 ===================== */
 
 module.exports = function registerCarry(opts) {
@@ -57,6 +64,12 @@ module.exports = function registerCarry(opts) {
 
   function nowSql() {
     return new Date().toISOString().slice(0, 19).replace("T", " ");
+  }
+
+  function normStatus(v) {
+    return String(v || "")
+      .trim()
+      .toLowerCase();
   }
 
   // =====================
@@ -130,8 +143,13 @@ module.exports = function registerCarry(opts) {
       offer_amount REAL,
       offer_currency TEXT,
 
+      -- ✅ negotiation fields
+      counter_amount REAL,
+      counter_currency TEXT,
+      counter_note TEXT,
+
       note TEXT,
-      status TEXT DEFAULT 'pending',    -- pending|accepted|rejected|cancelled
+      status TEXT DEFAULT 'pending',    -- pending|counter_offer|accepted|rejected|cancelled
 
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now')),
@@ -193,6 +211,11 @@ module.exports = function registerCarry(opts) {
   safeAddColumn("carry_requests", "shipment_id INTEGER");
   safeAddColumn("carry_requests", "offer_amount REAL");
   safeAddColumn("carry_requests", "offer_currency TEXT");
+
+  // ✅ negotiation columns (for existing DBs)
+  safeAddColumn("carry_requests", "counter_amount REAL");
+  safeAddColumn("carry_requests", "counter_currency TEXT");
+  safeAddColumn("carry_requests", "counter_note TEXT");
 
   function mapListing(row) {
     const data = safeJsonParse(row?.data_json) || {};
@@ -364,47 +387,87 @@ module.exports = function registerCarry(opts) {
     }
   });
 
+  // ✅ include my_request_status in list (so cards show pending/accepted/counter_offer)
   app.get("/api/carry/listings", authOptional, async (req, res) => {
     try {
-      const where = ["is_active=1"];
+      const where = ["l.is_active=1"];
       const params = [];
 
       const role = clampRole(req.query?.role);
       if (role) {
-        where.push("role=?");
+        where.push("l.role=?");
         params.push(role);
       }
 
       const q = String(req.query?.q || "").trim();
       if (q) {
         where.push(`(
-          from_country LIKE ? OR from_city LIKE ? OR
-          to_country LIKE ? OR to_city LIKE ? OR
-          item_type LIKE ? OR description LIKE ?
+          l.from_country LIKE ? OR l.from_city LIKE ? OR
+          l.to_country LIKE ? OR l.to_city LIKE ? OR
+          l.item_type LIKE ? OR l.description LIKE ?
         )`);
         params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
       }
 
       const from_country = String(req.query?.from_country || "").trim();
       if (from_country) {
-        where.push("from_country=?");
+        where.push("l.from_country=?");
         params.push(from_country);
       }
 
       const to_country = String(req.query?.to_country || "").trim();
       if (to_country) {
-        where.push("to_country=?");
+        where.push("l.to_country=?");
         params.push(to_country);
       }
 
-      const sql = `
-        SELECT * FROM carry_listings
+      const me = req.user?.id ? Number(req.user.id) : null;
+
+      // If authed: join my request + count
+      const sql = me
+        ? `
+        SELECT
+          l.*,
+          (SELECT COUNT(*) FROM carry_requests rc WHERE rc.listing_id=l.id) AS requests_count,
+          rme.status AS my_request_status,
+          rme.id     AS my_request_id
+        FROM carry_listings l
+        LEFT JOIN carry_requests rme
+          ON rme.listing_id=l.id AND rme.requester_id=?
         WHERE ${where.join(" AND ")}
-        ORDER BY created_at DESC, id DESC
+        ORDER BY l.created_at DESC, l.id DESC
+        LIMIT 200
+      `
+        : `
+        SELECT
+          l.*,
+          (SELECT COUNT(*) FROM carry_requests rc WHERE rc.listing_id=l.id) AS requests_count
+        FROM carry_listings l
+        WHERE ${
+          where.join(" AND ").replace(/l\./g, "")
+            ? where.join(" AND ")
+            : where.join(" AND ")
+        }
+        ORDER BY l.created_at DESC, l.id DESC
         LIMIT 200
       `;
-      const rows = await all(sql, params);
-      return res.json({ ok: true, items: rows.map(mapListing) });
+
+      const rows = me
+        ? await all(sql, [me, ...params])
+        : await all(sql, params);
+
+      const items = (rows || []).map((row) => {
+        const it = mapListing(row);
+        if (row?.requests_count != null)
+          it.requests_count = Number(row.requests_count || 0);
+        if (me) {
+          it.my_request_status = row?.my_request_status || null;
+          it.my_request_id = row?.my_request_id || null;
+        }
+        return it;
+      });
+
+      return res.json({ ok: true, items });
     } catch (e) {
       console.error("[carry] list", e);
       return res.status(500).json({ error: "Failed to load" });
@@ -732,7 +795,6 @@ module.exports = function registerCarry(opts) {
 
   // =========================
   // ✅ PUBLIC / EXPLORE SHIPMENTS (compat)
-  // Fix: frontend calls /api/carry/shipments/public -> was 404
   // =========================
   const listPublicShipments = async (req, res) => {
     try {
@@ -754,7 +816,6 @@ module.exports = function registerCarry(opts) {
         params.push(to_country);
       }
 
-      // apply dates on deadline if exists, fallback to created_at
       if (date_from) {
         where.push("(COALESCE(s.deadline, s.created_at, '') >= ?)");
         params.push(date_from);
@@ -793,10 +854,7 @@ module.exports = function registerCarry(opts) {
     }
   };
 
-  // ✅ main endpoint used by frontend now
   app.get("/api/carry/shipments/public", authOptional, listPublicShipments);
-
-  // ✅ optional aliases (old frontend / future compat)
   app.get("/api/carry/shipments/explore", authOptional, listPublicShipments);
   app.get("/api/carry/explore/shipments", authOptional, listPublicShipments);
 
@@ -806,13 +864,19 @@ module.exports = function registerCarry(opts) {
       if (!id) return res.status(400).json({ error: "Bad id" });
 
       const row = await get(
-        `SELECT id, user_id FROM carry_shipments WHERE id=?`,
+        `SELECT id, user_id, status FROM carry_shipments WHERE id=?`,
         [id]
       );
       if (!row) return res.status(404).json({ error: "Not found" });
 
       if (!canEdit(req.user.id, row.user_id, req))
         return res.status(403).json({ error: "Forbidden" });
+
+      // optional: block editing matched shipments
+      const st = normStatus(row.status);
+      if (["matched", "completed", "cancelled", "canceled"].includes(st)) {
+        return res.status(400).json({ ok: false, error: "shipment_locked" });
+      }
 
       const from_country = safeTrim(req.body?.from_country) || "";
       const from_city = safeTrim(req.body?.from_city) || "";
@@ -877,13 +941,18 @@ module.exports = function registerCarry(opts) {
       if (!id) return res.status(400).json({ error: "Bad id" });
 
       const row = await get(
-        `SELECT id, user_id FROM carry_shipments WHERE id=?`,
+        `SELECT id, user_id, status FROM carry_shipments WHERE id=?`,
         [id]
       );
       if (!row) return res.status(404).json({ error: "Not found" });
 
       if (!canEdit(req.user.id, row.user_id, req))
         return res.status(403).json({ error: "Forbidden" });
+
+      const st = normStatus(row.status);
+      if (["matched", "completed"].includes(st)) {
+        return res.status(400).json({ ok: false, error: "shipment_locked" });
+      }
 
       await run(
         `UPDATE carry_shipments SET is_active=0, updated_at=datetime('now') WHERE id=?`,
@@ -934,7 +1003,8 @@ module.exports = function registerCarry(opts) {
             s.from_country AS shipment_from_country,
             s.to_city AS shipment_to_city,
             s.to_country AS shipment_to_country,
-            s.deadline AS shipment_deadline
+            s.deadline AS shipment_deadline,
+            s.status AS shipment_status
           FROM carry_requests r
           LEFT JOIN users u ON u.id = r.requester_id
           LEFT JOIN carry_shipments s ON s.id = r.shipment_id
@@ -960,7 +1030,6 @@ module.exports = function registerCarry(opts) {
   );
 
   // ✅ Request / Negotiate (ONE request per user per trip بسبب UNIQUE)
-  // لو user عمل request قبل كده (pending) -> نعمل UPDATE للشحنة/الأوفر/النوت
   app.post(
     "/api/carry/listings/:id/request",
     authRequired,
@@ -975,7 +1044,7 @@ module.exports = function registerCarry(opts) {
           return res.status(401).json({ ok: false, error: "unauthorized" });
 
         const listing = await get(
-          `SELECT id, user_id FROM carry_listings WHERE id=? AND is_active=1`,
+          `SELECT id, user_id, status, is_active FROM carry_listings WHERE id=? AND is_active=1`,
           [listingId]
         );
         if (!listing)
@@ -985,6 +1054,19 @@ module.exports = function registerCarry(opts) {
           return res
             .status(400)
             .json({ ok: false, error: "cannot_request_own" });
+
+        // ✅ disallow new requests when trip already matched/closed
+        const listingStatus = normStatus(listing.status);
+        if (listingStatus !== "open") {
+          // allow only if this user already has a request (so they can still see it)
+          const existingAny = await get(
+            `SELECT * FROM carry_requests WHERE listing_id=? AND requester_id=? LIMIT 1`,
+            [listingId, me]
+          );
+          if (!existingAny) {
+            return res.status(400).json({ ok: false, error: "trip_not_open" });
+          }
+        }
 
         const shipmentId = toInt(req.body?.shipment_id);
         const offer_amount =
@@ -998,27 +1080,57 @@ module.exports = function registerCarry(opts) {
             .json({ ok: false, error: "missing_shipment_id" });
 
         const shipment = await get(
-          `SELECT id, user_id FROM carry_shipments WHERE id=? AND is_active=1`,
+          `SELECT id, user_id, status, is_active FROM carry_shipments WHERE id=? AND is_active=1`,
           [shipmentId]
         );
         if (!shipment)
           return res
             .status(404)
             .json({ ok: false, error: "shipment_not_found" });
+
         if (Number(shipment.user_id) !== Number(me))
           return res
             .status(403)
             .json({ ok: false, error: "shipment_not_owner" });
 
-        // ✅ existing by UNIQUE(listing_id, requester_id)
+        const shipSt = normStatus(shipment.status);
+        if (
+          ["matched", "completed", "cancelled", "canceled"].includes(shipSt)
+        ) {
+          return res
+            .status(400)
+            .json({ ok: false, error: "shipment_not_open" });
+        }
+
+        // ✅ shipment can be used ONLY ONCE in any active request
+        const shipUsed = await get(
+          `SELECT id, status, listing_id FROM carry_requests
+         WHERE shipment_id=?
+           AND status IN ('pending','counter_offer','accepted')
+         ORDER BY id DESC LIMIT 1`,
+          [shipmentId]
+        );
+        if (shipUsed?.id) {
+          // allow if it's already THIS user's request on THIS trip (update case)
+          const isSame = await get(
+            `SELECT id FROM carry_requests WHERE listing_id=? AND requester_id=? AND shipment_id=? LIMIT 1`,
+            [listingId, me, shipmentId]
+          );
+          if (!isSame?.id) {
+            return res
+              .status(400)
+              .json({ ok: false, error: "shipment_already_in_use" });
+          }
+        }
+
         const existing = await get(
           `SELECT * FROM carry_requests WHERE listing_id=? AND requester_id=? LIMIT 1`,
           [listingId, me]
         );
 
         if (existing) {
-          const st = String(existing.status || "").toLowerCase();
-          if (st === "pending") {
+          const st = normStatus(existing.status);
+          if (st === "pending" || st === "counter_offer") {
             const nextOfferAmount = Number.isFinite(offer_amount)
               ? offer_amount
               : existing.offer_amount ?? null;
@@ -1027,9 +1139,34 @@ module.exports = function registerCarry(opts) {
               offer_currency || existing.offer_currency || "USD";
             const nextNote = noteUp || existing.note || null;
 
+            // if they change shipment_id: must also obey "single use" rule
+            if (Number(existing.shipment_id || 0) !== Number(shipmentId)) {
+              const usedOther = await get(
+                `SELECT id FROM carry_requests
+               WHERE shipment_id=?
+                 AND status IN ('pending','counter_offer','accepted')
+               ORDER BY id DESC LIMIT 1`,
+                [shipmentId]
+              );
+              if (usedOther?.id) {
+                return res
+                  .status(400)
+                  .json({ ok: false, error: "shipment_already_in_use" });
+              }
+            }
+
             await run(
               `UPDATE carry_requests
-             SET shipment_id=?, offer_amount=?, offer_currency=?, note=?, updated_at=datetime('now')
+             SET shipment_id=?,
+                 offer_amount=?,
+                 offer_currency=?,
+                 note=?,
+                 -- reset counter when requester updates offer
+                 counter_amount=NULL,
+                 counter_currency=NULL,
+                 counter_note=NULL,
+                 status='pending',
+                 updated_at=datetime('now')
              WHERE id=?`,
               [
                 shipmentId,
@@ -1047,7 +1184,6 @@ module.exports = function registerCarry(opts) {
             return res.json({ ok: true, already: true, request: updated });
           }
 
-          // لو accepted/rejected/cancelled: ما نعملش overwrite
           return res.json({ ok: true, already: true, request: existing });
         }
 
@@ -1081,6 +1217,191 @@ module.exports = function registerCarry(opts) {
     }
   );
 
+  // ✅ TRAVELER COUNTER OFFER (Negotiation)
+  async function counterOfferCore(requestId, req) {
+    const reqRow = await get(`SELECT * FROM carry_requests WHERE id=?`, [
+      requestId,
+    ]);
+    if (!reqRow)
+      return { status: 404, body: { ok: false, error: "Not found" } };
+
+    const listing = await get(
+      `SELECT id, user_id, status FROM carry_listings WHERE id=?`,
+      [reqRow.listing_id]
+    );
+    if (!listing)
+      return { status: 404, body: { ok: false, error: "Listing missing" } };
+
+    if (!canEdit(req.user.id, listing.user_id, req))
+      return { status: 403, body: { ok: false, error: "Forbidden" } };
+
+    const listingStatus = normStatus(listing.status);
+    if (listingStatus !== "open") {
+      return { status: 400, body: { ok: false, error: "trip_not_open" } };
+    }
+
+    const st = normStatus(reqRow.status || "pending");
+    if (st !== "pending" && st !== "counter_offer") {
+      return {
+        status: 400,
+        body: { ok: false, error: `Cannot counter (${st})` },
+      };
+    }
+
+    const counter_amount =
+      req.body?.counter_amount == null ? null : Number(req.body.counter_amount);
+    const counter_currency = safeTrim(req.body?.counter_currency) || "USD";
+    const counter_note = safeTrim(
+      req.body?.counter_note || req.body?.note || ""
+    );
+
+    if (!Number.isFinite(counter_amount) || counter_amount <= 0) {
+      return { status: 400, body: { ok: false, error: "Bad counter_amount" } };
+    }
+
+    await run(
+      `UPDATE carry_requests
+       SET status='counter_offer',
+           counter_amount=?,
+           counter_currency=?,
+           counter_note=?,
+           updated_at=datetime('now')
+       WHERE id=?`,
+      [counter_amount, counter_currency, counter_note || null, requestId]
+    );
+
+    const updated = await get(`SELECT * FROM carry_requests WHERE id=?`, [
+      requestId,
+    ]);
+    return { status: 200, body: { ok: true, request: updated } };
+  }
+
+  const counterHandler = async (req, res) => {
+    try {
+      const requestId = toInt(req.params.id);
+      if (!requestId)
+        return res.status(400).json({ ok: false, error: "Bad id" });
+      const out = await counterOfferCore(requestId, req);
+      return res.status(out.status).json(out.body);
+    } catch (e) {
+      console.error("[carry] counter", e);
+      return res.status(500).json({ ok: false, error: "Failed" });
+    }
+  };
+
+  app.patch("/api/carry/requests/:id/counter", authRequired, counterHandler);
+  app.post("/api/carry/requests/:id/counter", authRequired, counterHandler);
+
+  // ✅ REQUESTER ACCEPTS COUNTER OFFER
+  async function acceptCounterCore(requestId, req) {
+    const reqRow = await get(`SELECT * FROM carry_requests WHERE id=?`, [
+      requestId,
+    ]);
+    if (!reqRow)
+      return { status: 404, body: { ok: false, error: "Not found" } };
+
+    const me = req.user?.id;
+    if (!me) return { status: 401, body: { ok: false, error: "unauthorized" } };
+
+    if (Number(reqRow.requester_id) !== Number(me) && !isAdminReq(req)) {
+      return { status: 403, body: { ok: false, error: "Forbidden" } };
+    }
+
+    const listing = await get(
+      `SELECT id, user_id, status FROM carry_listings WHERE id=?`,
+      [reqRow.listing_id]
+    );
+    if (!listing)
+      return { status: 404, body: { ok: false, error: "Listing missing" } };
+
+    const listingStatus = normStatus(listing.status);
+    if (listingStatus !== "open") {
+      return { status: 400, body: { ok: false, error: "trip_not_open" } };
+    }
+
+    const st = normStatus(reqRow.status || "pending");
+    if (st !== "counter_offer") {
+      return {
+        status: 400,
+        body: { ok: false, error: `Not counter_offer (${st})` },
+      };
+    }
+
+    const finalAmount = Number(reqRow.counter_amount);
+    const finalCurrency =
+      String(reqRow.counter_currency || "USD").trim() || "USD";
+
+    if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+      return { status: 400, body: { ok: false, error: "Bad counter_amount" } };
+    }
+
+    // reject other pending/counter offers on same trip
+    await run(
+      `UPDATE carry_requests
+       SET status='rejected', updated_at=datetime('now')
+       WHERE listing_id=? AND id<>? AND (status='pending' OR status='counter_offer')`,
+      [listing.id, requestId]
+    );
+
+    // accept this request + store final price into offer_amount/offer_currency
+    await run(
+      `UPDATE carry_requests
+       SET status='accepted',
+           offer_amount=?,
+           offer_currency=?,
+           updated_at=datetime('now')
+       WHERE id=?`,
+      [finalAmount, finalCurrency, requestId]
+    );
+
+    // trip matched
+    await run(
+      `UPDATE carry_listings
+       SET status='matched', updated_at=datetime('now')
+       WHERE id=?`,
+      [listing.id]
+    );
+
+    // shipment matched
+    if (reqRow.shipment_id) {
+      await run(
+        `UPDATE carry_shipments
+         SET status='matched', updated_at=datetime('now')
+         WHERE id=?`,
+        [reqRow.shipment_id]
+      );
+    }
+
+    const updated = await get(`SELECT * FROM carry_requests WHERE id=?`, [
+      requestId,
+    ]);
+    return { status: 200, body: { ok: true, request: updated } };
+  }
+
+  const acceptCounterHandler = async (req, res) => {
+    try {
+      const requestId = toInt(req.params.id);
+      if (!requestId)
+        return res.status(400).json({ ok: false, error: "Bad id" });
+      const out = await acceptCounterCore(requestId, req);
+      return res.status(out.status).json(out.body);
+    } catch (e) {
+      console.error("[carry] accept_counter", e);
+      return res.status(500).json({ ok: false, error: "Failed" });
+    }
+  };
+
+  app.patch(
+    "/api/carry/requests/:id/accept_counter",
+    authRequired,
+    acceptCounterHandler
+  );
+  app.post(
+    "/api/carry/requests/:id/accept_counter",
+    authRequired,
+    acceptCounterHandler
+  );
+
   // ===== Accept / Reject core (supports PATCH + POST) =====
   async function acceptRequestCore(requestId, req) {
     const reqRow = await get(`SELECT * FROM carry_requests WHERE id=?`, [
@@ -1089,7 +1410,7 @@ module.exports = function registerCarry(opts) {
     if (!reqRow) return { status: 404, body: { error: "Not found" } };
 
     const listing = await get(
-      `SELECT id, user_id FROM carry_listings WHERE id=?`,
+      `SELECT id, user_id, status FROM carry_listings WHERE id=?`,
       [reqRow.listing_id]
     );
     if (!listing) return { status: 404, body: { error: "Listing missing" } };
@@ -1097,19 +1418,21 @@ module.exports = function registerCarry(opts) {
     if (!canEdit(req.user.id, listing.user_id, req))
       return { status: 403, body: { error: "Forbidden" } };
 
-    const st = String(reqRow.status || "pending").toLowerCase();
-    if (st !== "pending")
+    const listingStatus = normStatus(listing.status);
+    if (listingStatus !== "open")
+      return { status: 400, body: { error: "Trip not open" } };
+
+    const st = normStatus(reqRow.status || "pending");
+    if (st !== "pending" && st !== "counter_offer")
       return { status: 400, body: { error: `Request not pending (${st})` } };
 
-    // reject other pending requests on same trip
     await run(
       `UPDATE carry_requests
        SET status='rejected', updated_at=datetime('now')
-       WHERE listing_id=? AND id<>? AND status='pending'`,
+       WHERE listing_id=? AND id<>? AND (status='pending' OR status='counter_offer')`,
       [listing.id, requestId]
     );
 
-    // accept this request
     await run(
       `UPDATE carry_requests
        SET status='accepted', updated_at=datetime('now')
@@ -1117,7 +1440,6 @@ module.exports = function registerCarry(opts) {
       [requestId]
     );
 
-    // trip becomes matched
     await run(
       `UPDATE carry_listings
        SET status='matched', updated_at=datetime('now')
@@ -1125,7 +1447,6 @@ module.exports = function registerCarry(opts) {
       [listing.id]
     );
 
-    // shipment becomes matched (if exists)
     if (reqRow.shipment_id) {
       await run(
         `UPDATE carry_shipments
@@ -1153,8 +1474,8 @@ module.exports = function registerCarry(opts) {
     if (!canEdit(req.user.id, listing.user_id, req))
       return { status: 403, body: { error: "Forbidden" } };
 
-    const st = String(reqRow.status || "pending").toLowerCase();
-    if (st !== "pending")
+    const st = normStatus(reqRow.status || "pending");
+    if (st !== "pending" && st !== "counter_offer")
       return { status: 400, body: { error: `Request not pending (${st})` } };
 
     await run(
@@ -1197,7 +1518,7 @@ module.exports = function registerCarry(opts) {
   app.patch("/api/carry/requests/:id/reject", authRequired, rejectHandler);
   app.post("/api/carry/requests/:id/reject", authRequired, rejectHandler);
 
-  // Cancel request (pending only)
+  // Cancel request (pending/counter_offer only) + if shipment was matched by this request, keep matched
   const cancelHandler = async (req, res) => {
     try {
       const requestId = toInt(req.params.id);
@@ -1224,8 +1545,8 @@ module.exports = function registerCarry(opts) {
       if (!canCancel)
         return res.status(403).json({ ok: false, error: "Forbidden" });
 
-      const st = String(row.status || "pending").toLowerCase();
-      if (st !== "pending")
+      const st = normStatus(row.status || "pending");
+      if (st !== "pending" && st !== "counter_offer")
         return res
           .status(400)
           .json({ ok: false, error: `Cannot cancel (${st})` });
@@ -1246,7 +1567,7 @@ module.exports = function registerCarry(opts) {
   app.post("/api/carry/requests/:id/cancel", authRequired, cancelHandler);
   app.delete("/api/carry/requests/:id/cancel", authRequired, cancelHandler);
 
-  // Update note (pending requester only) [kept]
+  // Update note (pending requester only)
   app.patch("/api/carry/requests/:id/note", authRequired, async (req, res) => {
     try {
       const requestId = toInt(req.params.id);
@@ -1262,7 +1583,7 @@ module.exports = function registerCarry(opts) {
       if (Number(row.requester_id) !== Number(me))
         return res.status(403).json({ ok: false, error: "Forbidden" });
 
-      const st = String(row.status || "pending").toLowerCase();
+      const st = normStatus(row.status || "pending");
       if (st !== "pending")
         return res
           .status(400)

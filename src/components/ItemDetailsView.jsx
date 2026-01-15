@@ -11,17 +11,8 @@ import {
 
 import { toastConfirm, notify } from "../lib/notify";
 import {
-  US_STATES,
-  PLACE_CATEGORIES,
-  GROUP_PLATFORMS,
-  GROUP_TOPICS,
-  SERVICE_CATEGORIES,
-  JOB_CATEGORIES,
-  HOUSING_CATEGORIES,
-  PRODUCT_CATEGORIES,
-} from "./community/MarketplaceShared";
-import {
   ArrowLeft,
+  ArrowRight,
   MapPin,
   Phone,
   Star,
@@ -32,7 +23,6 @@ import {
   Pencil,
   Trash2,
   X,
-  Save,
 } from "lucide-react";
 
 const API_BASE =
@@ -41,7 +31,185 @@ const API_BASE =
   "http://localhost:5000";
 
 const cn = (...a) => a.filter(Boolean).join(" ");
-function SelectField({ label, value, onChange, options = [], placeholder }) {
+
+/* =========================
+   i18n (AR/EN/ES) + dir
+========================= */
+const normLang = (v) => {
+  const s = String(v || "en").toLowerCase();
+  if (s.startsWith("ar")) return "ar";
+  if (s.startsWith("es")) return "es";
+  return "en";
+};
+const isRTL = (lang) => normLang(lang) === "ar";
+const dirForLang = (lang) => (isRTL(lang) ? "rtl" : "ltr");
+
+const I18N = {
+  en: {
+    back: "Back",
+    backToCommunity: "Back to Community",
+    openMap: "Open Map",
+    openLink: "Open link",
+    price: "Price",
+    rating: "Rating",
+    verified: "Verified",
+    directions: "Directions",
+    call: "Call",
+    reviews: "Reviews",
+    refresh: "Refresh",
+    loadingReviews: "Loading reviews…",
+    noReviews: "No reviews yet.",
+    yourReview: "Your review",
+    addReview: "Add a review",
+    loginRequired: "Login required",
+    oneReview: "One review per user",
+    goToLogin: "Go to Login",
+    writeReview: "Write a review",
+    youReviewAs: "You are reviewing as",
+    yourRating: "Your rating",
+    selected: "Selected:",
+    submitReview: "Submit review",
+    editYourReview: "Edit your review",
+    updateReview: "Update review",
+    delete: "Delete",
+    edit: "Edit",
+    cancel: "Cancel",
+    reviewUpdated: "Review updated",
+    reviewAdded: "Review added",
+    reviewDeleted: "Review deleted",
+    itemUpdated: "Item updated",
+    itemDeleted: "Item deleted",
+    saving: "Saving...",
+    save: "Save",
+    deleting: "Deleting…",
+    confirmDeleteTitle: "Confirm delete",
+    confirmDeleteReviewMsg: "Are you sure you want to delete your review?",
+    confirmDeleteItemMsg: "Are you sure you want to delete this item?",
+    placeNotFound: "Item not found.",
+    writeOpinion: "Write your review…",
+    tip: "Tip: be clear about quality, price, and service.",
+    editItemTitle: "Edit item",
+    editItemSub: "Update info then save",
+    loginFirst: "Please login first",
+    starsRange: "Stars must be 1..5",
+    writeText: "Write something",
+    youTag: "Your review",
+  },
+  ar: {
+    back: "رجوع",
+    backToCommunity: "رجوع للمجتمع",
+    openMap: "فتح الخريطة",
+    openLink: "فتح الرابط",
+    price: "السعر",
+    rating: "التقييم",
+    verified: "موثّق",
+    directions: "الاتجاهات",
+    call: "اتصال",
+    reviews: "التقييمات",
+    refresh: "تحديث",
+    loadingReviews: "جارٍ تحميل التقييمات…",
+    noReviews: "لا توجد تقييمات بعد.",
+    yourReview: "تقييمك",
+    addReview: "إضافة تقييم",
+    loginRequired: "تسجيل الدخول مطلوب",
+    oneReview: "تقييم واحد لكل مستخدم",
+    goToLogin: "اذهب لتسجيل الدخول",
+    writeReview: "اكتب تقييمك",
+    youReviewAs: "أنت تقيّم باسم",
+    yourRating: "تقييمك",
+    selected: "المختار:",
+    submitReview: "إرسال التقييم",
+    editYourReview: "تعديل تقييمك",
+    updateReview: "تحديث التقييم",
+    delete: "حذف",
+    edit: "تعديل",
+    cancel: "إلغاء",
+    reviewUpdated: "تم تحديث التقييم",
+    reviewAdded: "تم إضافة التقييم",
+    reviewDeleted: "تم حذف التقييم",
+    itemUpdated: "تم تحديث العنصر",
+    itemDeleted: "تم حذف العنصر",
+    saving: "جارٍ الحفظ...",
+    save: "حفظ",
+    deleting: "جارٍ الحذف…",
+    confirmDeleteTitle: "تأكيد الحذف",
+    confirmDeleteReviewMsg: "متأكد عايز تمسح الريفيو بتاعك؟",
+    confirmDeleteItemMsg: "متأكد عايز تمسح الـ Item ده؟",
+    placeNotFound: "العنصر غير موجود.",
+    writeOpinion: "اكتب رأيك…",
+    tip: "نصيحة: قول رأيك بوضوح: جودة الخدمة، الأسعار، المكان، التعامل.",
+    editItemTitle: "تعديل العنصر",
+    editItemSub: "عدّل البيانات وبعدين احفظ",
+    loginFirst: "لازم تسجّل دخول الأول",
+    starsRange: "النجوم لازم تكون من 1 إلى 5",
+    writeText: "اكتب رأيك",
+    youTag: "تقييمك",
+  },
+  es: {
+    back: "Volver",
+    backToCommunity: "Volver a Comunidad",
+    openMap: "Abrir mapa",
+    openLink: "Abrir enlace",
+    price: "Precio",
+    rating: "Calificación",
+    verified: "Verificado",
+    directions: "Cómo llegar",
+    call: "Llamar",
+    reviews: "Reseñas",
+    refresh: "Actualizar",
+    loadingReviews: "Cargando reseñas…",
+    noReviews: "Aún no hay reseñas.",
+    yourReview: "Tu reseña",
+    addReview: "Agregar reseña",
+    loginRequired: "Se requiere inicio de sesión",
+    oneReview: "Una reseña por usuario",
+    goToLogin: "Ir a iniciar sesión",
+    writeReview: "Escribe una reseña",
+    youReviewAs: "Estás reseñando como",
+    yourRating: "Tu calificación",
+    selected: "Seleccionado:",
+    submitReview: "Enviar reseña",
+    editYourReview: "Editar tu reseña",
+    updateReview: "Actualizar reseña",
+    delete: "Eliminar",
+    edit: "Editar",
+    cancel: "Cancelar",
+    reviewUpdated: "Reseña actualizada",
+    reviewAdded: "Reseña agregada",
+    reviewDeleted: "Reseña eliminada",
+    itemUpdated: "Elemento actualizado",
+    itemDeleted: "Elemento eliminado",
+    saving: "Guardando...",
+    save: "Guardar",
+    deleting: "Eliminando…",
+    confirmDeleteTitle: "Confirmar eliminación",
+    confirmDeleteReviewMsg: "¿Seguro que quieres eliminar tu reseña?",
+    confirmDeleteItemMsg: "¿Seguro que quieres eliminar este elemento?",
+    placeNotFound: "Elemento no encontrado.",
+    writeOpinion: "Escribe tu reseña…",
+    tip: "Consejo: sé claro sobre calidad, precio y servicio.",
+    editItemTitle: "Editar elemento",
+    editItemSub: "Actualiza la info y guarda",
+    loginFirst: "Inicia sesión primero",
+    starsRange: "Las estrellas deben ser 1..5",
+    writeText: "Escribe algo",
+    youTag: "Tu reseña",
+  },
+};
+
+const t = (lang, key) => {
+  const L = normLang(lang);
+  return (I18N[L] && I18N[L][key]) || I18N.en[key] || key;
+};
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options = [],
+  placeholder,
+  dir,
+}) {
   const [open, setOpen] = useState(false);
   const wrapRef = React.useRef(null);
 
@@ -66,18 +234,25 @@ function SelectField({ label, value, onChange, options = [], placeholder }) {
       <button
         type="button"
         onClick={() => setOpen((s) => !s)}
-        className="w-full rounded-xl border px-3 py-2 text-sm bg-white text-left hover:bg-gray-50"
+        className={cn(
+          "w-full rounded-xl border px-3 py-2 text-sm bg-white hover:bg-gray-50",
+          dir === "rtl" ? "text-right" : "text-left"
+        )}
       >
         {current || placeholder || "Select"}
       </button>
 
       {open ? (
-        <div className="absolute left-0 right-0 mt-2 z-[99999] rounded-xl border bg-white shadow-lg overflow-hidden">
+        <div
+          className={cn(
+            "absolute left-0 right-0 mt-2 z-[99999] rounded-xl border bg-white shadow-lg overflow-hidden",
+            dir === "rtl" ? "text-right" : "text-left"
+          )}
+        >
           <div className="max-h-64 overflow-auto">
             {options.map((opt) => {
               const v = typeof opt === "string" ? opt : opt?.value;
               const labelTxt = typeof opt === "string" ? opt : opt?.label || v;
-
               const active = String(v) === String(current);
 
               return (
@@ -89,7 +264,8 @@ function SelectField({ label, value, onChange, options = [], placeholder }) {
                     setOpen(false);
                   }}
                   className={cn(
-                    "w-full text-left px-3 py-2 text-sm hover:bg-gray-50",
+                    "w-full px-3 py-2 text-sm hover:bg-gray-50",
+                    dir === "rtl" ? "text-right" : "text-left",
                     active ? "bg-gray-100 font-semibold" : ""
                   )}
                 >
@@ -158,7 +334,6 @@ function getMeFromTokenFallback() {
   return { id: id ?? null, username };
 }
 
-// ✅ extra fallback: try localStorage user/me/profile
 function getMeFromStorageFallback() {
   try {
     const keys = [
@@ -223,7 +398,6 @@ function normName(v) {
 
 function safeDateToLocaleString(v) {
   if (!v) return "";
-  // sqlite: "YYYY-MM-DD HH:MM:SS" -> "YYYY-MM-DDTHH:MM:SS"
   const s = String(v).trim().replace(" ", "T");
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return String(v);
@@ -261,19 +435,39 @@ function StarsReadOnly({ value = 0, size = 16, showValue = true }) {
 }
 
 /** ===== Stars Picker (interactive) ===== */
-function StarsPicker({ value, onChange, size = 24 }) {
+function StarsPicker({ lang, value, onChange, size = 24 }) {
   const [hover, setHover] = useState(0);
   const v = Math.max(1, Math.min(5, Number(value || 5)));
   const active = hover || v;
 
   const cls = size >= 24 ? "h-6 w-6" : "h-5 w-5";
-  const labels = {
+  const labelsEn = {
     1: "Bad",
     2: "Okay",
     3: "Good",
     4: "Very good",
     5: "Excellent",
   };
+  const labelsAr = {
+    1: "سيئ",
+    2: "مقبول",
+    3: "جيد",
+    4: "جيد جدًا",
+    5: "ممتاز",
+  };
+  const labelsEs = {
+    1: "Malo",
+    2: "Regular",
+    3: "Bueno",
+    4: "Muy bueno",
+    5: "Excelente",
+  };
+  const labels =
+    normLang(lang) === "ar"
+      ? labelsAr
+      : normLang(lang) === "es"
+      ? labelsEs
+      : labelsEn;
 
   return (
     <div className="flex items-center justify-between gap-3">
@@ -367,7 +561,6 @@ function pickUsername(obj) {
   );
 }
 
-// ✅ يظبط اختلاف شكل /api/profile/me
 function normalizeMe(any) {
   if (!any) return null;
   const p = any.profile || any.user || any.me || any;
@@ -377,41 +570,29 @@ function normalizeMe(any) {
   return { id: id ?? null, username: username || "You" };
 }
 
-// ✅ normalize item to "place-like" shape so UI stays same design
 function normalizeToPlaceShape(raw, t) {
   if (!raw) return null;
-
-  // ✅ unwrap common wrappers:
-  // { ok:true, item:{...} } OR { data:{ item:{...} } } OR { item:{...} }
   const obj = raw?.item || raw?.data?.item || raw?.data || raw;
-
   if (!obj) return null;
 
-  // marketplace listing (services/jobs/housing/products)
   if (!["places", "groups"].includes(t)) {
     return {
       ...obj,
-
-      // ✅ prefer title (most listings)
       name:
         obj.title || obj.name || obj.business_name || obj.company || "Listing",
-
       category: obj.category || t,
       address: obj.address || obj.location || "",
       city: obj.city || "",
       state: obj.state || "",
       zip: obj.zip || "",
-
       phone: obj.phone || obj.contact || "",
       website: obj.website || obj.link || obj.url || "",
-
       description: obj.description || obj.notes || "",
       notes: obj.notes || obj.description || "",
       price: obj.price || obj.price_value || obj.amount || obj.budget || "",
     };
   }
 
-  // places/groups legacy
   return {
     ...obj,
     name: obj.name || obj.title || "Item",
@@ -424,10 +605,15 @@ function normalizeToPlaceShape(raw, t) {
   };
 }
 
-export default function ItemDetailsView({ lang }) {
+export default function ItemDetailsView({ lang = "en" }) {
+  const L = normLang(lang);
+  const dir = dirForLang(L);
+  const BackIcon = dir === "rtl" ? ArrowRight : ArrowLeft;
+
   const params = useParams();
   const navigate = useNavigate();
-  const location = useLocation(); // ✅ لازم قبل ما تستخدمه
+  const location = useLocation();
+
   const placeId =
     params.id ||
     params.placeId ||
@@ -437,30 +623,23 @@ export default function ItemDetailsView({ lang }) {
     params.housingId ||
     params.productId;
 
-  // ✅ type comes from click (navigation state) OR sessionStorage (survives refresh)
   const navType = location.state?.type ? String(location.state.type) : "";
   const storedType =
     sessionStorage.getItem(`mp:type:${String(placeId || "").trim()}`) || "";
 
   useEffect(() => {
     const pid = String(placeId || "").trim();
-    const t = String(navType || "").trim();
+    const ttype = String(navType || "").trim();
     if (!pid) return;
-
-    if (t) {
-      sessionStorage.setItem(`mp:type:${pid}`, t);
-    }
+    if (ttype) sessionStorage.setItem(`mp:type:${pid}`, ttype);
   }, [placeId, navType]);
 
   const [loading, setLoading] = useState(true);
   const [place, setPlace] = useState(null);
-  // ✅ remember which details endpoint actually worked (for PUT/DELETE)
   const [detailsBaseUrl, setDetailsBaseUrl] = useState("");
 
-  // ✅ Edit Item modal
   const [showEditItem, setShowEditItem] = useState(false);
   const [editItemLoading, setEditItemLoading] = useState(false);
-  // ✅ lock page scroll when modal opens
 
   const [eTitle, setETitle] = useState("");
   const [eCategory, setECategory] = useState("");
@@ -484,6 +663,8 @@ export default function ItemDetailsView({ lang }) {
   const [rText, setRText] = useState("");
   const [showReviewForm, setShowReviewForm] = useState(false);
 
+  const arr = (v) => (Array.isArray(v) ? v : []);
+
   const effectiveMe = useMemo(() => {
     return (
       normalizeMe(me) ||
@@ -493,11 +674,119 @@ export default function ItemDetailsView({ lang }) {
     );
   }, [me]);
 
-  const avgRating = useMemo(() => {
-    if (!reviews?.length) return 0;
-    const sum = reviews.reduce((a, r) => a + (Number(r.stars) || 0), 0);
-    return sum / reviews.length;
-  }, [reviews]);
+  const requireLogin = () => {
+    notify.error(t(L, "loginFirst"));
+    navigate("/auth");
+  };
+
+  const ALLOWED_KINDS = new Set([
+    "places",
+    "groups",
+    "services",
+    "jobs",
+    "housing",
+    "products",
+  ]);
+
+  const rawKind = String(navType || storedType || "")
+    .trim()
+    .toLowerCase();
+  const idStr = String(placeId || "").trim();
+  const idPrefix = idStr.includes("_") ? idStr.split("_")[0].toLowerCase() : "";
+
+  const kind = ALLOWED_KINDS.has(rawKind)
+    ? rawKind
+    : ALLOWED_KINDS.has(idPrefix)
+    ? idPrefix
+    : "places";
+  const shortId = idStr.includes("_")
+    ? idStr.split("_").slice(1).join("_")
+    : idStr;
+
+  const isPlaceType = kind === "places";
+
+  const canEditItem = useMemo(() => {
+    const myId = effectiveMe?.id ? String(effectiveMe.id) : "";
+    const createdBy =
+      place?.created_by ??
+      place?.createdBy ??
+      place?.user_id ??
+      place?.userId ??
+      place?.owner_id ??
+      place?.ownerId ??
+      null;
+
+    if (!myId || !createdBy) return false;
+    return String(createdBy) === myId;
+  }, [effectiveMe, place]);
+
+  const detailsCandidates = useMemo(() => {
+    if (kind === "places") {
+      return [
+        `${API_BASE}/api/community/places/${placeId}`,
+        `${API_BASE}/api/community/places/${shortId}`,
+        `${API_BASE}/api/marketplace/places/${placeId}`,
+        `${API_BASE}/api/marketplace/places/${shortId}`,
+        `${API_BASE}/api/listings/${placeId}`,
+        `${API_BASE}/api/listings/${shortId}`,
+        `${API_BASE}/api/marketplace/listings/${placeId}`,
+        `${API_BASE}/api/marketplace/listings/${shortId}`,
+      ];
+    }
+
+    if (kind === "groups") {
+      return [
+        `${API_BASE}/api/community/groups/${placeId}`,
+        `${API_BASE}/api/community/groups/${shortId}`,
+        `${API_BASE}/api/marketplace/groups/${placeId}`,
+        `${API_BASE}/api/marketplace/groups/${shortId}`,
+        `${API_BASE}/api/listings/${placeId}`,
+        `${API_BASE}/api/listings/${shortId}`,
+        `${API_BASE}/api/marketplace/listings/${placeId}`,
+        `${API_BASE}/api/marketplace/listings/${shortId}`,
+      ];
+    }
+
+    return [
+      `${API_BASE}/api/listings/${placeId}`,
+      `${API_BASE}/api/listings/${shortId}`,
+      `${API_BASE}/api/marketplace/listings/${placeId}`,
+      `${API_BASE}/api/marketplace/listings/${shortId}`,
+      `${API_BASE}/api/listings?type=${encodeURIComponent(kind)}&id=${placeId}`,
+      `${API_BASE}/api/listings?type=${encodeURIComponent(kind)}&id=${shortId}`,
+    ];
+  }, [kind, placeId, shortId]);
+
+  const reviewsCandidates = useMemo(() => {
+    const k = encodeURIComponent(kind);
+    return [
+      `${API_BASE}/api/community/${k}/${placeId}/reviews`,
+      `${API_BASE}/api/community/${k}/${shortId}/reviews`,
+      `${API_BASE}/api/marketplace/${k}/${placeId}/reviews`,
+      `${API_BASE}/api/marketplace/${k}/${shortId}/reviews`,
+      `${API_BASE}/api/listings/${placeId}/reviews`,
+      `${API_BASE}/api/listings/${shortId}/reviews`,
+      `${API_BASE}/api/marketplace/listings/${placeId}/reviews`,
+      `${API_BASE}/api/marketplace/listings/${shortId}/reviews`,
+    ];
+  }, [kind, placeId, shortId]);
+
+  const reviewMeCandidates = useMemo(() => {
+    const k = encodeURIComponent(kind);
+    return [
+      `${API_BASE}/api/community/${k}/${placeId}/reviews/me`,
+      `${API_BASE}/api/community/${k}/${shortId}/reviews/me`,
+      `${API_BASE}/api/marketplace/${k}/${placeId}/reviews/me`,
+      `${API_BASE}/api/marketplace/${k}/${shortId}/reviews/me`,
+      `${API_BASE}/api/listings/${placeId}/reviews/me`,
+      `${API_BASE}/api/listings/${shortId}/reviews/me`,
+      `${API_BASE}/api/marketplace/listings/${placeId}/reviews/me`,
+      `${API_BASE}/api/marketplace/listings/${shortId}/reviews/me`,
+    ];
+  }, [kind, placeId, shortId]);
+
+  const [reviewsBaseUrl, setReviewsBaseUrl] = useState("");
+  const [reviewMeBaseUrl, setReviewMeBaseUrl] = useState("");
 
   const openMapUrl = useMemo(() => {
     if (!place) return "";
@@ -537,168 +826,40 @@ export default function ItemDetailsView({ lang }) {
     u?.email ||
     "You";
 
-  const requireLogin = () => {
-    notify.error("لازم تسجّل دخول الأول");
-    navigate("/auth");
+  const avgRating = useMemo(() => {
+    if (!reviews?.length) return 0;
+    const sum = reviews.reduce((a, r) => a + (Number(r.stars) || 0), 0);
+    return sum / reviews.length;
+  }, [reviews]);
+
+  const sortReviewsDesc = (arrv) => {
+    const list = Array.isArray(arrv) ? [...arrv] : [];
+    const toTime = (v) => {
+      if (!v) return 0;
+      const s = String(v).trim().replace(" ", "T");
+      const tt = new Date(s).getTime();
+      return Number.isNaN(tt) ? 0 : tt;
+    };
+    list.sort((a, b) => {
+      const tb = toTime(b?.created_at || b?.createdAt);
+      const ta = toTime(a?.created_at || a?.createdAt);
+      if (tb !== ta) return tb - ta;
+      const ib = Number(b?.id || b?.review_id || 0);
+      const ia = Number(a?.id || a?.review_id || 0);
+      return ib - ia;
+    });
+    return list;
   };
-
-  // ✅ kinds allowed by server (adjust if needed)
-  const ALLOWED_KINDS = new Set([
-    "places",
-    "groups",
-    "services",
-    "jobs",
-    "housing",
-    "products",
-  ]);
-
-  // ✅ infer kind from route OR from id prefix like "housing_2"
-  const rawKind = String(navType || storedType || "")
-    .trim()
-    .toLowerCase();
-
-  const idStr = String(placeId || "").trim();
-  const idPrefix = idStr.includes("_") ? idStr.split("_")[0].toLowerCase() : "";
-
-  // ✅ final kind
-  const kind = ALLOWED_KINDS.has(rawKind)
-    ? rawKind
-    : ALLOWED_KINDS.has(idPrefix)
-    ? idPrefix
-    : "places";
-
-  // ✅ also try numeric id if server expects it (housing_2 -> 2)
-  const shortId = idStr.includes("_")
-    ? idStr.split("_").slice(1).join("_")
-    : idStr;
-
-  const isGroupType = kind === "groups";
-  const isPlaceType = kind === "places";
-  // =========================
-  // ✅ Item permissions (Edit/Delete ITEM)
-  // =========================
-  const canEditItem = useMemo(() => {
-    const myId = effectiveMe?.id ? String(effectiveMe.id) : "";
-    const createdBy =
-      place?.created_by ??
-      place?.createdBy ??
-      place?.user_id ??
-      place?.userId ??
-      place?.owner_id ??
-      place?.ownerId ??
-      null;
-
-    if (!myId || !createdBy) return false;
-    return String(createdBy) === myId;
-  }, [effectiveMe, place]);
-
-  // ✅ try multiple endpoints until one works
-
-  // ✅ Details URL candidates (fallback strategy)
-  const detailsCandidates = useMemo(() => {
-    // places
-    if (kind === "places") {
-      return [
-        `${API_BASE}/api/community/places/${placeId}`,
-        `${API_BASE}/api/community/places/${shortId}`,
-        `${API_BASE}/api/marketplace/places/${placeId}`,
-        `${API_BASE}/api/marketplace/places/${shortId}`,
-        `${API_BASE}/api/listings/${placeId}`,
-        `${API_BASE}/api/listings/${shortId}`,
-        `${API_BASE}/api/marketplace/listings/${placeId}`,
-        `${API_BASE}/api/marketplace/listings/${shortId}`,
-      ];
-    }
-
-    // groups
-    if (kind === "groups") {
-      return [
-        `${API_BASE}/api/community/groups/${placeId}`,
-        `${API_BASE}/api/community/groups/${shortId}`,
-        `${API_BASE}/api/marketplace/groups/${placeId}`,
-        `${API_BASE}/api/marketplace/groups/${shortId}`,
-        `${API_BASE}/api/listings/${placeId}`,
-        `${API_BASE}/api/listings/${shortId}`,
-        `${API_BASE}/api/marketplace/listings/${placeId}`,
-        `${API_BASE}/api/marketplace/listings/${shortId}`,
-      ];
-    }
-
-    // services/jobs/housing/products
-    return [
-      `${API_BASE}/api/listings/${placeId}`,
-      `${API_BASE}/api/listings/${shortId}`,
-
-      `${API_BASE}/api/marketplace/listings/${placeId}`,
-      `${API_BASE}/api/marketplace/listings/${shortId}`,
-
-      `${API_BASE}/api/listings?type=${encodeURIComponent(kind)}&id=${placeId}`,
-      `${API_BASE}/api/listings?type=${encodeURIComponent(kind)}&id=${shortId}`,
-    ];
-  }, [kind, placeId, shortId]);
-  // ✅ Reviews for ALL kinds (places/groups/services/jobs/housing/products) with fallback
-  const reviewsCandidates = useMemo(() => {
-    const k = encodeURIComponent(kind);
-    return [
-      // community legacy
-      `${API_BASE}/api/community/${k}/${placeId}/reviews`,
-      `${API_BASE}/api/community/${k}/${shortId}/reviews`,
-
-      // marketplace
-      `${API_BASE}/api/marketplace/${k}/${placeId}/reviews`,
-      `${API_BASE}/api/marketplace/${k}/${shortId}/reviews`,
-
-      // unified listings
-      `${API_BASE}/api/listings/${placeId}/reviews`,
-      `${API_BASE}/api/listings/${shortId}/reviews`,
-      `${API_BASE}/api/marketplace/listings/${placeId}/reviews`,
-      `${API_BASE}/api/marketplace/listings/${shortId}/reviews`,
-    ];
-  }, [kind, placeId, shortId]);
-
-  const reviewMeCandidates = useMemo(() => {
-    const k = encodeURIComponent(kind);
-    return [
-      // community legacy
-      `${API_BASE}/api/community/${k}/${placeId}/reviews/me`,
-      `${API_BASE}/api/community/${k}/${shortId}/reviews/me`,
-
-      // marketplace
-      `${API_BASE}/api/marketplace/${k}/${placeId}/reviews/me`,
-      `${API_BASE}/api/marketplace/${k}/${shortId}/reviews/me`,
-
-      // unified listings
-      `${API_BASE}/api/listings/${placeId}/reviews/me`,
-      `${API_BASE}/api/listings/${shortId}/reviews/me`,
-      `${API_BASE}/api/marketplace/listings/${placeId}/reviews/me`,
-      `${API_BASE}/api/marketplace/listings/${shortId}/reviews/me`,
-    ];
-  }, [kind, placeId, shortId]);
-
-  // ✅ we store the actual working endpoints we discovered
-  const [reviewsBaseUrl, setReviewsBaseUrl] = useState("");
-  const [reviewMeBaseUrl, setReviewMeBaseUrl] = useState("");
-  // ✅ resolved working endpoints (from fetchReviews)
-  const reviewsUrl = reviewsBaseUrl || "";
-  const reviewMeUrl = reviewMeBaseUrl || "";
 
   const fetchPlace = async () => {
     try {
       setLoading(true);
-
       const out = await fetchFirstOk(detailsCandidates, {
         headers: { ...authHeaders() },
       });
-
-      console.groupEnd();
-
       if (!out.ok) throw new Error(out.error || "Failed to load details");
       setDetailsBaseUrl(out.url || "");
-
       const normalized = normalizeToPlaceShape(out.data, kind);
-
-      console.groupEnd();
-
       setPlace(normalized);
     } catch (e) {
       notify.error(e?.message || "Failed to load details");
@@ -706,29 +867,6 @@ export default function ItemDetailsView({ lang }) {
     } finally {
       setLoading(false);
     }
-  };
-  const sortReviewsDesc = (arr) => {
-    const list = Array.isArray(arr) ? [...arr] : [];
-    const toTime = (v) => {
-      if (!v) return 0;
-      const s = String(v).trim().replace(" ", "T");
-      const t = new Date(s).getTime();
-      return Number.isNaN(t) ? 0 : t;
-    };
-
-    // ✅ newest first
-    list.sort((a, b) => {
-      const tb = toTime(b?.created_at || b?.createdAt);
-      const ta = toTime(a?.created_at || a?.createdAt);
-      if (tb !== ta) return tb - ta;
-
-      // fallback stable order
-      const ib = Number(b?.id || b?.review_id || 0);
-      const ia = Number(a?.id || a?.review_id || 0);
-      return ib - ia;
-    });
-
-    return list;
   };
 
   const fetchReviews = async () => {
@@ -747,12 +885,9 @@ export default function ItemDetailsView({ lang }) {
       }
 
       const list = Array.isArray(out.data) ? out.data : out.data?.reviews || [];
-      const sorted = sortReviewsDesc(list);
-      setReviews(sorted);
-
+      setReviews(sortReviewsDesc(list));
       setReviewsBaseUrl(out.url || "");
 
-      // guess the /me endpoint based on the working reviews url
       const guessMe = (out.url || "").replace(/\/reviews\/?$/, "/reviews/me");
       setReviewMeBaseUrl(guessMe || "");
     } catch (e) {
@@ -801,7 +936,7 @@ export default function ItemDetailsView({ lang }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placeId, navType]);
 
-  // ✅ Detect myReview by id OR name
+  // Detect myReview by id OR name
   useEffect(() => {
     if (!effectiveMe) {
       setMyReview(null);
@@ -854,15 +989,13 @@ export default function ItemDetailsView({ lang }) {
     const text = rText.trim();
     const stars = Number(rStars);
 
-    if (!text) return notify.error("اكتب رأيك");
-    if (!(stars >= 1 && stars <= 5)) return notify.error("Stars must be 1..5");
+    if (!text) return notify.error(t(L, "writeText"));
+    if (!(stars >= 1 && stars <= 5)) return notify.error(t(L, "starsRange"));
 
-    // ✅ build prefixed id if needed: groups -> group_1, places -> place_10, services -> service_3 ...
     const pid = String(placeId || "").trim();
     const sid = String(shortId || "").trim();
     const hasPrefix = pid.includes("_");
 
-    // map plural -> singular (groups -> group, places -> place, services -> service)
     const singular =
       kind === "groups"
         ? "group"
@@ -870,31 +1003,22 @@ export default function ItemDetailsView({ lang }) {
         ? "place"
         : kind === "services"
         ? "service"
-        : kind; // jobs/housing/products usually already plural in ids
+        : kind;
 
     const prefId = hasPrefix ? pid : `${singular}_${sid || pid}`;
-
-    // ✅ prefer unified listings endpoints first
     const kEnc = encodeURIComponent(kind);
 
-    // ✅ for places/groups: prefer legacy numeric endpoints first (they often reject place_18 on POST)
     const postUrls =
       kind === "places" || kind === "groups"
         ? [
-            // ✅ legacy (best for POST on old schema)
             `${API_BASE}/api/community/${kEnc}/${sid}/reviews`,
             `${API_BASE}/api/community/${kEnc}/${pid}/reviews`,
-
-            // ✅ unified numeric (some servers accept only numeric)
             `${API_BASE}/api/listings/${sid}/reviews`,
             `${API_BASE}/api/marketplace/listings/${sid}/reviews`,
-
-            // ✅ unified prefixed (last)
             `${API_BASE}/api/listings/${prefId}/reviews`,
             `${API_BASE}/api/marketplace/listings/${prefId}/reviews`,
           ]
         : [
-            // ✅ for marketplace types prefer unified first
             `${API_BASE}/api/listings/${prefId}/reviews`,
             `${API_BASE}/api/listings/${pid}/reviews`,
             `${API_BASE}/api/listings/${sid}/reviews`,
@@ -902,11 +1026,9 @@ export default function ItemDetailsView({ lang }) {
             `${API_BASE}/api/marketplace/listings/${pid}/reviews`,
             `${API_BASE}/api/marketplace/listings/${sid}/reviews`,
           ];
-    // ✅ some backends require PUT for update
-    // const methods = myReview ? ["PUT", "POST"] : ["POST", "PUT"];
+
     const methods = ["POST"];
 
-    // ✅ if server needs review id for PUT
     const reviewId =
       myReview?.id ||
       myReview?.review_id ||
@@ -915,76 +1037,48 @@ export default function ItemDetailsView({ lang }) {
       null;
 
     const payload = {
-      // ✅ rating fields (different servers name it differently)
       stars,
       rating: stars,
       score: stars,
-
-      // ✅ text fields
       text,
       comment: text,
       body: text,
       message: text,
-
-      // ✅ ids + type (helps many backends validate)
       id: sid || pid,
       itemId: sid || pid,
       placeId: sid || pid,
       listingId: sid || pid,
       targetId: sid || pid,
-
       prefixedId: prefId,
       listing_id: sid || pid,
       kind,
       type: kind,
       listing_type: kind,
     };
-    const tryOne = async (url, m) => {
-      const res = await fetch(url, {
-        method: m,
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      return { res, data };
-    };
-
-    const tryOneWithId = async (url) => {
-      // /reviews/:reviewId style
-      const u = reviewId ? `${url}/${reviewId}` : url;
-      const res = await fetch(u, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      return { res, data };
-    };
 
     let lastErr = null;
 
     try {
-      // 1) try normal POST/PUT
-      // 1) try normal endpoints (POST/PUT)
       for (const u of postUrls) {
         for (const m of methods) {
           try {
-            const { res, data } = await tryOne(u, m);
+            const res = await fetch(u, {
+              method: m,
+              headers: { "Content-Type": "application/json", ...authHeaders() },
+              body: JSON.stringify(payload),
+            });
+            const data = await res.json().catch(() => ({}));
+
             if (res.status === 401) return requireLogin();
 
             if (res.ok) {
-              notify.success(myReview ? "Review updated" : "Review added");
+              notify.success(
+                myReview ? t(L, "reviewUpdated") : t(L, "reviewAdded")
+              );
               await fetchReviews();
               setShowReviewForm(false);
               return;
             }
-
-            console.log("[review] failed:", {
-              url: u,
-              method: m,
-              status: res.status,
-              data,
-            });
 
             lastErr =
               data?.error ||
@@ -998,7 +1092,6 @@ export default function ItemDetailsView({ lang }) {
         }
       }
 
-      // 2) if backend requires /reviews/:reviewId for update, try it
       if (reviewId) {
         for (const u of postUrls) {
           try {
@@ -1011,17 +1104,11 @@ export default function ItemDetailsView({ lang }) {
             if (res.status === 401) return requireLogin();
 
             if (res.ok) {
-              notify.success("Review updated");
+              notify.success(t(L, "reviewUpdated"));
               await fetchReviews();
               setShowReviewForm(false);
               return;
             }
-
-            console.log("[review:/id] failed:", {
-              url: `${u}/${reviewId}`,
-              status: res.status,
-              data,
-            });
 
             lastErr =
               data?.error ||
@@ -1063,7 +1150,6 @@ export default function ItemDetailsView({ lang }) {
   const deleteMyReview = async () => {
     if (!isLoggedIn()) return requireLogin();
 
-    // ✅ build delete candidates (try many, because backends differ)
     const pid = String(placeId || "").trim();
     const sid = String(shortId || "").trim();
     const hasPrefix = pid.includes("_");
@@ -1078,7 +1164,6 @@ export default function ItemDetailsView({ lang }) {
         : kind;
 
     const prefId = hasPrefix ? pid : `${singular}_${sid || pid}`;
-
     const reviewId =
       myReview?.id ||
       myReview?.review_id ||
@@ -1086,18 +1171,11 @@ export default function ItemDetailsView({ lang }) {
       myReview?.rid ||
       null;
 
-    const kEnc = encodeURIComponent(kind);
-
     const deleteUrls = [
-      // ✅ explicit /me endpoints
       ...reviewMeCandidates,
-
-      // ✅ derived from working reviews url (if found)
-      ...(reviewsUrl
-        ? [reviewsUrl.replace(/\/reviews\/?$/, "/reviews/me")]
+      ...(reviewsBaseUrl
+        ? [reviewsBaseUrl.replace(/\/reviews\/?$/, "/reviews/me")]
         : []),
-
-      // ✅ some servers delete by /reviews/:id
       ...(reviewId
         ? [
             `${API_BASE}/api/listings/${prefId}/reviews/${reviewId}`,
@@ -1106,25 +1184,19 @@ export default function ItemDetailsView({ lang }) {
             `${API_BASE}/api/marketplace/listings/${prefId}/reviews/${reviewId}`,
             `${API_BASE}/api/marketplace/listings/${pid}/reviews/${reviewId}`,
             `${API_BASE}/api/marketplace/listings/${sid}/reviews/${reviewId}`,
-            `${API_BASE}/api/community/${kEnc}/${sid}/reviews/${reviewId}`,
-            `${API_BASE}/api/community/${kEnc}/${pid}/reviews/${reviewId}`,
-            `${API_BASE}/api/marketplace/${kEnc}/${sid}/reviews/${reviewId}`,
-            `${API_BASE}/api/marketplace/${kEnc}/${pid}/reviews/${reviewId}`,
           ]
         : []),
     ].filter(Boolean);
 
-    // ✅ تأكيد إن الكليك وصل للدالة
-
     const ok = await toastConfirm({
-      title: "تأكيد الحذف",
-      message: "متأكد عايز تمسح الريفيو بتاعك؟",
-      confirmText: "مسح",
-      cancelText: "إلغاء",
+      title: t(L, "confirmDeleteTitle"),
+      message: t(L, "confirmDeleteReviewMsg"),
+      confirmText: t(L, "delete"),
+      cancelText: t(L, "cancel"),
     });
-
     if (!ok) return;
-    const loadingId = notify.loading("Deleting…");
+
+    const loadingId = notify.loading(t(L, "deleting"));
 
     try {
       let lastErr = null;
@@ -1135,29 +1207,20 @@ export default function ItemDetailsView({ lang }) {
             method: "DELETE",
             headers: { ...authHeaders() },
           });
-
           const data = await res.json().catch(() => ({}));
 
           if (res.status === 401) return requireLogin();
 
           if (res.ok) {
             notify.dismiss(loadingId);
-            notify.success("Review deleted");
-
+            notify.success(t(L, "reviewDeleted"));
             setMyReview(null);
             setShowReviewForm(true);
             setRStars(5);
             setRText("");
-
             await fetchReviews();
             return;
           }
-
-          console.log("[delete review] failed:", {
-            url: u,
-            status: res.status,
-            data,
-          });
 
           lastErr =
             data?.error ||
@@ -1198,9 +1261,6 @@ export default function ItemDetailsView({ lang }) {
     return false;
   };
 
-  // =========================
-  // ✅ ITEM WRITE HELPERS (PUT/DELETE) — must be OUTSIDE loading block
-  // =========================
   const writeFirstOk = async (urls, opts) => {
     let lastErr = null;
     for (const u of urls) {
@@ -1221,10 +1281,7 @@ export default function ItemDetailsView({ lang }) {
   const buildItemWriteCandidates = () => {
     const pid = String(placeId || "").trim();
     const sid = String(shortId || "").trim();
-
-    // ✅ best: use the exact endpoint that worked for GET
     const base = detailsBaseUrl ? [detailsBaseUrl] : [];
-
     const kEnc = encodeURIComponent(kind);
 
     const more =
@@ -1288,7 +1345,7 @@ export default function ItemDetailsView({ lang }) {
 
     const urls = buildItemWriteCandidates();
     setEditItemLoading(true);
-    const loadingId = notify.loading("Saving…");
+    const loadingId = notify.loading(t(L, "saving"));
 
     try {
       const out = await writeFirstOk(urls, {
@@ -1310,7 +1367,7 @@ export default function ItemDetailsView({ lang }) {
       }
 
       notify.dismiss(loadingId);
-      notify.success("Item updated");
+      notify.success(t(L, "itemUpdated"));
       setShowEditItem(false);
       await fetchPlace();
     } catch (e) {
@@ -1326,15 +1383,15 @@ export default function ItemDetailsView({ lang }) {
     if (!place) return;
 
     const ok = await toastConfirm({
-      title: "تأكيد الحذف",
-      message: "متأكد عايز تمسح الـ Item ده؟",
-      confirmText: "مسح",
-      cancelText: "إلغاء",
+      title: t(L, "confirmDeleteTitle"),
+      message: t(L, "confirmDeleteItemMsg"),
+      confirmText: t(L, "delete"),
+      cancelText: t(L, "cancel"),
     });
     if (!ok) return;
 
     const urls = buildItemWriteCandidates();
-    const loadingId = notify.loading("Deleting…");
+    const loadingId = notify.loading(t(L, "deleting"));
 
     try {
       const out = await writeFirstOk(urls, {
@@ -1346,7 +1403,7 @@ export default function ItemDetailsView({ lang }) {
       if (!out.ok) throw new Error(out.error || "Failed to delete item");
 
       notify.dismiss(loadingId);
-      notify.success("Item deleted");
+      notify.success(t(L, "itemDeleted"));
       navigate("/community");
     } catch (e) {
       notify.dismiss(loadingId);
@@ -1354,76 +1411,93 @@ export default function ItemDetailsView({ lang }) {
     }
   };
 
+  useEffect(() => {
+    fetchPlace();
+    fetchReviews();
+    fetchMe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placeId, navType]);
+
   if (!place) {
     return (
-      <div className="mx-auto max-w-5xl p-4 md:p-6">
+      <div dir={dir} className="mx-auto max-w-5xl p-4 md:p-6">
         <div className="rounded-2xl border bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center gap-2">
             <Link
               to="/community"
               className="inline-flex items-center gap-2 text-sm text-gray-700 hover:underline"
             >
-              <ArrowLeft className="h-4 w-4" /> Back
+              <BackIcon className="h-4 w-4" /> {t(L, "back")}
             </Link>
           </div>
-          Place not found.
+          {t(L, "placeNotFound")}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-5xl p-4 md:p-6">
+    <div dir={dir} className="mx-auto max-w-5xl p-4 md:p-6">
       {/* Top bar */}
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <Link
           to="/community"
           className="inline-flex items-center gap-2 text-sm text-gray-700 hover:underline"
         >
-          <ArrowLeft className="h-4 w-4" /> Back to Community
+          <BackIcon className="h-4 w-4" /> {t(L, "backToCommunity")}
         </Link>
 
         <a
           href={openMapUrl}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2 text-sm text-white hover:opacity-90"
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-black px-4 py-2 text-sm text-white hover:opacity-90 w-full sm:w-auto"
         >
-          <ExternalLink className="h-4 w-4" /> Open Map
+          <ExternalLink className="h-4 w-4" /> {t(L, "openMap")}
         </a>
       </div>
 
       {/* Place card */}
       <div className="rounded-2xl border bg-white p-5 md:p-6 shadow-sm">
         {canEditItem ? (
-          <div className="ml-auto flex items-center gap-2 mb-5 ">
+          <div
+            className={cn(
+              "flex items-center gap-2 mb-5",
+              dir === "rtl" ? "mr-auto" : "ml-auto"
+            )}
+          >
             <button
               onClick={openEditItem}
               className="inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              title="Edit item"
+              title={t(L, "edit")}
+              type="button"
             >
               <Pencil className="h-4 w-4" />
-              Edit
+              {t(L, "edit")}
             </button>
 
             <button
               onClick={deleteItem}
               className="inline-flex items-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-              title="Delete item"
+              title={t(L, "delete")}
+              type="button"
             >
               <Trash2 className="h-4 w-4" />
-              Delete
+              {t(L, "delete")}
             </button>
           </div>
         ) : null}
+
         <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
           {/* Left info */}
           <div className="min-w-0 flex-1">
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full border bg-gray-50 px-3 py-1 text-xs text-gray-700">
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full border bg-gray-50 px-3 py-1 text-xs text-gray-700 max-w-full">
               <span className="h-2 w-2 rounded-full bg-orange-500" />
-              {place.category || "Place"}
+              <span className="truncate">{place.category || "Place"}</span>
               <span className="text-gray-300">•</span>
-              {place.city || "—"}, {place.state || "—"}
+              <span className="truncate">
+                {place.city || "—"}, {place.state || "—"}
+              </span>
             </div>
 
             <h1 className="text-xl md:text-2xl font-semibold text-gray-900 break-words">
@@ -1437,10 +1511,11 @@ export default function ItemDetailsView({ lang }) {
                   .filter(Boolean)
                   .join(", ")}
               </span>
+
               {!isPlaceType && displayPrice ? (
                 <span className="inline-flex items-center gap-2 rounded-xl bg-gray-50 border px-3 py-2">
                   <span className="text-xs font-semibold text-gray-600">
-                    Price
+                    {t(L, "price")}
                   </span>
                   <span className="text-sm font-semibold text-gray-900">
                     ${displayPrice}
@@ -1456,7 +1531,7 @@ export default function ItemDetailsView({ lang }) {
                   rel="noreferrer"
                 >
                   <ExternalLink className="h-4 w-4 text-gray-500" />
-                  Open link
+                  {t(L, "openLink")}
                 </a>
               ) : null}
 
@@ -1499,7 +1574,7 @@ export default function ItemDetailsView({ lang }) {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-gray-900">
-                    Rating
+                    {t(L, "rating")}
                   </div>
                   <div className="mt-1 flex items-center gap-2">
                     <div className="inline-flex items-center justify-center rounded-2xl bg-black text-white px-3 py-2">
@@ -1514,7 +1589,7 @@ export default function ItemDetailsView({ lang }) {
                         showValue={false}
                       />
                       <div className="text-xs text-gray-600 mt-1">
-                        {reviews.length} review{reviews.length === 1 ? "" : "s"}
+                        {reviews.length} {t(L, "reviews")}
                       </div>
                     </div>
                   </div>
@@ -1522,7 +1597,7 @@ export default function ItemDetailsView({ lang }) {
 
                 <div className="inline-flex items-center gap-1 rounded-xl border bg-white px-3 py-2 text-xs text-gray-700">
                   <Sparkles className="h-4 w-4" />
-                  Verified
+                  {t(L, "verified")}
                 </div>
               </div>
 
@@ -1535,7 +1610,7 @@ export default function ItemDetailsView({ lang }) {
                   rel="noreferrer"
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-black px-3 py-2 text-sm text-white hover:opacity-90"
                 >
-                  <MapPin className="h-4 w-4" /> Directions
+                  <MapPin className="h-4 w-4" /> {t(L, "directions")}
                 </a>
 
                 {place.phone ? (
@@ -1543,14 +1618,15 @@ export default function ItemDetailsView({ lang }) {
                     href={`tel:${String(place.phone).replace(/\s+/g, "")}`}
                     className="inline-flex items-center justify-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm hover:bg-gray-50"
                   >
-                    <Phone className="h-4 w-4" /> Call
+                    <Phone className="h-4 w-4" /> {t(L, "call")}
                   </a>
                 ) : (
                   <button
                     disabled
                     className="inline-flex items-center justify-center gap-2 rounded-xl border bg-white px-3 py-2 text-sm opacity-50"
+                    type="button"
                   >
-                    <Phone className="h-4 w-4" /> Call
+                    <Phone className="h-4 w-4" /> {t(L, "call")}
                   </button>
                 )}
               </div>
@@ -1565,25 +1641,30 @@ export default function ItemDetailsView({ lang }) {
         <div className="md:col-span-3">
           <div className="rounded-2xl border bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold text-gray-900">Reviews</h2>
+              <h2 className="text-base font-semibold text-gray-900">
+                {t(L, "reviews")}
+              </h2>
               <button
                 onClick={fetchReviews}
                 className="text-sm text-gray-700 hover:underline"
+                type="button"
               >
-                Refresh
+                {t(L, "refresh")}
               </button>
             </div>
 
             {reviewsLoading ? (
-              <div className="mt-4 text-sm text-gray-600">Loading reviews…</div>
+              <div className="mt-4 text-sm text-gray-600">
+                {t(L, "loadingReviews")}
+              </div>
             ) : reviews.length === 0 ? (
-              <div className="mt-4 text-sm text-gray-600">No reviews yet.</div>
+              <div className="mt-4 text-sm text-gray-600">
+                {t(L, "noReviews")}
+              </div>
             ) : (
               <div className="mt-4 space-y-3">
                 {reviews.map((r) => {
                   const isMine = isReviewMine(r);
-
-
                   const safeKey =
                     r.id ||
                     `${r.user_id || r.userId || r.user?.id || "u"}-${
@@ -1614,7 +1695,7 @@ export default function ItemDetailsView({ lang }) {
 
                             {isMine ? (
                               <span className="inline-flex items-center rounded-full bg-black text-white px-2 py-0.5 text-[11px] font-semibold">
-                                Your review
+                                {t(L, "youTag")}
                               </span>
                             ) : null}
 
@@ -1640,10 +1721,11 @@ export default function ItemDetailsView({ lang }) {
                             <button
                               onClick={startEditMyReview}
                               className="inline-flex items-center gap-1 rounded-lg border bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
-                              title="Edit your review"
+                              title={t(L, "edit")}
+                              type="button"
                             >
                               <Pencil className="h-3.5 w-3.5" />
-                              Edit
+                              {t(L, "edit")}
                             </button>
                           ) : null}
                         </div>
@@ -1659,50 +1741,59 @@ export default function ItemDetailsView({ lang }) {
             )}
           </div>
 
-          {/* ✅ If has review and clicked Edit => show form under list */}
+          {/* If has review and clicked Edit => show form under list */}
           {isLoggedIn() && myReview && showReviewForm ? (
             <div className="mt-6 rounded-2xl border bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <MessageSquarePlus className="h-4 w-4 text-gray-700" />
                   <h2 className="text-base font-semibold text-gray-900">
-                    Edit your review
+                    {t(L, "editYourReview")}
                   </h2>
                 </div>
 
                 <button
                   onClick={cancelEdit}
                   className="inline-flex items-center gap-1 rounded-lg border bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
-                  title="Cancel"
+                  title={t(L, "cancel")}
+                  type="button"
                 >
-                  <X className="h-4 w-4" /> Cancel
+                  <X className="h-4 w-4" /> {t(L, "cancel")}
                 </button>
               </div>
 
               <div className="mt-4 space-y-3">
                 <div className="rounded-2xl border bg-gray-50 p-3">
                   <div className="text-xs font-semibold text-gray-700">
-                    You are reviewing as
+                    {t(L, "youReviewAs")}
                   </div>
                   <div className="mt-1 text-sm font-semibold text-gray-900">
-                    {meLoading ? "Loading…" : displayUserName(effectiveMe)}
+                    {meLoading
+                      ? t(L, "loadingReviews")
+                      : displayUserName(effectiveMe)}
                   </div>
                 </div>
 
                 <div className="rounded-2xl border bg-gray-50 p-3">
                   <div className="text-xs font-semibold text-gray-700 mb-2">
-                    Your rating
+                    {t(L, "yourRating")}
                   </div>
-                  <StarsPicker value={rStars} onChange={setRStars} size={24} />
+                  <StarsPicker
+                    lang={L}
+                    value={rStars}
+                    onChange={setRStars}
+                    size={24}
+                  />
                   <div className="mt-2 text-xs text-gray-600">
-                    Selected: <span className="font-semibold">{rStars}</span>/5
+                    {t(L, "selected")}{" "}
+                    <span className="font-semibold">{rStars}</span>/5
                   </div>
                 </div>
 
                 <textarea
                   value={rText}
                   onChange={(e) => setRText(e.target.value)}
-                  placeholder="Write your review…"
+                  placeholder={t(L, "writeOpinion")}
                   rows={5}
                   className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
                 />
@@ -1711,20 +1802,20 @@ export default function ItemDetailsView({ lang }) {
                   <button
                     onClick={submitOrUpdateReview}
                     className="w-full rounded-xl bg-black px-4 py-2 text-sm text-white hover:opacity-90"
+                    type="button"
                   >
-                    Update review
+                    {t(L, "updateReview")}
                   </button>
                   <button
                     onClick={deleteMyReview}
                     className="w-full rounded-xl border bg-white px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                    type="button"
                   >
-                    Delete
+                    {t(L, "delete")}
                   </button>
                 </div>
 
-                <p className="text-xs text-gray-500">
-                  Tip: قول رأيك بوضوح: جودة الخدمة، الأسعار، المكان، التعامل.
-                </p>
+                <p className="text-xs text-gray-500">{t(L, "tip")}</p>
               </div>
             </div>
           ) : null}
@@ -1738,17 +1829,17 @@ export default function ItemDetailsView({ lang }) {
                 <div className="flex items-center gap-2">
                   <MessageSquarePlus className="h-4 w-4 text-gray-700" />
                   <h2 className="text-base font-semibold text-gray-900">
-                    Add a review
+                    {t(L, "addReview")}
                   </h2>
                 </div>
 
                 {!isLoggedIn() ? (
                   <div className="inline-flex items-center gap-1 text-xs text-gray-600">
-                    <Lock className="h-4 w-4" /> Login required
+                    <Lock className="h-4 w-4" /> {t(L, "loginRequired")}
                   </div>
                 ) : (
                   <div className="inline-flex items-center gap-1 text-xs text-gray-600">
-                    <Pencil className="h-4 w-4" /> One review per user
+                    <Pencil className="h-4 w-4" /> {t(L, "oneReview")}
                   </div>
                 )}
               </div>
@@ -1756,49 +1847,53 @@ export default function ItemDetailsView({ lang }) {
               {!isLoggedIn() ? (
                 <div className="mt-4 rounded-2xl border bg-gray-50 p-4">
                   <div className="text-sm text-gray-700">
-                    لازم تعمل تسجيل دخول عشان تقدر تسيب تقييم.
+                    {t(L, "loginRequired")}
                   </div>
                   <button
                     onClick={() => navigate("/auth")}
                     className="mt-3 w-full rounded-xl bg-black px-4 py-2 text-sm text-white hover:opacity-90"
+                    type="button"
                   >
-                    Go to Login
+                    {t(L, "goToLogin")}
                   </button>
                 </div>
               ) : (
                 <div className="mt-4 space-y-3">
                   <div className="text-sm font-semibold text-gray-900">
-                    Write a review
+                    {t(L, "writeReview")}
                   </div>
 
                   <div className="rounded-2xl border bg-gray-50 p-3">
                     <div className="text-xs font-semibold text-gray-700">
-                      You are reviewing as
+                      {t(L, "youReviewAs")}
                     </div>
                     <div className="mt-1 text-sm font-semibold text-gray-900">
-                      {meLoading ? "Loading…" : displayUserName(effectiveMe)}
+                      {meLoading
+                        ? t(L, "loadingReviews")
+                        : displayUserName(effectiveMe)}
                     </div>
                   </div>
 
                   <div className="rounded-2xl border bg-gray-50 p-3">
                     <div className="text-xs font-semibold text-gray-700 mb-2">
-                      Your rating
+                      {t(L, "yourRating")}
                     </div>
                     <StarsPicker
+                      lang={L}
                       value={rStars}
                       onChange={setRStars}
                       size={24}
                     />
                     <div className="mt-2 text-xs text-gray-600">
-                      Selected: <span className="font-semibold">{rStars}</span>
-                      /5
+                      {t(L, "selected")}{" "}
+                      <span className="font-semibold">{rStars}</span>/5
                     </div>
                   </div>
 
                   <textarea
                     value={rText}
                     onChange={(e) => setRText(e.target.value)}
-                    placeholder="Write your review…"
+                    placeholder={t(L, "writeOpinion")}
                     rows={5}
                     className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-black/10"
                   />
@@ -1806,13 +1901,12 @@ export default function ItemDetailsView({ lang }) {
                   <button
                     onClick={submitOrUpdateReview}
                     className="w-full rounded-xl bg-black px-4 py-2 text-sm text-white hover:opacity-90"
+                    type="button"
                   >
-                    Submit review
+                    {t(L, "submitReview")}
                   </button>
 
-                  <p className="text-xs text-gray-500">
-                    Tip: قول رأيك بوضوح: جودة الخدمة، الأسعار، المكان، التعامل.
-                  </p>
+                  <p className="text-xs text-gray-500">{t(L, "tip")}</p>
                 </div>
               )}
             </div>
@@ -1820,25 +1914,28 @@ export default function ItemDetailsView({ lang }) {
             <div className="rounded-2xl border bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-semibold text-gray-900">
-                  Your review
+                  {t(L, "yourReview")}
                 </h3>
                 <button
                   onClick={startEditMyReview}
                   className="inline-flex items-center gap-1 rounded-lg border bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                  type="button"
                 >
-                  <Pencil className="h-3.5 w-3.5" /> Edit
+                  <Pencil className="h-3.5 w-3.5" /> {t(L, "edit")}
                 </button>
               </div>
 
               <div className="mt-3 rounded-2xl border bg-gray-50 p-3">
-                <div className="text-xs text-gray-600">Rating</div>
+                <div className="text-xs text-gray-600">{t(L, "rating")}</div>
                 <div className="mt-1">
                   <StarsReadOnly
                     value={Number(myReview?.stars || 0)}
                     size={18}
                   />
                 </div>
-                <div className="mt-3 text-xs text-gray-600">Comment</div>
+                <div className="mt-3 text-xs text-gray-600">
+                  {t(L, "comment")}
+                </div>
                 <div className="mt-1 text-sm text-gray-800 break-words">
                   {myReview?.text || "—"}
                 </div>
@@ -1847,22 +1944,22 @@ export default function ItemDetailsView({ lang }) {
               <button
                 onClick={deleteMyReview}
                 className="mt-4 w-full rounded-xl border bg-white px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                type="button"
               >
-                Delete review
+                {t(L, "delete")}
               </button>
 
-              <p className="mt-3 text-xs text-gray-500">
-                Tip: لو غيرت رأيك، دوس Edit وعدّل الريفيو.
-              </p>
+              <p className="mt-3 text-xs text-gray-500">{t(L, "tip")}</p>
             </div>
           )}
         </div>
       </div>
+
       <Modal
         open={showEditItem}
         onClose={() => setShowEditItem(false)}
-        title="Edit item"
-        subtitle="Update info then save"
+        title={t(L, "editItemTitle")}
+        subtitle={t(L, "editItemSub")}
       >
         <ListingFormBody
           formType={kind}
@@ -1900,12 +1997,13 @@ export default function ItemDetailsView({ lang }) {
           formCitySuggestions={[]}
           onCancel={() => setShowEditItem(false)}
           onSubmit={updateItem}
-          submitLabel={editItemLoading ? "Saving..." : "Save"}
+          submitLabel={editItemLoading ? t(L, "saving") : t(L, "save")}
         />
       </Modal>
     </div>
   );
 }
+
 async function fetchFirstOk(urls, opts) {
   let lastErr = null;
   for (const u of urls) {

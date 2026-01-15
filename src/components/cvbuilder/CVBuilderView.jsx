@@ -20,11 +20,121 @@ import {
   safeWriteClipboard,
 } from "./cvHelpers";
 
+import { toastConfirm } from "../../lib/notify";
+
+const normLang = (lang) => {
+  const v = String(lang || "en").toLowerCase();
+  if (v.startsWith("ar")) return "ar";
+  if (v.startsWith("es")) return "es";
+  return "en";
+};
+const isRTL = (lang) => normLang(lang) === "ar";
+const dirForLang = (lang) => (isRTL(lang) ? "rtl" : "ltr");
+
+const I18N = {
+  en: {
+    needEmailOrPhone: "Add at least Email or Phone before continuing",
+    tipEmailPhone: "Tip: Add both Email and Phone for ATS",
+    expDatesMissing: (i, title) =>
+      `Please fill Start/End dates in experience #${i} (${title})`,
+    eduYearMissing: (i, school) =>
+      `Please fill graduation date in education #${i} (${school})`,
+    courseDateMissing: (i, name) =>
+      `Please fill course date for course #${i} (${name})`,
+    optimizeOnNeedJD:
+      "Optimize for JD is ON — please paste the Job Description",
+    loginFirst: "Please login first",
+    cvAdded: "CV Added Successfully",
+    serverError: "Server Connection Error",
+    copyManual: "Copy manually",
+    copiedAuto: "Copied automatically ✅",
+    copyAutoFail: "Auto copy failed",
+    copiedManual: "Copied manually ✅",
+    copyManualFail: "Copy failed",
+    invalidJson: "Invalid JSON. Make sure you pasted ONLY the JSON code block.",
+    noDataWord: "No data to create the file",
+    noCVYet: "No CV yet",
+    goStep2Desc: "Go to Step 2, paste the JSON, then Create.",
+    goStep2: "Go to Step 2",
+    excellent: "Excellent",
+    good: "Good",
+    needsWork: "Needs Work",
+    confirmDeleteAll: "Delete all data?",
+    deleted: "Deleted",
+  },
+  ar: {
+    needEmailOrPhone: "لازم تضيف Email أو Phone على الأقل قبل المتابعة",
+    tipEmailPhone: "تنبيه: الأفضل تضيف Email و Phone معًا عشان ATS",
+    expDatesMissing: (i, title) =>
+      `لازم تكمّل التواريخ (من/إلى) في الخبرة رقم ${i} (${title})`,
+    eduYearMissing: (i, school) =>
+      `لازم تكتب تاريخ التخرج في التعليم رقم ${i} (${school})`,
+    courseDateMissing: (i, name) => `لازم تكتب تاريخ الكورس رقم ${i} (${name})`,
+    optimizeOnNeedJD:
+      "إنت مُفعّل Optimize for JD — لازم تلزق الـ Job Description",
+    loginFirst: "سجل دخول الأول",
+    cvAdded: "تمت إضافة السيرة الذاتية للقائمة بنجاح",
+    serverError: "خطأ في الاتصال بالسيرفر",
+    copyManual: "نسخ يدوي",
+    copiedAuto: "تم النسخ تلقائياً ✅",
+    copyAutoFail: "فشل النسخ التلقائي",
+    copiedManual: "تم النسخ يدوياً ✅",
+    copyManualFail: "فشل النسخ",
+    invalidJson: "الكود مش مظبوط. اتأكد إنك نسخت الـ JSON Code Block بس.",
+    noDataWord: "لا توجد بيانات لإنشاء الملف",
+    noCVYet: "مفيش CV لسه",
+    goStep2Desc: "روح Step 2 واعمل Paste للـ JSON وبعدين Create.",
+    goStep2: "روح Step 2",
+    excellent: "ممتاز",
+    good: "جيد",
+    needsWork: "محتاج تحسين",
+    confirmDeleteAll: "هل أنت متأكد من حذف جميع البيانات؟",
+    deleted: "تم الحذف",
+  },
+  es: {
+    needEmailOrPhone: "Agrega al menos Email o Teléfono antes de continuar",
+    tipEmailPhone: "Tip: Agrega Email y Teléfono para ATS",
+    expDatesMissing: (i, title) =>
+      `Completa fechas de inicio/fin en experiencia #${i} (${title})`,
+    eduYearMissing: (i, school) =>
+      `Completa la fecha de graduación en educación #${i} (${school})`,
+    courseDateMissing: (i, name) =>
+      `Completa la fecha del curso #${i} (${name})`,
+    optimizeOnNeedJD: "Optimize for JD está activado — pega la Job Description",
+    loginFirst: "Inicia sesión primero",
+    cvAdded: "CV agregado correctamente",
+    serverError: "Error de conexión con el servidor",
+    copyManual: "Copiar manualmente",
+    copiedAuto: "Copiado automáticamente ✅",
+    copyAutoFail: "Falló el copiado automático",
+    copiedManual: "Copiado manualmente ✅",
+    copyManualFail: "Falló la copia",
+    invalidJson:
+      "JSON inválido. Asegúrate de pegar SOLO el bloque de código JSON.",
+    noDataWord: "No hay datos para crear el archivo",
+    noCVYet: "Aún no hay CV",
+    goStep2Desc: "Ve al Paso 2, pega el JSON y luego Create.",
+    goStep2: "Ir al Paso 2",
+    excellent: "Excelente",
+    good: "Bueno",
+    needsWork: "Necesita mejorar",
+    confirmDeleteAll: "¿Eliminar todos los datos?",
+    deleted: "Eliminado",
+  },
+};
+
+const t = (lang, key, ...args) => {
+  const L = normLang(lang);
+  const v = (I18N[L] && I18N[L][key]) || I18N.en[key] || key;
+  return typeof v === "function" ? v(...args) : v;
+};
+
 export const CVBuilderView = ({ lang }) => {
   const API_BASE =
     import.meta.env.VITE_API_BASE_URL ||
     import.meta.env.VITE_API_BASE ||
     "http://localhost:5000";
+
   const token = useMemo(() => localStorage.getItem("token") || "", []);
   const authHeaders = useMemo(() => {
     const h = { "Content-Type": "application/json" };
@@ -119,7 +229,7 @@ export const CVBuilderView = ({ lang }) => {
 
   const getExperienceArray = () => getExperienceArrayFrom(data);
 
-  // Tooltip
+  // Tooltip (mobile-safe)
   const Tooltip = ({ text, children }) => {
     if (!text) return children;
     return (
@@ -137,20 +247,12 @@ export const CVBuilderView = ({ lang }) => {
     const phone = (data.personalInfo?.phone || "").trim();
 
     if (!email && !phone) {
-      toast.error(
-        lang === "ar"
-          ? "لازم تضيف Email أو Phone على الأقل قبل المتابعة"
-          : "Add at least Email or Phone before continuing"
-      );
+      toast.error(t(lang, "needEmailOrPhone"));
       return false;
     }
 
     if (!email || !phone) {
-      toast(
-        lang === "ar"
-          ? "تنبيه: الأفضل تضيف Email و Phone معًا عشان ATS"
-          : "Tip: Add both Email and Phone for ATS"
-      );
+      toast(t(lang, "tipEmailPhone"));
     }
 
     return true;
@@ -167,11 +269,7 @@ export const CVBuilderView = ({ lang }) => {
       const start = (j.start || "").toString().trim();
       const end = (j.end || "").toString().trim();
       if (!start || !end) {
-        toast.error(
-          lang === "ar"
-            ? `لازم تكمّل التواريخ (من/إلى) في الخبرة رقم ${i + 1} (${title})`
-            : `Please fill Start/End dates in experience #${i + 1} (${title})`
-        );
+        toast.error(t(lang, "expDatesMissing", i + 1, title));
         return false;
       }
     }
@@ -181,11 +279,7 @@ export const CVBuilderView = ({ lang }) => {
       const school = (e.school || `Education ${i + 1}`).toString().trim();
       const year = (e.year || "").toString().trim();
       if (!year) {
-        toast.error(
-          lang === "ar"
-            ? `لازم تكتب تاريخ التخرج في التعليم رقم ${i + 1} (${school})`
-            : `Please fill graduation date in education #${i + 1} (${school})`
-        );
+        toast.error(t(lang, "eduYearMissing", i + 1, school));
         return false;
       }
     }
@@ -195,11 +289,7 @@ export const CVBuilderView = ({ lang }) => {
       const name = (c.name || `Course ${i + 1}`).toString().trim();
       const date = (c.date || "").toString().trim();
       if (!date) {
-        toast.error(
-          lang === "ar"
-            ? `لازم تكتب تاريخ الكورس رقم ${i + 1} (${name})`
-            : `Please fill course date for course #${i + 1} (${name})`
-        );
+        toast.error(t(lang, "courseDateMissing", i + 1, name));
         return false;
       }
     }
@@ -243,7 +333,11 @@ export const CVBuilderView = ({ lang }) => {
   }, [data]);
 
   const scoreLabel =
-    resumeScore >= 85 ? "Excellent" : resumeScore >= 70 ? "Good" : "Needs Work";
+    resumeScore >= 85
+      ? t(lang, "excellent")
+      : resumeScore >= 70
+      ? t(lang, "good")
+      : t(lang, "needsWork");
 
   // Optimize JD
   const [optimizeForJD, setOptimizeForJD] = useState(false);
@@ -253,11 +347,7 @@ export const CVBuilderView = ({ lang }) => {
     if (!optimizeForJD) return true;
     const jd = (jobDescription || "").trim();
     if (!jd) {
-      toast.error(
-        lang === "ar"
-          ? "إنت مُفعّل Optimize for JD — لازم تلزق الـ Job Description"
-          : "Optimize for JD is ON — please paste the Job Description"
-      );
+      toast.error(t(lang, "optimizeOnNeedJD"));
       return false;
     }
     return true;
@@ -329,7 +419,7 @@ export const CVBuilderView = ({ lang }) => {
   // Save AI result
   const onAISuccess = (aiResponse) => {
     if (!currentUser?.id) {
-      toast.error(lang === "ar" ? "سجل دخول الأول" : "Please login first");
+      toast.error(t(lang, "loginFirst"));
       return;
     }
 
@@ -398,16 +488,10 @@ export const CVBuilderView = ({ lang }) => {
     })
       .then((res) => res.json())
       .then(() => {
-        toast.success(
-          lang === "ar"
-            ? "تمت إضافة السيرة الذاتية للقائمة بنجاح"
-            : "CV Added Successfully"
-        );
+        toast.success(t(lang, "cvAdded"));
       })
       .catch(() => {
-        toast.error(
-          lang === "ar" ? "خطأ في الاتصال بالسيرفر" : "Server Connection Error"
-        );
+        toast.error(t(lang, "serverError"));
       });
   };
 
@@ -457,17 +541,27 @@ export const CVBuilderView = ({ lang }) => {
     });
   };
 
-  const clearData = () => {
-    if (
-      confirm(
-        lang === "ar"
-          ? "هل أنت متأكد من حذف جميع البيانات؟"
-          : "Delete all data?"
-      )
-    ) {
+  const clearData = async () => {
+    const ok = await toastConfirm(t(lang, "confirmDeleteAll"), {
+      confirmText:
+        normLang(lang) === "ar"
+          ? "حذف"
+          : normLang(lang) === "es"
+          ? "Eliminar"
+          : "Delete",
+      cancelText:
+        normLang(lang) === "ar"
+          ? "إلغاء"
+          : normLang(lang) === "es"
+          ? "Cancelar"
+          : "Cancel",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
       localStorage.removeItem("cv_data_full");
-      window.location.reload();
-    }
+    } catch {}
+    window.location.reload();
   };
 
   const addHomeCountryExp = () => {
@@ -558,7 +652,12 @@ export const CVBuilderView = ({ lang }) => {
   const [pastedJson, setPastedJson] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [generatedPrompt, setGeneratedPrompt] = useState("");
-  const [copyStatus, setCopyStatus] = useState("نسخ يدوي");
+  const [copyStatus, setCopyStatus] = useState(t(lang, "copyManual"));
+
+  useEffect(() => {
+    setCopyStatus(t(lang, "copyManual"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang]);
 
   const preparePrompt = async () => {
     if (!validateContact()) return;
@@ -669,13 +768,13 @@ REQUIRED JSON OUTPUT FORMAT:
     setGeneratedPrompt(prompt);
 
     const ok = await safeWriteClipboard(prompt);
-    setCopyStatus(ok ? "تم النسخ تلقائياً ✅" : "فشل النسخ التلقائي");
+    setCopyStatus(ok ? t(lang, "copiedAuto") : t(lang, "copyAutoFail"));
     setShowModal(true);
   };
 
   const copyToClipboard = async () => {
     const ok = await safeWriteClipboard(generatedPrompt);
-    setCopyStatus(ok ? "تم النسخ يدوياً ✅" : "فشل النسخ");
+    setCopyStatus(ok ? t(lang, "copiedManual") : t(lang, "copyManualFail"));
   };
 
   const handleJsonImport = () => {
@@ -695,7 +794,7 @@ REQUIRED JSON OUTPUT FORMAT:
       setActiveTab("preview");
       onAISuccess(parsed);
     } catch {
-      alert("الكود مش مظبوط. اتأكد إنك نسخت الـ JSON Code Block بس.");
+      toast.error(t(lang, "invalidJson"));
     }
   };
 
@@ -754,11 +853,10 @@ REQUIRED JSON OUTPUT FORMAT:
   // Word
   const downloadWord = () => {
     if (!validateContact()) return;
-    if (!finalCV) return alert("لا توجد بيانات لإنشاء الملف");
+    if (!finalCV) return toast.error(t(lang, "noDataWord"));
 
     const {
       Document,
-      Packer,
       Paragraph,
       TextRun,
       Tab,
@@ -1000,9 +1098,11 @@ REQUIRED JSON OUTPUT FORMAT:
     });
   };
 
-  // UI
+  const dir = dirForLang(lang);
+
+  // UI (mobile-first + 3 langs dir)
   return (
-    <div className="max-w-6xl mx-auto p-4 font-sans" dir="rtl">
+    <div className="max-w-6xl mx-auto p-3 sm:p-4 font-sans" dir={dir}>
       <HistoryDatalists />
 
       {activeTab === "input" && (
@@ -1039,14 +1139,16 @@ REQUIRED JSON OUTPUT FORMAT:
         onClose={() => setShowModal(false)}
         onCopyManual={copyToClipboard}
         onOpenChatGPT={() => {
-          window.open("https://chat.openai.com", "_blank");
+          window.open("https://chatgpt.com", "_blank");
           setActiveTab("process");
           setShowModal(false);
         }}
+        lang={lang}
       />
 
       {activeTab === "process" && (
         <StepProcess
+          lang={lang}
           pastedJson={pastedJson}
           setPastedJson={setPastedJson}
           onImportJson={handleJsonImport}
@@ -1056,6 +1158,7 @@ REQUIRED JSON OUTPUT FORMAT:
 
       {activeTab === "preview" && finalCV && (
         <StepPreview
+          lang={lang}
           finalCV={finalCV}
           onBack={() => setActiveTab("process")}
           onDownloadWord={downloadWord}
@@ -1064,18 +1167,18 @@ REQUIRED JSON OUTPUT FORMAT:
       )}
 
       {activeTab === "preview" && !finalCV && (
-        <div className="bg-white p-8 rounded-2xl shadow-lg text-center max-w-2xl mx-auto">
-          <div className="text-slate-700 font-black text-2xl mb-2">
-            مفيش CV لسه
+        <div className="bg-white p-5 sm:p-8 rounded-2xl shadow-lg text-center max-w-2xl mx-auto">
+          <div className="text-slate-700 font-black text-xl sm:text-2xl mb-2">
+            {t(lang, "noCVYet")}
           </div>
-          <div className="text-slate-500 mb-6">
-            روح Step 2 واعمل Paste للـ JSON وبعدين Create.
+          <div className="text-slate-500 mb-6 text-sm sm:text-base">
+            {t(lang, "goStep2Desc")}
           </div>
           <button
             onClick={() => setActiveTab("process")}
-            className="px-6 py-3 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center gap-2 mx-auto"
+            className="w-full sm:w-auto px-6 py-3 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center gap-2 mx-auto active:scale-[0.99]"
           >
-            <Copy size={18} /> روح Step 2
+            <Copy size={18} /> {t(lang, "goStep2")}
           </button>
         </div>
       )}

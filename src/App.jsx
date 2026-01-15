@@ -3,10 +3,6 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Toaster } from "react-hot-toast";
 import ProfilePage from "./components/ProfilePage";
 import { initLang, applyLang } from "./lib/lang";
-// import CarryView from "./components/carry/CarryView";
-import CarryView from "./components/carry/CarryExploreView";
-// import CarryListingDetailsView from "./components/carry/CarryListingDetailsView";
-import CarryTripDetailsPage from "./components/carry/CarryTripDetailsPage";
 
 import {
   BrowserRouter as Router,
@@ -75,6 +71,11 @@ function AppContent() {
     setLang(l);
   }, []);
 
+  // ✅ close mobile menu whenever route changes (fix overlay staying open)
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
+
   // ✅ currentPage ذكي
   const currentPage = useMemo(() => {
     const p = location.pathname || "/";
@@ -97,7 +98,6 @@ function AppContent() {
     >
       <ScrollToTop />
 
-      {/* ✅ Global Toaster */}
       <Toaster
         position="top-center"
         reverseOrder={false}
@@ -125,6 +125,7 @@ function AppContent() {
           },
         }}
       />
+
       <Sidebar lang={lang} page={currentPage} />
 
       <div
@@ -135,7 +136,8 @@ function AppContent() {
       >
         <Header lang={lang} setLang={setAppLang} />
 
-        <main className="flex-1">
+        {/* ✅ IMPORTANT: pb-28 for mobile nav spacing */}
+        <main className="flex-1 pb-28 lg:pb-0 safe-bottom">
           <Routes>
             <Route path="/" element={<HomeView lang={lang} />} />
             <Route path="/home" element={<Navigate to="/" replace />} />
@@ -144,57 +146,10 @@ function AppContent() {
             <Route path="/start" element={<StartView lang={lang} />} />
 
             <Route path="/feed" element={<HomeFeedView />} />
-            <Route path="/carry" element={<CarryView />} lang="{lang}" />
-            <Route path="/carry/trips/:id" element={<CarryTripDetailsPage />} />
-            {/* <Route
-              path="/carry/listings/:id"
-              element={<CarryListingDetailsView />}
-            /> */}
 
             <Route path="/u/:userId" element={<ProfilePage lang={lang} />} />
 
-            <Route path="/community" element={<CommunityView />} />
-            {/* <Route
-              path="/community/place/:placeId"
-              element={<ItemDetailsView lang={lang} />}
-            /> */}
-
-            {/* ✅ نفس صفحة العرض لكل الأنواع */}
-            {/* <Route
-              path="/community/group/:groupId"
-              element={<ItemDetailsView lang={lang} />}
-            /> */}
-
-            {/* <Route
-              path="/community/service/:serviceId"
-              element={<ItemDetailsView lang={lang} />}
-            /> */}
-
-            {/* <Route
-              path="/community/job/:jobId"
-              element={<ItemDetailsView lang={lang} />}
-            /> */}
-
-            {/* <Route
-              path="/community/housing/:housingId"
-              element={<ItemDetailsView lang={lang} />}
-            /> */}
-
-            {/* <Route
-              path="/community/product/:productId"
-              element={<ItemDetailsView lang={lang} />}
-            /> */}
-
-            {/* ✅ لو عندك لينكات بالشكل ده */}
-            {/* <Route
-              path="/listing/:type/:placeId"
-              element={<ItemDetailsView lang={lang} />}
-            /> */}
-            {/* ده */}
-            {/* <Route
-              path="/marketplace/:type/:placeId"
-              element={<ItemDetailsView lang={lang} />}
-            /> */}
+            <Route path="/community" element={<CommunityView lang={lang} />} />
 
             <Route
               path="/marketplace/item/:id"
@@ -239,13 +194,8 @@ function AppContent() {
 
         <Footer lang={lang} />
       </div>
-
-      <MobileNav
-        lang={lang}
-        page={currentPage}
-        toggleMenu={() => setMenuOpen(true)}
-      />
-
+      <MobileNav lang={lang} toggleMenu={() => setMenuOpen(true)} />
+        
       <MobileMenuOverlay
         lang={lang}
         isOpen={menuOpen}

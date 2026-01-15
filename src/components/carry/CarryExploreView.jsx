@@ -7,8 +7,6 @@ import {
   isTripLocked,
   normalizeTrip,
   normalizeShipment,
-  EmptyState,
-  MiniRow,
   MyGrid,
   ShipmentsGrid,
   TripsGrid,
@@ -24,10 +22,6 @@ import {
   Filter,
   Plane,
   LogIn,
-  Trash2,
-  Pencil,
-  Heart,
-  Inbox,
   User,
   SendHorizontal,
 } from "lucide-react";
@@ -163,104 +157,6 @@ const AIRPORTS_LIST = (() => {
   return [];
 })();
 
-const COUNTRY_LIST = (() => {
-  const set = new Set();
-  for (const a of AIRPORTS_LIST) {
-    const c = String(a?.country || "")
-      .trim()
-      .toUpperCase();
-    if (c) set.add(c);
-  }
-  return Array.from(set).sort();
-})();
-
-function CountryPicker({ label, value, onPick }) {
-  const [open, setOpen] = useState(false);
-  const [q, setQ] = useState("");
-  const wrapRef = useRef(null);
-
-  const picked = String(value || "")
-    .toUpperCase()
-    .trim();
-
-  const results = useMemo(() => {
-    const term = String(q || "")
-      .trim()
-      .toUpperCase();
-    if (!term) return COUNTRY_LIST.slice(0, 30);
-    return COUNTRY_LIST.filter((c) => c.includes(term)).slice(0, 30);
-  }, [q]);
-
-  useEffect(() => {
-    function onDoc(e) {
-      if (!wrapRef.current) return;
-      if (!wrapRef.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, []);
-
-  return (
-    <div ref={wrapRef} className="relative">
-      <div className="text-xs font-extrabold text-slate-600">{label}</div>
-
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "mt-2 w-full px-4 py-4 rounded-2xl border bg-white text-left font-extrabold",
-          "border-slate-200 hover:bg-slate-50"
-        )}
-      >
-        {picked || "Search country…"}
-      </button>
-
-      {open ? (
-        <div className="absolute z-[95] mt-2 w-full rounded-2xl border border-slate-200 bg-white shadow-xl overflow-hidden">
-          <div className="p-2 border-b border-slate-100">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search country…"
-              className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-200 text-sm font-bold"
-              autoFocus
-            />
-          </div>
-
-          <div className="max-h-80 overflow-y-auto">
-            {results.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => {
-                  onPick(c);
-                  setOpen(false);
-                }}
-                className="w-full px-4 py-3 text-left hover:bg-slate-50 border-b border-slate-100 text-sm font-extrabold text-slate-900"
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-
-          <div className="p-2">
-            <button
-              type="button"
-              onClick={() => {
-                onPick("");
-                setOpen(false);
-              }}
-              className="w-full px-3 py-2.5 rounded-2xl border border-slate-200 hover:bg-slate-50 text-xs font-extrabold"
-            >
-              Clear
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 const AIRPORT_SEARCH_ALIASES = {
   cairo: ["CAI", "HECA"],
 };
@@ -296,27 +192,22 @@ function AirportPicker({ label, valueCode, onPick }) {
 
     const tokens = term.split(/\s+/).filter(Boolean);
 
-    // ✅ aliases (e.g. cairo -> CAI/HECA)
     const aliasCodes = new Set();
     for (const [k, codes] of Object.entries(AIRPORT_SEARCH_ALIASES)) {
-      if (term.includes(k)) {
+      if (term.includes(k))
         (codes || []).forEach((c) => aliasCodes.add(String(c).toUpperCase()));
-      }
     }
 
     const scored = AIRPORTS_LIST.map((a) => {
       const code = String(a.code || "").toUpperCase();
       const hay =
         `${a.code} ${a.iata} ${a.icao} ${a.name} ${a.city} ${a.state} ${a.country}`.toLowerCase();
-
       let score = 0;
 
-      // alias boost
       if (aliasCodes.has(code)) score += 500;
 
       for (const t of tokens) {
         if (!t) continue;
-
         if (a.code?.toLowerCase() === t) score += 140;
         if (a.iata?.toLowerCase() === t) score += 140;
         if (a.icao?.toLowerCase() === t) score += 130;
@@ -427,8 +318,6 @@ function readFileAsDataURL(file) {
 
 /* =========================
    Categories
-   - PROHIBITED = ممنوعات (لمنع إساءة الاستخدام)
-   - ITEM_CATEGORIES = المسموحات (للشحنات)
 ========================= */
 const PROHIBITED_CATEGORIES = [
   { id: "weapons", label: "Weapons / ammo" },
@@ -502,12 +391,22 @@ function TogglePills({ value, onChange }) {
 /* =========================
    API (inline)
 ========================= */
-async function fetchTrips({ q, from_country, to_country, date_from, date_to }) {
+async function fetchTrips({
+  q,
+  from_airport_code,
+  to_airport_code,
+  date_from,
+  date_to,
+}) {
   const qs = new URLSearchParams();
   if ((q || "").trim()) qs.set("q", q.trim());
   qs.set("role", "traveler");
-  if ((from_country || "").trim()) qs.set("from_country", from_country.trim());
-  if ((to_country || "").trim()) qs.set("to_country", to_country.trim());
+
+  if ((from_airport_code || "").trim())
+    qs.set("from_airport_code", String(from_airport_code).trim().toUpperCase());
+  if ((to_airport_code || "").trim())
+    qs.set("to_airport_code", String(to_airport_code).trim().toUpperCase());
+
   if ((date_from || "").trim()) qs.set("date_from", date_from.trim());
   if ((date_to || "").trim()) qs.set("date_to", date_to.trim());
 
@@ -536,7 +435,6 @@ async function deleteTripApi(id) {
   });
 }
 
-// My Shipments (sender)
 async function fetchMyShipments() {
   return tryFetchJSON(`${API_BASE}/api/carry/shipments`, {
     headers: { ...authHeaders() },
@@ -563,18 +461,21 @@ async function deleteShipment(id) {
   });
 }
 
-// Public shipments (best-effort / backward compatible)
 async function fetchExploreShipments({
   q,
-  from_country,
-  to_country,
+  from_airport_code,
+  to_airport_code,
   date_from,
   date_to,
 }) {
   const qs = new URLSearchParams();
   if ((q || "").trim()) qs.set("q", q.trim());
-  if ((from_country || "").trim()) qs.set("from_country", from_country.trim());
-  if ((to_country || "").trim()) qs.set("to_country", to_country.trim());
+
+  if ((from_airport_code || "").trim())
+    qs.set("from_airport_code", String(from_airport_code).trim().toUpperCase());
+  if ((to_airport_code || "").trim())
+    qs.set("to_airport_code", String(to_airport_code).trim().toUpperCase());
+
   if ((date_from || "").trim()) qs.set("date_from", date_from.trim());
   if ((date_to || "").trim()) qs.set("date_to", date_to.trim());
 
@@ -595,18 +496,14 @@ async function fetchExploreShipments({
   return last || { ok: true, data: { items: [] } };
 }
 
-// Request: shipment -> trip
-async function requestMatch(
-  tripId,
-  { shipment_id, offer_amount, offer_currency, note }
-) {
+async function requestMatch(tripId, { shipment_id, offer_amount, note }) {
   return tryFetchJSON(`${API_BASE}/api/carry/listings/${tripId}/request`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({
       shipment_id,
       offer_amount,
-      offer_currency: offer_currency || "USD",
+      offer_currency: "USD",
       note: note || "",
     }),
   });
@@ -670,41 +567,41 @@ function Modal({ open, title, children, onClose, wide }) {
 }
 
 /* =========================
-   Normalizers (defensive)
+   helpers
 ========================= */
-
-function getTripLockCount(it) {
-  const n = it || {};
-  const v =
-    n.requests_count ??
-    n.requestsCount ??
-    n.requests_total ??
-    n.requestsTotal ??
-    n.matches_count ??
-    n.matchesCount ??
-    n.matches_total ??
-    n.matchesTotal ??
-    n.shipments_count ??
-    n.shipmentsCount ??
-    n.shipments_total ??
-    n.shipmentsTotal ??
-    null;
-
-  const num = Number(v);
-  if (Number.isFinite(num) && num > 0) return num;
-
-  // fallback: arrays
-  const arrLen =
-    (Array.isArray(n.requests) ? n.requests.length : 0) ||
-    (Array.isArray(n.matches) ? n.matches.length : 0) ||
-    (Array.isArray(n.shipments) ? n.shipments.length : 0);
-
-  return arrLen || 0;
-}
-
 function toNum(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+function shipmentIsUsableForRequest(s) {
+  const st = String(s?.status || "")
+    .trim()
+    .toLowerCase();
+  if (["matched", "completed", "cancelled", "canceled"].includes(st))
+    return false;
+  return true;
+}
+
+function shipmentIsVisibleInExplore(s) {
+  const st = String(s?.status || "")
+    .trim()
+    .toLowerCase();
+  if (["matched", "completed", "cancelled", "canceled"].includes(st))
+    return false;
+  return true;
+}
+
+// ✅ NEW: Shipment lock reason (deal made => status != open)
+function shipmentLockReason(s) {
+  const st =
+    String(s?.status || "")
+      .trim()
+      .toLowerCase() || "open";
+  if (st === "open") return "";
+  if (["cancelled", "canceled"].includes(st))
+    return "Locked: This shipment is cancelled.";
+  return "Locked: A deal has been made on this shipment.";
 }
 
 /* =========================
@@ -762,11 +659,12 @@ export default function CarryMegaView() {
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const [q, setQ] = useState("");
-  const [fromCountry, setFromCountry] = useState("");
-  const [toCountry, setToCountry] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [minWeight, setMinWeight] = useState("");
+
+  const [fromAirport, setFromAirport] = useState("");
+  const [toAirport, setToAirport] = useState("");
 
   const [trips, setTrips] = useState([]);
   const [exploreShipments, setExploreShipments] = useState([]);
@@ -797,9 +695,12 @@ export default function CarryMegaView() {
   const [tripFormOpen, setTripFormOpen] = useState(false);
   const [tripForm, setTripForm] = useState(emptyTrip);
   const [tripEditId, setTripEditId] = useState(null);
+
   const emptyShipment = useMemo(
     () => ({
       category: "mobile_accessories",
+      from_airport_code: "",
+      to_airport_code: "",
       from_country: "",
       from_city: "",
       to_country: "",
@@ -809,7 +710,7 @@ export default function CarryMegaView() {
       item_desc: "",
       item_weight: "",
       budget_amount: "",
-      budget_currency: "USD",
+      product_url: "",
       item_image: "",
     }),
     []
@@ -823,7 +724,6 @@ export default function CarryMegaView() {
   const [reqOpen, setReqOpen] = useState(false);
   const [reqTripId, setReqTripId] = useState(null);
   const [reqShipmentId, setReqShipmentId] = useState("");
-  const [reqOfferCurrency, setReqOfferCurrency] = useState("USD");
   const [reqOfferAmount, setReqOfferAmount] = useState("");
   const [reqNote, setReqNote] = useState("");
 
@@ -903,13 +803,11 @@ export default function CarryMegaView() {
     try {
       const r = await fetchTrips({
         q,
-        from_country: fromCountry,
-        to_country: toCountry,
+        from_airport_code: fromAirport,
+        to_airport_code: toAirport,
         date_from: dateFrom,
         date_to: dateTo,
       });
-      // console.log("[CarryMegaView][loadTripsNow] raw response r =", r);
-      // console.log("[CarryMegaView][loadTripsNow] r.data =", r?.data);
 
       if (ac.signal.aborted) return;
       if (!r?.ok) throw new Error(r?.error || "Failed");
@@ -931,11 +829,9 @@ export default function CarryMegaView() {
       }
 
       setTrips(arr);
-      // console.log("TRIP SAMPLE", arr?.[0]);
     } catch (e) {
-      if (!String(e?.name || "").includes("Abort")) {
+      if (!String(e?.name || "").includes("Abort"))
         toast.error(String(e?.message || e));
-      }
     } finally {
       if (!ac.signal.aborted) setLoading(false);
     }
@@ -950,8 +846,8 @@ export default function CarryMegaView() {
     try {
       const r = await fetchExploreShipments({
         q,
-        from_country: fromCountry,
-        to_country: toCountry,
+        from_airport_code: fromAirport,
+        to_airport_code: toAirport,
         date_from: dateFrom,
         date_to: dateTo,
       });
@@ -964,8 +860,10 @@ export default function CarryMegaView() {
         : Array.isArray(root)
         ? root
         : [];
-
       arr = arr.map(normalizeShipment);
+
+      // ✅ hide matched/closed shipments in Explore (so nobody can request them again)
+      arr = arr.filter((s) => shipmentIsVisibleInExplore(s));
 
       const minW = minWeight === "" ? null : Number(minWeight);
       if (Number.isFinite(minW)) {
@@ -1027,29 +925,25 @@ export default function CarryMegaView() {
         ? itOrId
         : (trips || []).find((t) => String(t.id) === String(itOrId)) || null;
 
-    if (!raw) {
-      toast.error("Trip not found in list. Refresh and try again.");
-      return;
-    }
+    if (!raw)
+      return toast.error("Trip not found in list. Refresh and try again.");
 
-    // ✅ backend sometimes returns the real fields inside raw.data
     const mergedRaw =
       raw && raw.data && typeof raw.data === "object"
-        ? { ...raw, ...raw.data } // data wins for form fields
+        ? { ...raw, ...raw.data }
         : raw;
 
     const n = normalizeTrip(mergedRaw);
 
     if (isTripLocked(n)) {
       toast.error(
-        "This trip is published/approved or has requests — you can’t edit it."
+        "Locked: A deal/request exists on this trip. You can’t edit it."
       );
       return;
     }
 
     setTripEditId(n.id);
 
-    // keep original data object for safety, but normalize form from merged fields
     setTripForm({
       ...emptyTrip,
       ...n,
@@ -1103,21 +997,16 @@ export default function CarryMegaView() {
     const payload = {
       ...tripForm,
       role: "traveler",
-
       from_airport_code: String(tripForm.from_airport_code || "").toUpperCase(),
       to_airport_code: String(tripForm.to_airport_code || "").toUpperCase(),
-
       airline: airlineV,
       flight_number: flightV,
       traveler_airline: airlineV,
       traveler_flight_number: flightV,
       flight_no: flightV,
-
       available_weight: w,
-
       meet_pref: tripForm.meet_pref || "airport",
       meet_place: String(tripForm.meet_place || "").trim() || "",
-
       no_carry: Array.isArray(tripForm.no_carry) ? tripForm.no_carry : [],
     };
 
@@ -1145,7 +1034,7 @@ export default function CarryMegaView() {
     const trip = (trips || []).find((t) => String(t.id) === String(id));
     if (trip && isTripLocked(trip)) {
       toast.error(
-        "This trip is published/approved or has requests — you can’t delete it."
+        "Locked: A deal/request exists on this trip. You can’t delete it."
       );
       return;
     }
@@ -1173,6 +1062,7 @@ export default function CarryMegaView() {
     setShipFormOpen(true);
   }
 
+  // ✅ LOCK shipment edit if not OPEN (deal made)
   function startEditShipment(sOrId) {
     if (!requireAuth("/carry?tab=shipments")) return;
 
@@ -1182,14 +1072,20 @@ export default function CarryMegaView() {
         : (myShipments || []).find((x) => String(x.id) === String(sOrId)) ||
           null;
 
-    if (!raw) {
-      toast.error("Shipment not found. Refresh and try again.");
+    if (!raw) return toast.error("Shipment not found. Refresh and try again.");
+
+    const n = normalizeShipment(raw);
+
+    const lockMsg = shipmentLockReason(n);
+    if (lockMsg) {
+      toast.error(lockMsg);
       return;
     }
 
-    const n = normalizeShipment(raw);
     setShipEditId(n.id);
     setShipForm({
+      from_airport_code: String(n.from_airport_code || "").toUpperCase(),
+      to_airport_code: String(n.to_airport_code || "").toUpperCase(),
       from_country: n.from_country || "",
       from_city: n.from_city || "",
       to_country: n.to_country || "",
@@ -1198,6 +1094,7 @@ export default function CarryMegaView() {
       item_title: n.item_title || "",
       item_desc: n.item_desc || "",
       category: n.category || "other",
+      product_url: n.product_url || n.productUrl || "",
       item_weight:
         n.item_weight === null || n.item_weight === undefined
           ? ""
@@ -1206,8 +1103,7 @@ export default function CarryMegaView() {
         n.budget_amount === null || n.budget_amount === undefined
           ? ""
           : String(n.budget_amount),
-      budget_currency: n.budget_currency || "USD",
-      item_image: n.image || "",
+      item_image: n.image || n.item_image || "",
     });
 
     setShipFormOpen(true);
@@ -1216,25 +1112,48 @@ export default function CarryMegaView() {
   async function submitShipment() {
     if (!requireAuth("/carry?tab=shipments")) return;
 
+    if (!String(shipForm.from_airport_code || "").trim())
+      return toast.error("From airport is required.");
+    if (!String(shipForm.to_airport_code || "").trim())
+      return toast.error("To airport is required.");
+    if (!String(shipForm.deadline || "").trim())
+      return toast.error("Deadline is required.");
+
+    if (!String(shipForm.item_title || "").trim())
+      return toast.error("Title is required.");
+    if (!String(shipForm.product_url || "").trim())
+      return toast.error("Product link is required.");
+    if (!String(shipForm.item_desc || "").trim())
+      return toast.error("Description is required.");
+    if (!String(shipForm.category || "").trim())
+      return toast.error("Category is required.");
+
+    const w = Number(shipForm.item_weight);
+    if (!Number.isFinite(w) || w <= 0)
+      return toast.error("Enter a valid weight.");
+
+    const b = Number(shipForm.budget_amount);
+    if (!Number.isFinite(b) || b <= 0)
+      return toast.error("Enter a valid budget.");
+
+    if (!String(shipForm.item_image || "").trim())
+      return toast.error("Item image is required (URL or upload).");
+
     const badKey = validateNoPhones({
       item_title: shipForm.item_title,
       item_desc: shipForm.item_desc,
-      from_country: shipForm.from_country,
-      to_country: shipForm.to_country,
-      from_city: shipForm.from_city,
-      to_city: shipForm.to_city,
       category: shipForm.category || "other",
+      product_url: shipForm.product_url,
     });
     if (badKey)
       return toast.error(`Phone numbers are not allowed (${badKey}).`);
+
     const payload = {
       ...shipForm,
       category: shipForm.category || "other",
-      item_weight:
-        shipForm.item_weight === "" ? null : Number(shipForm.item_weight),
-      budget_amount:
-        shipForm.budget_amount === "" ? null : Number(shipForm.budget_amount),
-      budget_currency: shipForm.budget_currency || "USD",
+      item_weight: w,
+      budget_amount: b,
+      product_url: String(shipForm.product_url || "").trim(),
       item_image: shipForm.item_image || "",
     };
 
@@ -1259,9 +1178,22 @@ export default function CarryMegaView() {
     }
   }
 
+  // ✅ LOCK shipment delete if not OPEN (deal made)
   async function removeShipment(id) {
     if (!requireAuth("/carry?tab=shipments")) return;
-    const ok = await toastConfirm("Delete this shipment?");
+
+    const raw = (myShipments || []).find((s) => String(s.id) === String(id));
+    const n = raw ? normalizeShipment(raw) : null;
+
+    const lockMsg = shipmentLockReason(n);
+    if (lockMsg) {
+      toast.error(lockMsg);
+      return;
+    }
+
+    const ok = await toastConfirm(
+      "Delete this shipment? (Only OPEN shipments can be deleted)"
+    );
     if (!ok) return;
 
     try {
@@ -1279,21 +1211,26 @@ export default function CarryMegaView() {
     }
   }
 
+  const usableMyShipments = useMemo(() => {
+    return (myShipments || []).filter((s) => shipmentIsUsableForRequest(s));
+  }, [myShipments]);
+
   async function openRequest(tripId) {
     if (!requireAuth(`/carry`)) return;
 
     const list = await loadMyShipmentsNow({ silent: true });
-    if (!list.length) {
-      toast.error("Create a shipment first (Shipments tab).");
+    const usable = (list || []).filter((s) => shipmentIsUsableForRequest(s));
+
+    if (!usable.length) {
+      toast.error("You have no usable shipments. Create a new shipment first.");
       setTab("shipments");
       startCreateShipment();
       return;
     }
 
     setReqTripId(tripId);
-    setReqShipmentId(String(list[0]?.id || ""));
+    setReqShipmentId(String(usable[0]?.id || ""));
     setReqOfferAmount("");
-    setReqOfferCurrency("USD");
     setReqNote("");
     setReqOpen(true);
   }
@@ -1316,14 +1253,36 @@ export default function CarryMegaView() {
       const r = await requestMatch(reqTripId, {
         shipment_id,
         offer_amount,
-        offer_currency: reqOfferCurrency || "USD",
         note: reqNote || "",
       });
+
       if (!r?.ok) throw new Error(r?.error || r?.data?.error || "Failed");
-      toast.success("Request sent ✅");
+
+      // ✅ reflect instantly on this page
+      setTrips((prev) =>
+        (prev || []).map((t) =>
+          String(t.id) === String(reqTripId)
+            ? {
+                ...t,
+                my_request_status: "pending",
+                my_request: r?.request || r?.data?.request || null,
+                my_request_id:
+                  r?.request?.id ||
+                  r?.data?.request?.id ||
+                  t.my_request_id ||
+                  null,
+              }
+            : t
+        )
+      );
+
+      toast.success(r?.already ? "Updated offer ✅" : "Request sent ✅");
       setReqOpen(false);
 
+      if (authed) await loadMyShipmentsNow({ silent: true });
       await loadTripsNow();
+
+      nav(`/carry/trips/${reqTripId}`);
     } catch (e) {
       toast.error(String(e?.message || e));
     } finally {
@@ -1331,18 +1290,31 @@ export default function CarryMegaView() {
     }
   }
 
+  // initial load
   useEffect(() => {
     loadTripsNow();
     loadExploreShipmentsNow();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // load my shipments on tabs
   useEffect(() => {
     if (tab === "shipments" || tab === "my") {
       if (isAuthed()) loadMyShipmentsNow({ silent: tab === "my" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  // auto-open request if navigated with state
+  useEffect(() => {
+    const tripId = loc?.state?.requestTripId;
+    if (!tripId) return;
+    try {
+      window.history.replaceState({}, document.title);
+    } catch {}
+    openRequest(Number(tripId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loc?.state]);
 
   const exploreItems = useMemo(
     () => [...(trips || []), ...(exploreShipments || [])],
@@ -1395,6 +1367,7 @@ export default function CarryMegaView() {
                 onClick={async () => {
                   await loadTripsNow();
                   await loadExploreShipmentsNow();
+                  if (authed) await loadMyShipmentsNow({ silent: true });
                 }}
                 className="px-4 py-2 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/15 text-sm font-extrabold flex items-center gap-2 disabled:opacity-60"
                 type="button"
@@ -1658,20 +1631,16 @@ export default function CarryMegaView() {
       >
         <div className="space-y-3">
           <div className="grid sm:grid-cols-2 gap-3">
-            <Field label="From country">
-              <input
-                value={fromCountry}
-                onChange={(e) => setFromCountry(e.target.value)}
-                className="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white"
-              />
-            </Field>
-            <Field label="To country">
-              <input
-                value={toCountry}
-                onChange={(e) => setToCountry(e.target.value)}
-                className="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white"
-              />
-            </Field>
+            <AirportPicker
+              label="From airport"
+              valueCode={fromAirport}
+              onPick={(a) => setFromAirport(a?.code || "")}
+            />
+            <AirportPicker
+              label="To airport"
+              valueCode={toAirport}
+              onPick={(a) => setToAirport(a?.code || "")}
+            />
           </div>
 
           <div className="grid sm:grid-cols-2 gap-3">
@@ -1705,8 +1674,8 @@ export default function CarryMegaView() {
           <div className="flex gap-2 pt-2">
             <button
               onClick={() => {
-                setFromCountry("");
-                setToCountry("");
+                setFromAirport("");
+                setToAirport("");
                 setDateFrom("");
                 setDateTo("");
                 setMinWeight("");
@@ -1759,10 +1728,7 @@ export default function CarryMegaView() {
                 label="To airport"
                 valueCode={tripForm.to_airport_code}
                 onPick={(a) =>
-                  setTripForm((s) => ({
-                    ...s,
-                    to_airport_code: a?.code || "",
-                  }))
+                  setTripForm((s) => ({ ...s, to_airport_code: a?.code || "" }))
                 }
               />
             </div>
@@ -1996,51 +1962,57 @@ export default function CarryMegaView() {
       >
         <div className="grid lg:grid-cols-2 gap-8">
           <div className="space-y-4">
-            <div className="text-sm font-black text-slate-900">Route</div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Field label="From country">
-                <input
-                  value={shipForm.from_country}
-                  onChange={(e) =>
-                    setShipForm((s) => ({ ...s, from_country: e.target.value }))
-                  }
-                  className="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white"
-                />
-              </Field>
-              <Field label="To country">
-                <input
-                  value={shipForm.to_country}
-                  onChange={(e) =>
-                    setShipForm((s) => ({ ...s, to_country: e.target.value }))
-                  }
-                  className="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white"
-                />
-              </Field>
+            <div className="text-sm font-black text-slate-900">
+              Route (Airports)
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <Field label="From city" hint="optional">
-                <input
-                  value={shipForm.from_city}
-                  onChange={(e) =>
-                    setShipForm((s) => ({ ...s, from_city: e.target.value }))
-                  }
-                  className="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white"
-                />
-              </Field>
-              <Field label="To city" hint="optional">
-                <input
-                  value={shipForm.to_city}
-                  onChange={(e) =>
-                    setShipForm((s) => ({ ...s, to_city: e.target.value }))
-                  }
-                  className="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white"
-                />
-              </Field>
+            <div className="grid grid-cols-1 gap-4">
+              <AirportPicker
+                label="From airport"
+                valueCode={shipForm.from_airport_code}
+                onPick={(a) =>
+                  setShipForm((s) => ({
+                    ...s,
+                    from_airport_code: a?.code || "",
+                    from_country: a?.country || s.from_country || "",
+                    from_city: a?.city || s.from_city || "",
+                  }))
+                }
+              />
+              <AirportPicker
+                label="To airport"
+                valueCode={shipForm.to_airport_code}
+                onPick={(a) =>
+                  setShipForm((s) => ({
+                    ...s,
+                    to_airport_code: a?.code || "",
+                    to_country: a?.country || s.to_country || "",
+                    to_city: a?.city || s.to_city || "",
+                  }))
+                }
+              />
             </div>
 
-            <Field label="Deliver before (deadline)">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-[11px] font-extrabold text-slate-500">
+                  From city
+                </div>
+                <div dir="ltr" className="text-sm font-black text-slate-900">
+                  {shipForm.from_city || "—"}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-[11px] font-extrabold text-slate-500">
+                  To city
+                </div>
+                <div dir="ltr" className="text-sm font-black text-slate-900">
+                  {shipForm.to_city || "—"}
+                </div>
+              </div>
+            </div>
+
+            <Field label="Deliver before (deadline)" hint="required">
               <input
                 type="date"
                 value={shipForm.deadline}
@@ -2054,7 +2026,7 @@ export default function CarryMegaView() {
             <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 space-y-4">
               <div className="text-sm font-black text-slate-900">Item</div>
 
-              <Field label="Title">
+              <Field label="Title" hint="required">
                 <input
                   value={shipForm.item_title}
                   onChange={(e) =>
@@ -2065,7 +2037,19 @@ export default function CarryMegaView() {
                 />
               </Field>
 
-              <Field label="Description" hint="no phone numbers">
+              <Field label="Product link" hint="required">
+                <input
+                  value={shipForm.product_url}
+                  onChange={(e) =>
+                    setShipForm((s) => ({ ...s, product_url: e.target.value }))
+                  }
+                  className="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white"
+                  placeholder="https://example.com/product"
+                  dir="ltr"
+                />
+              </Field>
+
+              <Field label="Description" hint="required • no phone numbers">
                 <textarea
                   value={shipForm.item_desc}
                   onChange={(e) =>
@@ -2074,7 +2058,8 @@ export default function CarryMegaView() {
                   className="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white min-h-[160px]"
                 />
               </Field>
-              <Field label="Category">
+
+              <Field label="Category" hint="required">
                 <select
                   value={shipForm.category || "other"}
                   onChange={(e) =>
@@ -2091,10 +2076,11 @@ export default function CarryMegaView() {
               </Field>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Field label="Weight (kg)">
+                <Field label="Weight (kg)" hint="required">
                   <input
                     type="number"
                     value={shipForm.item_weight}
+                    dir="ltr"
                     onChange={(e) =>
                       setShipForm((s) => ({
                         ...s,
@@ -2105,43 +2091,24 @@ export default function CarryMegaView() {
                   />
                 </Field>
 
-                <Field label="Budget">
-                  <div className="grid grid-cols-3 gap-2">
-                    <input
-                      type="number"
-                      value={shipForm.budget_amount}
-                      onChange={(e) =>
-                        setShipForm((s) => ({
-                          ...s,
-                          budget_amount: e.target.value,
-                        }))
-                      }
-                      className="col-span-2 w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white"
-                      placeholder="Amount"
-                    />
-                    <select
-                      value={shipForm.budget_currency}
-                      onChange={(e) =>
-                        setShipForm((s) => ({
-                          ...s,
-                          budget_currency: e.target.value,
-                        }))
-                      }
-                      className="w-full px-3 py-4 rounded-2xl border border-slate-200 bg-white text-sm font-bold"
-                    >
-                      <option value="USD">USD</option>
-                      <option value="EUR">EUR</option>
-                      <option value="GBP">GBP</option>
-                      <option value="CAD">CAD</option>
-                      <option value="AED">AED</option>
-                      <option value="SAR">SAR</option>
-                      <option value="EGP">EGP</option>
-                    </select>
-                  </div>
+                <Field label="Budget (USD)" hint="required">
+                  <input
+                    type="number"
+                    value={shipForm.budget_amount}
+                    dir="ltr"
+                    onChange={(e) =>
+                      setShipForm((s) => ({
+                        ...s,
+                        budget_amount: e.target.value,
+                      }))
+                    }
+                    className="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white"
+                    placeholder="Amount"
+                  />
                 </Field>
               </div>
 
-              <Field label="Item image" hint="optional (URL or upload)">
+              <Field label="Item image" hint="required (URL or upload)">
                 <div className="space-y-2">
                   <input
                     value={shipForm.item_image}
@@ -2150,6 +2117,7 @@ export default function CarryMegaView() {
                     }
                     className="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white"
                     placeholder="https://..."
+                    dir="ltr"
                   />
                   <input
                     type="file"
@@ -2190,7 +2158,10 @@ export default function CarryMegaView() {
                 kind="shipment"
                 it={normalizeShipment({
                   ...shipForm,
+                  from_airport_code: shipForm.from_airport_code,
+                  to_airport_code: shipForm.to_airport_code,
                   item_image: shipForm.item_image,
+                  product_url: shipForm.product_url,
                 })}
                 saved={new Set()}
                 currentUserId={currentUserId}
@@ -2244,7 +2215,8 @@ export default function CarryMegaView() {
               Step 1: Choose shipment
             </div>
             <div className="text-xs text-slate-500 font-bold mt-1">
-              You must pick one of your shipments to request this trip.
+              Only <span className="font-black">OPEN</span> shipments can be
+              used. Matched/Completed shipments are hidden.
             </div>
 
             <div className="mt-3">
@@ -2253,7 +2225,7 @@ export default function CarryMegaView() {
                 onChange={(e) => setReqShipmentId(e.target.value)}
                 className="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white text-sm font-bold"
               >
-                {(myShipments || []).map((s) => (
+                {(usableMyShipments || []).map((s) => (
                   <option key={s.id} value={String(s.id)}>
                     #{s.id} — {normalizeShipment(s).item_title || "Shipment"}
                   </option>
@@ -2267,27 +2239,16 @@ export default function CarryMegaView() {
               Step 2: Offer
             </div>
 
-            <div className="grid grid-cols-3 gap-2 mt-3">
-              <input
-                type="number"
-                value={reqOfferAmount}
-                onChange={(e) => setReqOfferAmount(e.target.value)}
-                className="col-span-2 w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white"
-                placeholder="Amount"
-              />
-              <select
-                value={reqOfferCurrency}
-                onChange={(e) => setReqOfferCurrency(e.target.value)}
-                className="w-full px-3 py-4 rounded-2xl border border-slate-200 bg-white text-sm font-bold"
-              >
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="GBP">GBP</option>
-                <option value="CAD">CAD</option>
-                <option value="AED">AED</option>
-                <option value="SAR">SAR</option>
-                <option value="EGP">EGP</option>
-              </select>
+            <div className="mt-3">
+              <Field label="Offer (USD)">
+                <input
+                  type="number"
+                  value={reqOfferAmount}
+                  onChange={(e) => setReqOfferAmount(e.target.value)}
+                  className="w-full px-4 py-4 rounded-2xl border border-slate-200 bg-white"
+                  placeholder="Amount in USD"
+                />
+              </Field>
             </div>
 
             <div className="mt-3">

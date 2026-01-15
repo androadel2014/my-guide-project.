@@ -61,10 +61,36 @@ export const getExperienceArrayFrom = (data) =>
     ? data.experience
     : [];
 
+// ✅ mobile-safe clipboard with fallback
 export const safeWriteClipboard = async (text) => {
+  const t = String(text ?? "");
+
+  // 1) Modern API
   try {
-    await navigator.clipboard.writeText(text);
-    return true;
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(t);
+      return true;
+    }
+  } catch {}
+
+  // 2) Fallback for some mobile browsers / non-secure contexts
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = t;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-9999px";
+    ta.style.left = "-9999px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return !!ok;
   } catch {
     return false;
   }

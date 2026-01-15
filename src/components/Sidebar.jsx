@@ -1,15 +1,84 @@
 // src/components/Sidebar.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { DATA } from "./Data";
-import { Compass, ChevronLeft, LogOut, User } from "lucide-react";
+import { Compass, ChevronLeft, LogOut, User, ChevronRight } from "lucide-react";
 import { getDir } from "./utils";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 
-export const Sidebar = ({ lang, page }) => {
-  const [user, setUser] = useState(null);
+const normLang = (v) => {
+  const s = String(v || "en").toLowerCase();
+  if (s.startsWith("ar")) return "ar";
+  if (s.startsWith("es")) return "es";
+  return "en";
+};
+
+function pickLabel(label, lang) {
+  if (!label) return "";
+  if (typeof label === "string") return label;
+  const L = normLang(lang);
+  return (
+    label?.[L] ||
+    label?.en ||
+    label?.ar ||
+    label?.es ||
+    Object.values(label || {})[0] ||
+    ""
+  );
+}
+
+// ✅ Robust active id from pathname (don’t rely on prop "page")
+function activeIdFromPath(pathname) {
+  const p = pathname || "/";
+
+  if (p === "/" || p === "/home") return "home";
+  if (p.startsWith("/cv_builder")) return "cv_builder";
+  if (p.startsWith("/start")) return "start";
+  if (p.startsWith("/jobs")) return "jobs";
+
+  const clean = p.startsWith("/") ? p.slice(1) : p;
+  const first = clean.split("/")[0] || "home";
+  return first;
+}
+
+const DICT = {
+  ar: {
+    menu: "القائمة الرئيسية",
+    myAccount: "حسابي",
+    logout: "تسجيل الخروج",
+    signIn: "تسجيل الدخول",
+    guide: "Guide",
+  },
+  en: {
+    menu: "Main Menu",
+    myAccount: "My Account",
+    logout: "Sign Out",
+    signIn: "Sign In",
+    guide: "Guide",
+  },
+  es: {
+    menu: "Menú",
+    myAccount: "Mi cuenta",
+    logout: "Salir",
+    signIn: "Iniciar sesión",
+    guide: "Guide",
+  },
+};
+
+export const Sidebar = ({ lang = "en", page }) => {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
 
-  const dir = getDir(lang); // "rtl" | "ltr"
+  const LKEY = normLang(lang);
+  const dir = getDir(LKEY); // "rtl" | "ltr"
+  const T = DICT[LKEY] || DICT.en;
+
+  // ✅ prefer pathname (mobile-like behavior). fallback to prop page if provided.
+  const active = useMemo(
+    () => page || activeIdFromPath(pathname),
+    [page, pathname]
+  );
+
+  const [user, setUser] = useState(null);
 
   const readUser = () => {
     try {
@@ -20,7 +89,6 @@ export const Sidebar = ({ lang, page }) => {
     }
   };
 
-  // ✅ مراقبة حالة المستخدم (عشان تتحدّث بعد login/logout)
   useEffect(() => {
     setUser(readUser());
 
@@ -36,49 +104,45 @@ export const Sidebar = ({ lang, page }) => {
     };
   }, []);
 
-  // ✅ Logout صحيح (يمسح token + user)
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("authToken");
     localStorage.removeItem("jwt");
     localStorage.removeItem("user");
-
-    // لو عندك أي مفاتيح تانية قديمة
     localStorage.removeItem("cv_user");
     localStorage.removeItem("me");
 
     setUser(null);
-
-    // notify other components
     window.dispatchEvent(new Event("auth_changed"));
-
     navigate("/auth", { replace: true });
   };
 
+  const ActiveChevron = dir === "rtl" ? ChevronRight : ChevronLeft;
+
   return (
     <aside
+      dir={dir}
       className={[
         "hidden lg:flex flex-col w-72 h-screen fixed top-0 bg-white/80 backdrop-blur-xl shadow-sm z-50",
-        // ✅ مكان المنيو حسب اللغة
         dir === "rtl"
           ? "right-0 border-l border-white/20"
           : "left-0 border-r border-white/20",
       ].join(" ")}
     >
       <div className="h-24 flex items-center px-8 border-b border-slate-100/50">
-        <div className="flex items-center gap-3">
-          <div className="bg-blue-600 text-white p-2.5 rounded-xl shadow-lg shadow-blue-200">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="bg-blue-600 text-white p-2.5 rounded-xl shadow-lg shadow-blue-200 shrink-0">
             <Compass size={28} />
           </div>
-          <div>
+          <div className="min-w-0">
             <Link
               to="/"
-              className="text-xl font-black text-slate-800 tracking-tight block"
+              className="text-xl font-black text-slate-800 tracking-tight block truncate"
             >
               Newcomer
             </Link>
             <span className="text-xs font-semibold text-blue-600 uppercase tracking-widest">
-              Guide
+              {T.guide}
             </span>
           </div>
         </div>
@@ -86,22 +150,24 @@ export const Sidebar = ({ lang, page }) => {
 
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-2 custom-scrollbar">
         <div className="px-4 mb-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
-          {lang === "ar" ? "القائمة الرئيسية" : "Main Menu"}
+          {T.menu}
         </div>
 
-        {DATA.nav.map((item) => {
-          const isActive = page === item.id;
+        {DATA?.nav?.map((item) => {
+          const isActive = active === item.id;
           const path = item.id === "home" ? "/" : `/${item.id}`;
+          const label = pickLabel(item.label, LKEY);
 
           return (
             <Link
               key={item.id}
               to={path}
-              className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all duration-300 group ${
+              className={[
+                "w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all duration-300 group",
                 isActive
                   ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-200 transform scale-[1.02]"
-                  : "text-slate-500 hover:bg-white hover:text-slate-900 hover:shadow-sm"
-              }`}
+                  : "text-slate-500 hover:bg-white hover:text-slate-900 hover:shadow-sm",
+              ].join(" ")}
             >
               <item.icon
                 size={20}
@@ -113,17 +179,10 @@ export const Sidebar = ({ lang, page }) => {
                 strokeWidth={isActive ? 2.5 : 2}
               />
 
-              <span className="text-sm font-bold">{item.label[lang]}</span>
+              <span className="text-sm font-bold truncate">{label}</span>
 
               {isActive && (
-                <ChevronLeft
-                  size={16}
-                  className={[
-                    "opacity-50",
-                    // ✅ خلي السهم يروح ناحية نهاية السطر صح
-                    dir === "rtl" ? "mr-auto" : "ml-auto rotate-180",
-                  ].join(" ")}
-                />
+                <ActiveChevron size={16} className="opacity-60 ml-auto" />
               )}
             </Link>
           );
@@ -137,19 +196,18 @@ export const Sidebar = ({ lang, page }) => {
               to="/profile"
               className="w-full flex items-center gap-3 px-4 py-3 bg-white border border-slate-100 rounded-2xl shadow-sm hover:border-blue-300 transition-all group"
             >
-              <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all">
+              <div className="w-9 h-9 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all shrink-0">
                 <User size={18} />
               </div>
 
               <div
                 className={[
                   "flex-1 overflow-hidden",
-                  // ✅ محاذاة حسب اللغة
                   dir === "rtl" ? "text-right" : "text-left",
                 ].join(" ")}
               >
                 <p className="text-[10px] text-slate-400 font-bold uppercase leading-none mb-1">
-                  {lang === "ar" ? "حسابي" : "My Account"}
+                  {T.myAccount}
                 </p>
                 <p className="text-sm font-black text-slate-700 truncate leading-none group-hover:text-blue-600">
                   {user.username}
@@ -159,18 +217,19 @@ export const Sidebar = ({ lang, page }) => {
 
             <button
               onClick={handleLogout}
-              className="w-full flex items-center justify-center gap-2 py-3.5 bg-white text-red-500 border border-red-50 rounded-2xl font-bold text-xs hover:bg-red-50 hover:text-red-600 transition-all cursor-pointer shadow-sm"
+              type="button"
+              className="w-full flex items-center justify-center gap-2 py-3.5 bg-white text-red-500 border border-red-50 rounded-2xl font-bold text-xs hover:bg-red-50 hover:text-red-600 transition-all cursor-pointer shadow-sm active:scale-[0.99]"
             >
               <LogOut size={14} />
-              {lang === "ar" ? "تسجيل الخروج" : "Sign Out"}
+              {T.logout}
             </button>
           </div>
         ) : (
           <Link
             to="/auth"
-            className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all shadow-lg block text-center"
+            className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm hover:bg-slate-800 transition-all shadow-lg block text-center active:scale-[0.99]"
           >
-            {lang === "ar" ? "تسجيل الدخول" : "Sign In"}
+            {T.signIn}
           </Link>
         )}
       </div>

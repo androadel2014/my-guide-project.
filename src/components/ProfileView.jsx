@@ -1,4 +1,9 @@
-// src/components/ProfileView.jsx
+// src/components/ProfileView.jsx (FULL FILE - copy/paste)
+// ✅ 3 languages (AR/EN/ES) + RTL/LTR
+// ✅ Keeps your CV preview/export EXACT (same builder markup + same PDF/Word logic)
+// ✅ No browser confirm dialogs (uses your modals)
+// ✅ Mobile-safe modals + buttons wrap + max widths
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   User,
@@ -20,8 +25,171 @@ import html2pdf from "html2pdf.js";
 import * as docx from "docx";
 import { saveAs } from "file-saver";
 
+/* =========================
+   i18n
+========================= */
+const STR = {
+  ar: {
+    loading: "جارٍ التحميل...",
+    saveFailed: "فشل الحفظ",
+    updated: "تم تحديث البيانات",
+    connErr: "خطأ في الاتصال",
+    deleteFailed: "فشل الحذف",
+    deleted: "تم الحذف بنجاح",
+    previewFailed: "فشل فتح المعاينة",
+    downloadFailed: "فشل التحميل",
+    downloaded: "تم التحميل ✅",
+    scoreTitle: "تفاصيل التقييم",
+    scoreSub: "دي الحاجات اللي تزود بيها التقييم",
+    close: "إغلاق",
+    score: "التقييم",
+    doFollowing: "اعمل التالي:",
+    stats: "إحصائيات:",
+    exp: "الخبرة",
+    edu: "التعليم",
+    skills: "المهارات",
+    bullets: "نقاط الخبرة",
+    excellentNoIssues: "ممتاز ✅ مش محتاج تعديلات كبيرة",
+    previewTitle: "معاينة السيرة الذاتية",
+    escHint: "اضغط Esc للخروج",
+    confirmDeleteTitle: "متأكد من الحذف؟",
+    confirmDeleteDesc: "سيتم مسح هذا السي في نهائياً.",
+    cancel: "إلغاء",
+    del: "حذف",
+    profile: "تعديل البروفايل",
+    saveChanges: "حفظ التغييرات",
+    editProfile: "تعديل البروفايل",
+    fullName: "الاسم الكامل",
+    phone: "رقم الهاتف",
+    address: "العنوان",
+    bio: "نبذة شخصية",
+    cvMgmt: "إدارة السير الذاتية",
+    createNew: "إنشاء جديد",
+    noResumes: "لا تمتلك أي سيرة ذاتية بعد",
+    startNow: "ابدأ الآن",
+    tooltipEdit: "تعديل بيانات البروفايل",
+    tooltipSave: "حفظ بيانات البروفايل",
+    tooltipCreate: "إنشاء سيرة ذاتية جديدة",
+    atsSafe: "ATS Safe: مناسب للسيستم اللي بيقرأ السي في",
+    onePage: "1 Page: سي في مختصر صفحة واحدة",
+    usFormat: "US Format: تنسيق مناسب لأمريكا",
+    previewTip: "Preview: معاينة بنفس شكل التحميل",
+    editTip: "Edit: تعديل السي في",
+    pdfTip: "تحميل PDF",
+    wordTip: "تحميل Word",
+    deleteTip: "حذف",
+    calc: "جارٍ الحساب...",
+  },
+  en: {
+    loading: "Loading...",
+    saveFailed: "Save failed",
+    updated: "Profile Updated",
+    connErr: "Connection error",
+    deleteFailed: "Delete failed",
+    deleted: "Deleted successfully",
+    previewFailed: "Preview failed",
+    downloadFailed: "Download failed",
+    downloaded: "Downloaded ✅",
+    scoreTitle: "Score Details",
+    scoreSub: "Exact improvements to raise the score",
+    close: "Close",
+    score: "Score",
+    doFollowing: "Do the following:",
+    stats: "Stats:",
+    exp: "Exp",
+    edu: "Edu",
+    skills: "Skills",
+    bullets: "Bullets",
+    excellentNoIssues: "Excellent ✅ no major issues",
+    previewTitle: "Preview CV",
+    escHint: "Press Esc to close",
+    confirmDeleteTitle: "Confirm Delete",
+    confirmDeleteDesc: "This will be permanently removed.",
+    cancel: "Cancel",
+    del: "Delete",
+    profile: "Edit Profile",
+    saveChanges: "Save Changes",
+    editProfile: "Edit Profile",
+    fullName: "Full Name",
+    phone: "Phone Number",
+    address: "Address",
+    bio: "Bio",
+    cvMgmt: "Resume Management",
+    createNew: "Create New",
+    noResumes: "No resumes yet",
+    startNow: "Start Now",
+    tooltipEdit: "Edit profile data",
+    tooltipSave: "Save profile changes",
+    tooltipCreate: "Create a new CV",
+    atsSafe: "ATS Safe: readable by ATS systems",
+    onePage: "1 Page: compact one-page resume",
+    usFormat: "US Format: U.S. resume style",
+    previewTip: "Preview: same export design",
+    editTip: "Edit CV",
+    pdfTip: "Download PDF",
+    wordTip: "Download Word",
+    deleteTip: "Delete",
+    calc: "Calculating...",
+  },
+  es: {
+    loading: "Cargando...",
+    saveFailed: "Falló guardar",
+    updated: "Perfil actualizado",
+    connErr: "Error de conexión",
+    deleteFailed: "Falló eliminar",
+    deleted: "Eliminado correctamente",
+    previewFailed: "Falló la vista previa",
+    downloadFailed: "Falló la descarga",
+    downloaded: "Descargado ✅",
+    scoreTitle: "Detalles de puntuación",
+    scoreSub: "Mejoras exactas para subir la puntuación",
+    close: "Cerrar",
+    score: "Puntuación",
+    doFollowing: "Haz lo siguiente:",
+    stats: "Estadísticas:",
+    exp: "Exp",
+    edu: "Edu",
+    skills: "Habilidades",
+    bullets: "Puntos",
+    excellentNoIssues: "Excelente ✅ sin problemas mayores",
+    previewTitle: "Vista previa CV",
+    escHint: "Pulsa Esc para cerrar",
+    confirmDeleteTitle: "Confirmar eliminación",
+    confirmDeleteDesc: "Se eliminará permanentemente.",
+    cancel: "Cancelar",
+    del: "Eliminar",
+    profile: "Editar perfil",
+    saveChanges: "Guardar cambios",
+    editProfile: "Editar perfil",
+    fullName: "Nombre completo",
+    phone: "Teléfono",
+    address: "Dirección",
+    bio: "Bio",
+    cvMgmt: "Gestión de CV",
+    createNew: "Crear nuevo",
+    noResumes: "Aún no hay CV",
+    startNow: "Empezar",
+    tooltipEdit: "Editar datos del perfil",
+    tooltipSave: "Guardar cambios del perfil",
+    tooltipCreate: "Crear un CV nuevo",
+    atsSafe: "ATS Safe: legible por ATS",
+    onePage: "1 Página: CV compacto",
+    usFormat: "Formato USA",
+    previewTip: "Vista previa: mismo diseño",
+    editTip: "Editar CV",
+    pdfTip: "Descargar PDF",
+    wordTip: "Descargar Word",
+    deleteTip: "Eliminar",
+    calc: "Calculando...",
+  },
+};
+
+const t = (lang, key) => (STR[lang] || STR.en)[key] || STR.en[key] || key;
+const getDir = (lang) => (lang === "ar" ? "rtl" : "ltr");
+
 export const ProfileView = ({ lang = "en" }) => {
   const navigate = useNavigate();
+  const dir = getDir(lang);
 
   // ✅ API base from .env (portable)
   const API_BASE =
@@ -97,8 +265,6 @@ export const ProfileView = ({ lang = "en" }) => {
     bio: "",
   });
 
-  const arr = (v) => (Array.isArray(v) ? v : []);
-
   // =========================
   // ✅ Tooltip
   // =========================
@@ -120,7 +286,7 @@ export const ProfileView = ({ lang = "en" }) => {
     if (!sqliteDateString) return null;
     const iso = String(sqliteDateString).replace(" ", "T") + "Z";
     const d = new Date(iso);
-    return isNaN(d.getTime()) ? null : d;
+    return Number.isNaN(d.getTime()) ? null : d;
   };
 
   const formatDateTime = (sqliteDateString) => {
@@ -144,7 +310,6 @@ export const ProfileView = ({ lang = "en" }) => {
   const normalizeCvData = (dbPayload) => {
     let raw = dbPayload?.cv_data ?? dbPayload;
 
-    // ✅ if cv_data stored as string in DB
     if (typeof raw === "string") {
       try {
         raw = JSON.parse(raw);
@@ -265,6 +430,8 @@ export const ProfileView = ({ lang = "en" }) => {
       actions.push(
         lang === "ar"
           ? "✦ اكتب اسمك في أعلى السيرة (Full Name)."
+          : lang === "es"
+          ? "✦ Añade tu nombre completo arriba."
           : "✦ Add your full name at the top."
       );
 
@@ -273,6 +440,8 @@ export const ProfileView = ({ lang = "en" }) => {
       actions.push(
         lang === "ar"
           ? "✦ ضيف بيانات تواصل: Email + Phone + City/State."
+          : lang === "es"
+          ? "✦ Agrega contacto: Email + Teléfono + Ciudad/Estado."
           : "✦ Add contact: Email + Phone + City/State."
       );
 
@@ -282,6 +451,8 @@ export const ProfileView = ({ lang = "en" }) => {
       actions.push(
         lang === "ar"
           ? `✦ زوّد الـ Summary: ناقص تقريبًا ${need} حرف (خليه 2–3 سطور).`
+          : lang === "es"
+          ? `✦ Amplía el resumen: añade ~${need} caracteres (2–3 líneas).`
           : `✦ Expand summary: add ~${need} more characters (2–3 lines).`
       );
     }
@@ -291,6 +462,8 @@ export const ProfileView = ({ lang = "en" }) => {
       actions.push(
         lang === "ar"
           ? "✦ ضيف Education (مدرسة/جامعة/شهادة/كورسات)."
+          : lang === "es"
+          ? "✦ Añade Educación (escuela/título/certificados)."
           : "✦ Add an Education section (school/degree/certificates)."
       );
 
@@ -299,6 +472,8 @@ export const ProfileView = ({ lang = "en" }) => {
       actions.push(
         lang === "ar"
           ? "✦ ضيف Work Experience واحدة على الأقل."
+          : lang === "es"
+          ? "✦ Añade al menos una experiencia laboral."
           : "✦ Add at least one Work Experience."
       );
 
@@ -308,6 +483,8 @@ export const ProfileView = ({ lang = "en" }) => {
       actions.push(
         lang === "ar"
           ? `✦ زوّد نقاط الخبرة: ناقص ${need} نقطة (minimum 3).`
+          : lang === "es"
+          ? `✦ Añade puntos de experiencia: faltan ${need} (mínimo 3).`
           : `✦ Add experience bullets: need ${need} more (minimum 3).`
       );
     }
@@ -318,6 +495,8 @@ export const ProfileView = ({ lang = "en" }) => {
       actions.push(
         lang === "ar"
           ? `✦ علشان يبقى قوي: حاول توصل لـ 6 نقاط خبرة (ناقص ${need}).`
+          : lang === "es"
+          ? `✦ Para un CV fuerte: llega a 6 puntos (faltan ${need}).`
           : `✦ For a strong CV: reach 6 bullets (need ${need} more).`
       );
     }
@@ -328,6 +507,8 @@ export const ProfileView = ({ lang = "en" }) => {
       actions.push(
         lang === "ar"
           ? `✦ زوّد Skills: ناقص ${need} مهارة (minimum 4).`
+          : lang === "es"
+          ? `✦ Añade habilidades: faltan ${need} (mínimo 4).`
           : `✦ Add skills: need ${need} more (minimum 4).`
       );
     }
@@ -337,6 +518,8 @@ export const ProfileView = ({ lang = "en" }) => {
       actions.push(
         lang === "ar"
           ? "✦ ضيف Languages (مثلاً: English, Arabic)."
+          : lang === "es"
+          ? "✦ Añade Idiomas (p.ej.: English, Arabic)."
           : "✦ Add Languages (e.g., English, Arabic)."
       );
 
@@ -346,17 +529,25 @@ export const ProfileView = ({ lang = "en" }) => {
       score >= 85
         ? lang === "ar"
           ? "ممتاز"
+          : lang === "es"
+          ? "Excelente"
           : "Excellent"
         : score >= 70
         ? lang === "ar"
           ? "جيد جدًا"
+          : lang === "es"
+          ? "Fuerte"
           : "Strong"
         : score >= 55
         ? lang === "ar"
           ? "متوسط"
+          : lang === "es"
+          ? "Promedio"
           : "Average"
         : lang === "ar"
         ? "ضعيف"
+        : lang === "es"
+        ? "Débil"
         : "Weak";
 
     const colorClass =
@@ -375,6 +566,11 @@ export const ProfileView = ({ lang = "en" }) => {
         ? `Score: ${score}% (${level})
 To improve:
 ${topActions.length ? topActions.join(" | ") : "✓ ممتاز، مفيش نقص واضح"}
+Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bulletsCount}`
+        : lang === "es"
+        ? `Puntuación: ${score}% (${level})
+Mejoras:
+${topActions.length ? topActions.join(" | ") : "✓ Está muy bien"}
 Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bulletsCount}`
         : `Score: ${score}% (${level})
 To improve:
@@ -893,7 +1089,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
   };
 
   // =========================
-  // ✅ Modal helpers (FIXED)
+  // ✅ Modal helpers
   // =========================
   const closePreview = () => {
     setPreviewModal({ isOpen: false, cvId: null, finalCV: null, title: "" });
@@ -976,7 +1172,6 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
     const init = async () => {
       setLoading(true);
 
-      // 1) load from localStorage سريعًا
       const savedUser = localStorage.getItem("user");
       if (savedUser) {
         try {
@@ -991,7 +1186,6 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
         } catch {}
       }
 
-      // 2) source of truth: server
       try {
         const res = await fetch(`${API_BASE}/api/users/me`, {
           headers: authHeaders(),
@@ -1015,7 +1209,6 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
         console.error("Failed to load /api/users/me", e);
       }
 
-      // 3) CVs
       await fetchUserCVs();
 
       setLoading(false);
@@ -1046,13 +1239,11 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        toast.error(
-          data?.message || (lang === "ar" ? "فشل الحفظ" : "Save failed")
-        );
+        toast.error(data?.message || t(lang, "saveFailed"));
         return;
       }
 
-      toast.success(lang === "ar" ? "تم تحديث البيانات" : "Profile Updated");
+      toast.success(t(lang, "updated"));
 
       const updatedUser = { ...(user || {}), ...editData };
       localStorage.setItem("user", JSON.stringify(updatedUser));
@@ -1060,7 +1251,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
 
       setIsEditing(false);
     } catch (error) {
-      toast.error(lang === "ar" ? "خطأ في الاتصال" : "Connection error");
+      toast.error(t(lang, "connErr"));
     }
   };
 
@@ -1079,17 +1270,15 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        toast.error(
-          data?.message || (lang === "ar" ? "فشل الحذف" : "Delete failed")
-        );
+        toast.error(data?.message || t(lang, "deleteFailed"));
         return;
       }
 
-      toast.success(lang === "ar" ? "تم الحذف بنجاح" : "Deleted successfully");
+      toast.success(t(lang, "deleted"));
       setCvList((prev) => prev.filter((cv) => cv.id !== deleteModal.cvId));
       setDeleteModal({ isOpen: false, cvId: null });
     } catch (error) {
-      toast.error(lang === "ar" ? "خطأ في الاتصال" : "Connection error");
+      toast.error(t(lang, "connErr"));
     }
   };
 
@@ -1173,7 +1362,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
       });
     } catch (e) {
       console.error(e);
-      toast.error(lang === "ar" ? "فشل فتح المعاينة" : "Preview failed");
+      toast.error(t(lang, "previewFailed"));
     }
   };
 
@@ -1204,10 +1393,10 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
       if (format === "pdf") await downloadPDFSamePage(finalCV);
       else await downloadWordSamePage(finalCV);
 
-      toast.success(lang === "ar" ? "تم التحميل ✅" : "Downloaded ✅");
+      toast.success(t(lang, "downloaded"));
     } catch (e) {
       console.error(e);
-      toast.error(lang === "ar" ? "فشل التحميل" : "Download failed");
+      toast.error(t(lang, "downloadFailed"));
     } finally {
       setDownloading({ cvId: null, format: null });
     }
@@ -1218,8 +1407,8 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
   // =========================
   if (loading) {
     return (
-      <div className="p-20 text-center font-black text-slate-400">
-        {lang === "ar" ? "جارٍ التحميل..." : "Loading..."}
+      <div className="p-20 text-center font-black text-slate-400" dir={dir}>
+        {t(lang, "loading")}
       </div>
     );
   }
@@ -1230,12 +1419,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
   // ✅ Render
   // =========================
   return (
-    <div
-      className={`max-w-4xl mx-auto p-6 relative ${
-        lang === "ar" ? "rtl" : "ltr"
-      }`}
-      dir={lang === "ar" ? "rtl" : "ltr"}
-    >
+    <div className="max-w-4xl mx-auto p-4 sm:p-6 relative" dir={dir}>
       {/* ✅ Score Modal */}
       {scoreModal.isOpen && (
         <div className="fixed inset-0 z-50">
@@ -1248,17 +1432,14 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
               <div className="flex items-center justify-between p-5 border-b">
                 <div className="min-w-0">
                   <h3 className="font-black text-slate-800 truncate">
-                    {lang === "ar" ? "تفاصيل التقييم" : "Score Details"} —{" "}
-                    {scoreModal.title}
+                    {t(lang, "scoreTitle")} — {scoreModal.title}
                   </h3>
                   <p className="text-xs text-slate-400 font-bold">
-                    {lang === "ar"
-                      ? "دي الحاجات اللي تزود بيها التقييم"
-                      : "Exact improvements to raise the score"}
+                    {t(lang, "scoreSub")}
                   </p>
                 </div>
 
-                <Tooltip text={lang === "ar" ? "إغلاق" : "Close"}>
+                <Tooltip text={t(lang, "close")}>
                   <button
                     onClick={closeScoreModal}
                     className="p-3 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
@@ -1272,7 +1453,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
               <div className="p-6 overflow-auto">
                 <div className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-2xl p-4">
                   <div className="text-xs font-black text-slate-500 uppercase tracking-widest">
-                    {lang === "ar" ? "النتيجة" : "Score"}
+                    {t(lang, "score")}
                   </div>
                   <div className="font-black text-lg">
                     <span
@@ -1290,7 +1471,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
 
                 <div className="mt-4">
                   <div className="text-sm font-black text-slate-800 mb-2">
-                    {lang === "ar" ? "اعمل التالي:" : "Do the following:"}
+                    {t(lang, "doFollowing")}
                   </div>
 
                   {scoreModal.scoreObj?.actions?.length ? (
@@ -1306,23 +1487,17 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                     </ul>
                   ) : (
                     <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-black">
-                      {lang === "ar"
-                        ? "ممتاز ✅ مش محتاج تعديلات كبيرة"
-                        : "Excellent ✅ no major issues"}
+                      {t(lang, "excellentNoIssues")}
                     </div>
                   )}
                 </div>
 
                 <div className="mt-5 text-xs text-slate-500 font-bold">
-                  {lang === "ar" ? "إحصائيات:" : "Stats:"}{" "}
-                  {lang === "ar" ? "الخبرة" : "Exp"}=
-                  {scoreModal.scoreObj?.expCount ?? 0} |{" "}
-                  {lang === "ar" ? "التعليم" : "Edu"}=
-                  {scoreModal.scoreObj?.eduCount ?? 0} |{" "}
-                  {lang === "ar" ? "المهارات" : "Skills"}=
-                  {scoreModal.scoreObj?.skillsCount ?? 0} |{" "}
-                  {lang === "ar" ? "نقاط الخبرة" : "Bullets"}=
-                  {scoreModal.scoreObj?.bulletsCount ?? 0}
+                  {t(lang, "stats")} {t(lang, "exp")}=
+                  {scoreModal.scoreObj?.expCount ?? 0} | {t(lang, "edu")}=
+                  {scoreModal.scoreObj?.eduCount ?? 0} | {t(lang, "skills")}=
+                  {scoreModal.scoreObj?.skillsCount ?? 0} | {t(lang, "bullets")}
+                  ={scoreModal.scoreObj?.bulletsCount ?? 0}
                 </div>
               </div>
 
@@ -1331,7 +1506,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                   onClick={closeScoreModal}
                   className="px-5 py-3 rounded-xl bg-slate-100 text-slate-700 font-black hover:bg-slate-200 transition-all"
                 >
-                  {lang === "ar" ? "إغلاق" : "Close"}
+                  {t(lang, "close")}
                 </button>
               </div>
             </div>
@@ -1351,17 +1526,14 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
               <div className="flex items-center justify-between p-5 border-b">
                 <div className="min-w-0">
                   <h3 className="font-black text-slate-800 truncate">
-                    {lang === "ar" ? "معاينة السيرة الذاتية" : "Preview CV"} —{" "}
-                    {previewModal.title}
+                    {t(lang, "previewTitle")} — {previewModal.title}
                   </h3>
                   <p className="text-xs text-slate-400 font-bold">
-                    {lang === "ar"
-                      ? "اضغط Esc للخروج"
-                      : "Scroll inside preview only — press Esc to close"}
+                    {t(lang, "escHint")}
                   </p>
                 </div>
 
-                <Tooltip text={lang === "ar" ? "إغلاق" : "Close"}>
+                <Tooltip text={t(lang, "close")}>
                   <button
                     onClick={closePreview}
                     className="p-3 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
@@ -1372,7 +1544,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                 </Tooltip>
               </div>
 
-              <div className="flex-1 bg-slate-50 overflow-auto p-6">
+              <div className="flex-1 bg-slate-50 overflow-auto p-4 sm:p-6">
                 <div className="mx-auto w-fit bg-white shadow-lg">
                   <style>{`
                     #cv-document { width: 816px; background:#fff; font-family:"Times New Roman", Times, serif; color:#0f172a; }
@@ -1398,7 +1570,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                   onClick={closePreview}
                   className="px-5 py-3 rounded-xl bg-slate-100 text-slate-700 font-black hover:bg-slate-200 transition-all"
                 >
-                  {lang === "ar" ? "إغلاق" : "Close"}
+                  {t(lang, "close")}
                 </button>
               </div>
             </div>
@@ -1414,25 +1586,23 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
               <Trash2 size={32} />
             </div>
             <h3 className="text-xl font-black text-center text-slate-800 mb-2">
-              {lang === "ar" ? "متأكد من الحذف؟" : "Confirm Delete"}
+              {t(lang, "confirmDeleteTitle")}
             </h3>
             <p className="text-slate-500 text-center mb-6">
-              {lang === "ar"
-                ? "سيتم مسح هذا السي في نهائياً."
-                : "This will be permanently removed."}
+              {t(lang, "confirmDeleteDesc")}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setDeleteModal({ isOpen: false, cvId: null })}
                 className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold"
               >
-                {lang === "ar" ? "إلغاء" : "Cancel"}
+                {t(lang, "cancel")}
               </button>
               <button
                 onClick={confirmDelete}
                 className="flex-1 py-3 bg-red-500 text-white rounded-xl font-bold shadow-lg shadow-red-200"
               >
-                {lang === "ar" ? "حذف" : "Delete"}
+                {t(lang, "del")}
               </button>
             </div>
           </div>
@@ -1441,7 +1611,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
 
       {/* ===== Main Card ===== */}
       <div className="bg-white rounded-[2.5rem] shadow-2xl overflow-hidden border border-slate-100">
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-10 text-white flex flex-col md:flex-row justify-between items-center gap-6">
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-8 sm:p-10 text-white flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-5">
             <div className="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center border border-white/30">
               <User size={40} />
@@ -1453,37 +1623,22 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
           </div>
 
           <Tooltip
-            text={
-              isEditing
-                ? lang === "ar"
-                  ? "حفظ بيانات البروفايل"
-                  : "Save profile changes"
-                : lang === "ar"
-                ? "تعديل بيانات البروفايل"
-                : "Edit profile data"
-            }
+            text={isEditing ? t(lang, "tooltipSave") : t(lang, "tooltipEdit")}
           >
             <button
               onClick={() => (isEditing ? handleSave() : setIsEditing(true))}
               className="bg-white text-blue-600 px-8 py-3 rounded-2xl font-black shadow-xl active:scale-95 transition-all"
             >
-              {isEditing
-                ? lang === "ar"
-                  ? "حفظ التغييرات"
-                  : "Save Changes"
-                : lang === "ar"
-                ? "تعديل البروفايل"
-                : "Edit Profile"}
+              {isEditing ? t(lang, "saveChanges") : t(lang, "editProfile")}
             </button>
           </Tooltip>
         </div>
 
-        <div className="p-10 space-y-6">
+        <div className="p-6 sm:p-10 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <User size={14} />{" "}
-                {lang === "ar" ? "الاسم الكامل" : "Full Name"}
+                <User size={14} /> {t(lang, "fullName")}
               </label>
               <input
                 disabled={!isEditing}
@@ -1497,8 +1652,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
 
             <div className="space-y-2">
               <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Edit2 size={14} />{" "}
-                {lang === "ar" ? "رقم الهاتف" : "Phone Number"}
+                <Edit2 size={14} /> {t(lang, "phone")}
               </label>
               <input
                 disabled={!isEditing}
@@ -1512,7 +1666,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
 
             <div className="space-y-2 md:col-span-2">
               <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <MapPin size={14} /> {lang === "ar" ? "العنوان" : "Address"}
+                <MapPin size={14} /> {t(lang, "address")}
               </label>
               <input
                 disabled={!isEditing}
@@ -1526,7 +1680,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
 
             <div className="space-y-2 md:col-span-2">
               <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                <Info size={14} /> {lang === "ar" ? "نبذة شخصية" : "Bio"}
+                <Info size={14} /> {t(lang, "bio")}
               </label>
               <textarea
                 disabled={!isEditing}
@@ -1540,24 +1694,19 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
             </div>
           </div>
 
-          <div className="mt-12 pt-10 border-t-2 border-slate-50">
-            <div className="flex justify-between items-center mb-8">
+          <div className="mt-10 pt-8 border-t-2 border-slate-50">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
               <h3 className="text-2xl font-black text-slate-800 flex items-center gap-3">
                 <Briefcase className="text-blue-600" />
-                {lang === "ar" ? "إدارة السير الذاتية" : "Resume Management"}
+                {t(lang, "cvMgmt")}
               </h3>
 
-              <Tooltip
-                text={
-                  lang === "ar" ? "إنشاء سيرة ذاتية جديدة" : "Create a new CV"
-                }
-              >
+              <Tooltip text={t(lang, "tooltipCreate")}>
                 <button
-                  onClick={() => (window.location.href = "/cv_builder")}
+                  onClick={() => navigate("/cv_builder")}
                   className="flex items-center gap-2 text-blue-600 font-black hover:bg-blue-50 px-4 py-2 rounded-xl transition-all"
                 >
-                  <Plus size={20} />{" "}
-                  {lang === "ar" ? "إنشاء جديد" : "Create New"}
+                  <Plus size={20} /> {t(lang, "createNew")}
                 </button>
               </Tooltip>
             </div>
@@ -1575,22 +1724,20 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                   const scoreObj = cvScores[cv.id];
                   const scoreVal = scoreObj?.score ?? 0;
 
-                  const scoreTooltip =
-                    scoreObj?.tooltip ||
-                    (lang === "ar" ? "جارٍ الحساب..." : "Calculating...");
+                  const scoreTooltip = scoreObj?.tooltip || t(lang, "calc");
 
                   return (
                     <div
                       key={cv.id}
-                      className="group flex flex-col sm:flex-row items-center justify-between bg-white border-2 border-slate-100 p-6 rounded-[2rem] hover:border-blue-200 hover:shadow-xl hover:shadow-blue-50 transition-all gap-4"
+                      className="group flex flex-col lg:flex-row items-start lg:items-center justify-between bg-white border-2 border-slate-100 p-6 rounded-[2rem] hover:border-blue-200 hover:shadow-xl hover:shadow-blue-50 transition-all gap-4"
                     >
-                      <div className="flex items-center gap-5">
-                        <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all">
+                      <div className="flex items-center gap-5 w-full lg:w-auto">
+                        <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-all shrink-0">
                           <FileText size={28} />
                         </div>
 
-                        <div>
-                          <h4 className="font-black text-slate-800 text-lg uppercase leading-tight">
+                        <div className="min-w-0">
+                          <h4 className="font-black text-slate-800 text-lg uppercase leading-tight truncate">
                             {cv.cv_name || "Resume #" + cv.id}
                           </h4>
                           <p className="text-xs text-slate-400 font-bold tracking-widest mt-1">
@@ -1598,37 +1745,19 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                           </p>
 
                           <div className="mt-2 flex flex-wrap gap-2">
-                            <Tooltip
-                              text={
-                                lang === "ar"
-                                  ? "ATS Safe: مناسب للسيستم اللي بيقرأ السي في"
-                                  : "ATS Safe: readable by ATS systems"
-                              }
-                            >
+                            <Tooltip text={t(lang, "atsSafe")}>
                               <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-black tracking-wide">
                                 ATS Safe
                               </span>
                             </Tooltip>
 
-                            <Tooltip
-                              text={
-                                lang === "ar"
-                                  ? "1 Page: سي في مختصر صفحة واحدة"
-                                  : "1 Page: compact one-page resume"
-                              }
-                            >
+                            <Tooltip text={t(lang, "onePage")}>
                               <span className="text-[10px] px-2 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-black tracking-wide">
                                 Page 1
                               </span>
                             </Tooltip>
 
-                            <Tooltip
-                              text={
-                                lang === "ar"
-                                  ? "US Format: تنسيق مناسب لأمريكا"
-                                  : "US Format: U.S. resume style"
-                              }
-                            >
+                            <Tooltip text={t(lang, "usFormat")}>
                               <span className="text-[10px] px-2 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-black tracking-wide">
                                 US Format
                               </span>
@@ -1648,7 +1777,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                                 className="inline-flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full bg-slate-50 border border-slate-200 font-black tracking-wide cursor-pointer hover:bg-slate-100 transition-all"
                               >
                                 <span className="text-slate-500 uppercase tracking-widest">
-                                  {lang === "ar" ? "التقييم" : "Score"}
+                                  {t(lang, "score")}
                                 </span>
                                 <span
                                   className={
@@ -1663,14 +1792,8 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <Tooltip
-                          text={
-                            lang === "ar"
-                              ? "Preview: معاينة بنفس شكل التحميل"
-                              : "Preview: same export design"
-                          }
-                        >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Tooltip text={t(lang, "previewTip")}>
                           <button
                             onClick={() => handlePreviewCV(cv.id)}
                             className="p-3 bg-slate-50 text-slate-600 rounded-xl hover:bg-slate-700 hover:text-white transition-all"
@@ -1679,24 +1802,16 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                           </button>
                         </Tooltip>
 
-                        <Tooltip
-                          text={
-                            lang === "ar" ? "Edit: تعديل السي في" : "Edit CV"
-                          }
-                        >
+                        <Tooltip text={t(lang, "editTip")}>
                           <button
-                            onClick={() =>
-                              (window.location.href = `/cv_edit?cvId=${cv.id}`)
-                            }
+                            onClick={() => navigate(`/cv_edit?cvId=${cv.id}`)}
                             className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all"
                           >
                             <Edit2 size={20} />
                           </button>
                         </Tooltip>
 
-                        <Tooltip
-                          text={lang === "ar" ? "تحميل PDF" : "Download PDF"}
-                        >
+                        <Tooltip text={t(lang, "pdfTip")}>
                           <button
                             disabled={isPdfLoading || isWordLoading}
                             onClick={() => handleDownloadSamePage(cv.id, "pdf")}
@@ -1710,9 +1825,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                           </button>
                         </Tooltip>
 
-                        <Tooltip
-                          text={lang === "ar" ? "تحميل Word" : "Download Word"}
-                        >
+                        <Tooltip text={t(lang, "wordTip")}>
                           <button
                             disabled={isPdfLoading || isWordLoading}
                             onClick={() =>
@@ -1728,7 +1841,7 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                           </button>
                         </Tooltip>
 
-                        <Tooltip text={lang === "ar" ? "حذف" : "Delete"}>
+                        <Tooltip text={t(lang, "deleteTip")}>
                           <button
                             onClick={() =>
                               setDeleteModal({ isOpen: true, cvId: cv.id })
@@ -1746,15 +1859,13 @@ Stats: Exp=${expCount}, Edu=${eduCount}, Skills=${skillsCount}, Bullets=${bullet
                 <div className="text-center py-16 bg-slate-50/50 border-4 border-dashed border-slate-100 rounded-[3rem]">
                   <FileText className="mx-auto text-slate-200 mb-4" size={64} />
                   <p className="text-slate-400 font-bold text-lg mb-6">
-                    {lang === "ar"
-                      ? "لا تمتلك أي سيرة ذاتية بعد"
-                      : "No resumes yet"}
+                    {t(lang, "noResumes")}
                   </p>
                   <button
-                    onClick={() => (window.location.href = "/cv_builder")}
+                    onClick={() => navigate("/cv_builder")}
                     className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-black shadow-lg shadow-blue-200 hover:scale-105 transition-all"
                   >
-                    {lang === "ar" ? "ابدأ الآن" : "Start Now"}
+                    {t(lang, "startNow")}
                   </button>
                 </div>
               )}
