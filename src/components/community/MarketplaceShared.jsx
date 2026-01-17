@@ -626,11 +626,11 @@ export function getCategoryOptionsForTab(t) {
   return [];
 }
 
-export function getSchema(t, opts = {}) {
+export function getSchema(typeKey, opts = {}) {
   const lang = opts.lang || "en";
 
   // fields to show per type
-  if (t === "places") {
+  if (typeKey === "places") {
     return [
       {
         k: "title",
@@ -690,7 +690,7 @@ export function getSchema(t, opts = {}) {
     ];
   }
 
-  if (t === "groups") {
+  if (typeKey === "groups") {
     return [
       {
         k: "title",
@@ -756,14 +756,17 @@ export function getSchema(t, opts = {}) {
       k: "category",
       label: t(lang, "category"),
       type: "select",
-      options: getCategoryOptionsForTab(t),
-      optionKind: t,
+      options: getCategoryOptionsForTab(typeKey),
+      optionKind: typeKey,
     },
     {
       k: "price",
       label: t(lang, "priceBudget"),
       type: "text",
-      ph: t === "jobs" ? t(lang, "ph_jobs_price") : t(lang, "ph_other_price"),
+      ph:
+        typeKey === "jobs"
+          ? t(lang, "ph_jobs_price")
+          : t(lang, "ph_other_price"),
     },
     {
       k: "state",

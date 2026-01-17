@@ -130,14 +130,14 @@ function AppContent() {
 
       <div
         className={[
-          "flex-1 flex flex-col min-h-screen",
+          "flex-1 flex flex-col min-h-screen w-full min-w-0",
           lang === "ar" ? "lg:mr-72" : "lg:ml-72",
         ].join(" ")}
       >
         <Header lang={lang} setLang={setAppLang} />
 
         {/* ✅ IMPORTANT: pb-28 for mobile nav spacing */}
-        <main className="flex-1 pb-28 lg:pb-0 safe-bottom">
+        <main className="flex-1 w-full min-w-0 pb-28 lg:pb-0 safe-bottom">
           <Routes>
             <Route path="/" element={<HomeView lang={lang} />} />
             <Route path="/home" element={<Navigate to="/" replace />} />
@@ -195,7 +195,7 @@ function AppContent() {
         <Footer lang={lang} />
       </div>
       <MobileNav lang={lang} toggleMenu={() => setMenuOpen(true)} />
-        
+
       <MobileMenuOverlay
         lang={lang}
         isOpen={menuOpen}
